@@ -146,8 +146,7 @@ function cellClasses(index: number): Record<string, boolean> {
     "is-fixed-error": viewState === "fixed-error",
     "is-pressed": pressedCell.value === index,
     "is-hint-focus":
-      hint.value?.kind === "move" &&
-      hint.value.move.focusCells.includes(index),
+      hint.value?.kind === "move" && hint.value.move.focusCells.includes(index),
     "is-hint-exclude":
       hint.value?.kind === "move" &&
       hint.value.move.excludeCells.includes(index),

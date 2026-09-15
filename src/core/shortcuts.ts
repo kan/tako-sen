@@ -35,8 +35,8 @@ export function regionLineExclusions(
   state: PlayerState,
   regionId: number,
 ): number[] {
-  const candidates = regionCells(puzzle, regionId).filter(
-    (index) => isCandidateAvailable(puzzle, state, index),
+  const candidates = regionCells(puzzle, regionId).filter((index) =>
+    isCandidateAvailable(puzzle, state, index),
   );
   if (candidates.length === 0) return [];
 

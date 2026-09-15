@@ -141,16 +141,15 @@ describe("logical hints", () => {
     const puzzle = generatePuzzle({ seed: "hint-fixed-error" });
     const confirmedPiece = puzzle.solution[0];
     const row = Math.floor(confirmedPiece / BOARD_SIZE);
-    const openWrongCell = Array.from(
-      { length: BOARD_SIZE },
-      (_, col) => cellIndex(row, col),
+    const openWrongCell = Array.from({ length: BOARD_SIZE }, (_, col) =>
+      cellIndex(row, col),
     ).find((index) => index !== confirmedPiece);
     expect(openWrongCell).toBeDefined();
 
     const fixedErrors = new Set(
-      Array.from({ length: BOARD_SIZE }, (_, col) => cellIndex(row, col)).filter(
-        (index) => index !== confirmedPiece && index !== openWrongCell,
-      ),
+      Array.from({ length: BOARD_SIZE }, (_, col) =>
+        cellIndex(row, col),
+      ).filter((index) => index !== confirmedPiece && index !== openWrongCell),
     );
     const state = {
       ...createInitialPlayerState(0),

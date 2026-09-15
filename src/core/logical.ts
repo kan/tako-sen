@@ -97,8 +97,8 @@ function findSingleCandidates(
 
   for (let regionId = 0; regionId < REGION_COUNT; regionId += 1) {
     if (hasPieceInRegion(puzzle, state, regionId)) continue;
-    const candidates = regionCells(puzzle, regionId).filter(
-      (index) => isLegalCandidate(puzzle, state, index),
+    const candidates = regionCells(puzzle, regionId).filter((index) =>
+      isLegalCandidate(puzzle, state, index),
     );
     if (candidates.length === 1 && !state.pieces.has(candidates[0])) {
       moves.push({
@@ -127,8 +127,8 @@ function findRegionLineMoves(
   for (let regionId = 0; regionId < REGION_COUNT; regionId += 1) {
     const exclusions = regionLineExclusions(puzzle, state, regionId);
     if (exclusions.length === 0) continue;
-    const candidates = regionCells(puzzle, regionId).filter(
-      (index) => isLegalCandidate(puzzle, state, index),
+    const candidates = regionCells(puzzle, regionId).filter((index) =>
+      isLegalCandidate(puzzle, state, index),
     );
     const rows = new Set(candidates.map((index) => cellCoord(index).row));
     const columns = new Set(candidates.map((index) => cellCoord(index).col));
