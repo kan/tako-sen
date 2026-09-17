@@ -130,8 +130,12 @@ function logicalMoveKey(move: LogicalMove): string {
   return JSON.stringify({
     technique: move.technique,
     regionId: move.regionId,
+    regionIds: move.regionIds,
+    affectedRegionId: move.affectedRegionId,
     row: move.row,
     col: move.col,
+    rows: move.rows,
+    cols: move.cols,
     focusCells: [...move.focusCells].sort((a, b) => a - b),
     excludeCells: [...move.excludeCells].sort((a, b) => a - b),
     placeCell: move.placeCell,

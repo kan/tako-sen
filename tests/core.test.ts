@@ -4,6 +4,7 @@ import {
   cellIndex,
   createInitialPlayerState,
   isAdjacent,
+  type Puzzle,
 } from "../src/core/model";
 import { generatePuzzle } from "../src/core/generator";
 import {
@@ -174,6 +175,94 @@ describe("logical hints", () => {
     ]);
     const moves = findLogicalMoves(puzzle, state);
     expect(moves[0]?.technique).toBe("contradiction");
+  });
+
+  it("suggests multi-region line exclusions when several Regions are confined to the same lines", () => {
+    const puzzle: Puzzle = {
+      size: BOARD_SIZE,
+      regions: [
+        0, 0, 1, 1, 1, 1, 2, 2, 3, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 2, 2, 5, 2,
+        3, 4, 4, 4, 4, 4, 5, 2, 4, 4, 6, 5, 5, 5, 5, 5, 4, 6, 6, 5, 7, 5, 5, 7,
+        6, 6, 6, 7, 7, 7, 7, 7, 6, 6, 6, 6, 7, 7, 7, 7,
+      ],
+      solution: [
+        cellIndex(0, 1),
+        cellIndex(1, 4),
+        cellIndex(2, 2),
+        cellIndex(3, 7),
+        cellIndex(4, 5),
+        cellIndex(5, 0),
+        cellIndex(6, 6),
+        cellIndex(7, 3),
+      ],
+      seed: "multi-region-line",
+    };
+    const state = addExcludedMarks(createInitialPlayerState(0), [
+      cellIndex(0, 2),
+      cellIndex(1, 0),
+      cellIndex(3, 1),
+    ]);
+
+    const moves = findLogicalMoves(puzzle, state);
+    const move = moves.find(
+      (candidate) =>
+        candidate.technique === "multi-region-line" &&
+        candidate.regionIds?.join(",") === "0,1" &&
+        candidate.rows?.join(",") === "0,1",
+    );
+
+    expect(move?.excludeCells).toEqual(
+      expect.arrayContaining([
+        cellIndex(0, 6),
+        cellIndex(0, 7),
+        cellIndex(1, 5),
+        cellIndex(1, 6),
+        cellIndex(1, 7),
+      ]),
+    );
+  });
+
+  it("suggests excluding a cell when placing there would leave another Region without candidates", () => {
+    const rowRegionsPuzzle: Puzzle = {
+      size: BOARD_SIZE,
+      regions: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) =>
+        Math.floor(index / BOARD_SIZE),
+      ),
+      solution: [
+        cellIndex(0, 1),
+        cellIndex(1, 3),
+        cellIndex(2, 5),
+        cellIndex(3, 7),
+        cellIndex(4, 0),
+        cellIndex(5, 2),
+        cellIndex(6, 4),
+        cellIndex(7, 6),
+      ],
+      seed: "row-regions",
+    };
+    const state = addExcludedMarks(
+      createInitialPlayerState(0),
+      Array.from({ length: 6 }, (_, offset) => cellIndex(0, offset + 2)),
+    );
+
+    const moves = findLogicalMoves(rowRegionsPuzzle, state);
+    const move = moves.find(
+      (candidate) =>
+        candidate.technique === "region-depletion" &&
+        candidate.excludeCells.includes(cellIndex(1, 0)),
+    );
+
+    expect(move).toMatchObject({
+      affectedRegionId: 0,
+      excludeCells: [cellIndex(1, 0)],
+    });
+    expect(move?.focusCells).toEqual(
+      expect.arrayContaining([
+        cellIndex(1, 0),
+        cellIndex(0, 0),
+        cellIndex(0, 1),
+      ]),
+    );
   });
 });
 

@@ -11,14 +11,23 @@ import {
 import { regionLineExclusions } from "./shortcuts";
 import { hasContradiction } from "./solver";
 
-export type TechniqueId = "contradiction" | "single-candidate" | "region-line";
+export type TechniqueId =
+  | "contradiction"
+  | "single-candidate"
+  | "region-line"
+  | "multi-region-line"
+  | "region-depletion";
 
 export interface LogicalMove {
   readonly technique: TechniqueId;
   readonly title: string;
   readonly regionId?: number;
+  readonly regionIds?: readonly number[];
+  readonly affectedRegionId?: number;
   readonly row?: number;
   readonly col?: number;
+  readonly rows?: readonly number[];
+  readonly cols?: readonly number[];
   readonly focusCells: readonly number[];
   readonly excludeCells: readonly number[];
   readonly placeCell?: number;
@@ -48,6 +57,8 @@ export function findLogicalMoves(
   return [
     ...findSingleCandidates(puzzle, state),
     ...findRegionLineMoves(puzzle, state),
+    ...findMultiRegionLineMoves(puzzle, state),
+    ...findRegionDepletionMoves(puzzle, state),
   ];
 }
 
@@ -119,6 +130,59 @@ function findSingleCandidates(
   return moves;
 }
 
+function findRegionDepletionMoves(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+): LogicalMove[] {
+  const moves: LogicalMove[] = [];
+
+  for (
+    let assumedCell = 0;
+    assumedCell < puzzle.regions.length;
+    assumedCell += 1
+  ) {
+    if (!isLegalCandidate(puzzle, state, assumedCell)) continue;
+
+    const assumedRegionId = puzzle.regions[assumedCell];
+    for (
+      let affectedRegionId = 0;
+      affectedRegionId < REGION_COUNT;
+      affectedRegionId += 1
+    ) {
+      if (affectedRegionId === assumedRegionId) continue;
+      if (hasPieceInRegion(puzzle, state, affectedRegionId)) continue;
+
+      const affectedCandidates = regionCells(puzzle, affectedRegionId).filter(
+        (index) => isLegalCandidate(puzzle, state, index),
+      );
+      if (affectedCandidates.length === 0) continue;
+
+      const remainingCandidates = affectedCandidates.filter(
+        (index) => !assumedPieceBlocks(puzzle, assumedCell, index),
+      );
+      if (remainingCandidates.length > 0) continue;
+
+      moves.push({
+        technique: "region-depletion",
+        title: "置くと別Regionの候補がなくなります",
+        regionId: assumedRegionId,
+        affectedRegionId,
+        focusCells: [assumedCell, ...affectedCandidates],
+        excludeCells: [assumedCell],
+        explanation: [
+          "注目セルにタコを置くと仮定します。",
+          "すると、関連するRegionでタコを置ける候補がすべて消えてしまいます。",
+          "各Regionには必ず1つタコが必要なので、この仮定は成り立ちません。",
+          "したがって、注目セルは×にできます。",
+        ],
+      });
+      break;
+    }
+  }
+
+  return moves;
+}
+
 function findRegionLineMoves(
   puzzle: Pick<Puzzle, "regions">,
   state: PlayerState,
@@ -147,6 +211,93 @@ function findRegionLineMoves(
       ],
     });
   }
+  return moves;
+}
+
+function findMultiRegionLineMoves(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+): LogicalMove[] {
+  const regionCandidates = Array.from(
+    { length: REGION_COUNT },
+    (_, regionId) => ({
+      regionId,
+      candidates: hasPieceInRegion(puzzle, state, regionId)
+        ? []
+        : regionCells(puzzle, regionId).filter((index) =>
+            isLegalCandidate(puzzle, state, index),
+          ),
+    }),
+  ).filter(({ candidates }) => candidates.length > 0);
+  const moves: LogicalMove[] = [];
+  const seen = new Set<string>();
+
+  for (let size = 2; size < regionCandidates.length; size += 1) {
+    for (const group of combinations(regionCandidates, size)) {
+      const regionIds = uniqueSorted(group.map(({ regionId }) => regionId));
+      const focusCells = group.flatMap(({ candidates }) => candidates);
+      const rows = uniqueSorted(
+        focusCells.map((index) => cellCoord(index).row),
+      );
+      if (rows.length === size) {
+        const excludeCells = lineSetExclusions(
+          puzzle,
+          state,
+          "row",
+          rows,
+          regionIds,
+        );
+        const key = `row:${regionIds.join(",")}:${rows.join(",")}`;
+        if (excludeCells.length > 0 && !seen.has(key)) {
+          seen.add(key);
+          moves.push({
+            technique: "multi-region-line",
+            title: "複数RegionのRegion-Line消去",
+            regionIds,
+            rows,
+            focusCells,
+            excludeCells,
+            explanation: [
+              `${size}つのRegionの候補が、同じ${size}本の行だけに閉じ込められています。`,
+              `この${size}本の行には、それらのRegionのタコが必ず${size}匹入ります。`,
+              "そのため、同じ行にある他Regionのセルは×にできます。",
+            ],
+          });
+        }
+      }
+
+      const cols = uniqueSorted(
+        focusCells.map((index) => cellCoord(index).col),
+      );
+      if (cols.length === size) {
+        const excludeCells = lineSetExclusions(
+          puzzle,
+          state,
+          "col",
+          cols,
+          regionIds,
+        );
+        const key = `col:${regionIds.join(",")}:${cols.join(",")}`;
+        if (excludeCells.length > 0 && !seen.has(key)) {
+          seen.add(key);
+          moves.push({
+            technique: "multi-region-line",
+            title: "複数RegionのRegion-Line消去",
+            regionIds,
+            cols,
+            focusCells,
+            excludeCells,
+            explanation: [
+              `${size}つのRegionの候補が、同じ${size}本の列だけに閉じ込められています。`,
+              `この${size}本の列には、それらのRegionのタコが必ず${size}匹入ります。`,
+              "そのため、同じ列にある他Regionのセルは×にできます。",
+            ],
+          });
+        }
+      }
+    }
+  }
+
   return moves;
 }
 
@@ -212,4 +363,67 @@ function hasPieceInRegion(
   regionId: number,
 ): boolean {
   return [...state.pieces].some((index) => puzzle.regions[index] === regionId);
+}
+
+function combinations<T>(items: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  const current: T[] = [];
+  visit(0);
+  return result;
+
+  function visit(start: number): void {
+    if (current.length === size) {
+      result.push([...current]);
+      return;
+    }
+    for (
+      let index = start;
+      index <= items.length - (size - current.length);
+      index += 1
+    ) {
+      current.push(items[index]);
+      visit(index + 1);
+      current.pop();
+    }
+  }
+}
+
+function uniqueSorted(values: readonly number[]): number[] {
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function lineSetExclusions(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+  axis: "row" | "col",
+  lines: readonly number[],
+  sourceRegionIds: readonly number[],
+): number[] {
+  const sourceRegions = new Set(sourceRegionIds);
+  const exclusions = new Set<number>();
+
+  for (const line of lines) {
+    for (let offset = 0; offset < BOARD_SIZE; offset += 1) {
+      const index =
+        axis === "row" ? cellIndex(line, offset) : cellIndex(offset, line);
+      if (!sourceRegions.has(puzzle.regions[index])) exclusions.add(index);
+    }
+  }
+
+  return [...exclusions].filter((index) => !isBlocked(state, index));
+}
+
+function assumedPieceBlocks(
+  puzzle: Pick<Puzzle, "regions">,
+  assumedPiece: number,
+  target: number,
+): boolean {
+  const assumedCoord = cellCoord(assumedPiece);
+  const targetCoord = cellCoord(target);
+  return (
+    assumedCoord.row === targetCoord.row ||
+    assumedCoord.col === targetCoord.col ||
+    puzzle.regions[assumedPiece] === puzzle.regions[target] ||
+    isAdjacent(assumedPiece, target)
+  );
 }
