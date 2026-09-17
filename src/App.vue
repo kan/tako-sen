@@ -294,11 +294,8 @@ function cellClasses(index: number): Record<string, boolean> {
 <template>
   <main class="app-shell">
     <header class="hero">
-      <p class="eyebrow">TAKO-SEN prototype</p>
-      <h1>観察 → 消去 → 確定</h1>
-      <p>
-        タップで×、長押しでタコを確定。ダブルタップで発見済みの単純作業だけをまとめて実行します。
-      </p>
+      <h1>TAKO-SEN</h1>
+      <p class="eyebrow">PROTOTYPE</p>
     </header>
 
     <section class="status-bar" aria-live="polite">
