@@ -20,6 +20,7 @@ import { shortcutExclusionsForCell } from "./core/shortcuts";
 import { findLogicalMoves, type LogicalMove } from "./core/logical";
 import { loadGame, saveGame } from "./core/storage";
 import { hasContradiction } from "./core/solver";
+import { canShowHint } from "./ui/hint";
 import { pointerReleaseAction } from "./ui/pointer";
 
 const longPressMs = 520;
@@ -230,6 +231,11 @@ function onShortcut(index: number): void {
 }
 
 function showHint(): void {
+  if (!canShowHint(complete.value)) {
+    hint.value = undefined;
+    return;
+  }
+
   const nextHint = findLogicalMoves(puzzle.value, state.value)[0];
   if (nextHint) {
     if (
@@ -346,11 +352,13 @@ function cellClasses(index: number): Record<string, boolean> {
     </section>
 
     <section class="actions">
-      <button type="button" @click="showHint">ヒント</button>
+      <button v-if="canShowHint(complete)" type="button" @click="showHint">
+        ヒント
+      </button>
       <button type="button" @click="newGame">新しい問題</button>
     </section>
 
-    <section v-if="hint" class="hint-card">
+    <section v-if="hint && canShowHint(complete)" class="hint-card">
       <h2>{{ hint.kind === "move" ? hint.move.title : hint.title }}</h2>
       <ol>
         <li

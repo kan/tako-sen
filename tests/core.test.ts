@@ -20,6 +20,7 @@ import {
   shortcutExclusionsForCell,
 } from "../src/core/shortcuts";
 import { findLogicalMoves } from "../src/core/logical";
+import { canShowHint } from "../src/ui/hint";
 import { pointerReleaseAction } from "../src/ui/pointer";
 
 describe("core rules", () => {
@@ -387,5 +388,12 @@ describe("pointer interaction", () => {
         longPressCanceled: false,
       }),
     ).toBe("tap");
+  });
+});
+
+describe("hint UI", () => {
+  it("does not show hints after the puzzle is complete", () => {
+    expect(canShowHint(true)).toBe(false);
+    expect(canShowHint(false)).toBe(true);
   });
 });
