@@ -9,7 +9,10 @@ import {
   type Puzzle,
 } from "./model";
 
-export function exclusionsFromPiece(index: number): number[] {
+export function exclusionsFromPiece(
+  index: number,
+  puzzle: Pick<Puzzle, "regions">,
+): number[] {
   const { row, col } = cellCoord(index);
   const result = new Set<number>();
 
@@ -26,8 +29,21 @@ export function exclusionsFromPiece(index: number): number[] {
     }
   }
 
+  for (const regionCell of regionCells(puzzle, puzzle.regions[index])) {
+    result.add(regionCell);
+  }
+
   result.delete(index);
   return [...result];
+}
+
+export function shortcutExclusionsForCell(
+  puzzle: Pick<Puzzle, "regions">,
+  state: Pick<PlayerState, "pieces">,
+  index: number,
+): number[] {
+  if (!state.pieces.has(index)) return [];
+  return exclusionsFromPiece(index, puzzle);
 }
 
 export function regionLineExclusions(

@@ -17,8 +17,10 @@ import { solvePuzzle } from "../src/core/solver";
 import {
   exclusionsFromPiece,
   regionLineExclusions,
+  shortcutExclusionsForCell,
 } from "../src/core/shortcuts";
 import { findLogicalMoves } from "../src/core/logical";
+import { pointerReleaseAction } from "../src/ui/pointer";
 
 describe("core rules", () => {
   it("validates generated puzzle shape and solution", () => {
@@ -85,12 +87,41 @@ describe("player operations", () => {
 });
 
 describe("shortcuts", () => {
-  it("creates row, column, and neighbor exclusions from a placed piece", () => {
-    const exclusions = exclusionsFromPiece(cellIndex(3, 3));
+  it("creates row, column, neighbor, and Region exclusions from a placed piece", () => {
+    const puzzle: Puzzle = {
+      size: BOARD_SIZE,
+      regions: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) =>
+        index === cellIndex(6, 6) ? 1 : 0,
+      ),
+      solution: [],
+      seed: "shortcut-region",
+    };
+    const exclusions = exclusionsFromPiece(cellIndex(3, 3), puzzle);
     expect(exclusions).toContain(cellIndex(3, 0));
     expect(exclusions).toContain(cellIndex(0, 3));
     expect(exclusions).toContain(cellIndex(2, 2));
+    expect(exclusions).toContain(cellIndex(6, 0));
+    expect(exclusions).not.toContain(cellIndex(6, 6));
     expect(exclusions).not.toContain(cellIndex(3, 3));
+  });
+
+  it("does not create double-click shortcut exclusions for a cell without a placed piece", () => {
+    const puzzle = generatePuzzle({ seed: "shortcut-unplaced" });
+    const state = createInitialPlayerState(0);
+
+    expect(shortcutExclusionsForCell(puzzle, state, cellIndex(3, 3))).toEqual(
+      [],
+    );
+  });
+
+  it("creates double-click shortcut exclusions only from a placed piece", () => {
+    const puzzle = generatePuzzle({ seed: "shortcut-placed" });
+    const piece = puzzle.solution[0];
+    const state = { ...createInitialPlayerState(0), pieces: new Set([piece]) };
+
+    expect(shortcutExclusionsForCell(puzzle, state, piece)).toEqual(
+      expect.arrayContaining(exclusionsFromPiece(piece, puzzle)),
+    );
   });
 
   it("performs region-line exclusions for a pointed region", () => {
@@ -175,6 +206,52 @@ describe("logical hints", () => {
     ]);
     const moves = findLogicalMoves(puzzle, state);
     expect(moves[0]?.technique).toBe("contradiction");
+  });
+
+  it("reports missing exclusions from a confirmed piece before a single-candidate placement", () => {
+    const puzzle: Puzzle = {
+      size: BOARD_SIZE,
+      regions: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) =>
+        Math.floor(index / BOARD_SIZE),
+      ),
+      solution: [
+        cellIndex(0, 0),
+        cellIndex(1, 2),
+        cellIndex(2, 4),
+        cellIndex(3, 6),
+        cellIndex(4, 1),
+        cellIndex(5, 3),
+        cellIndex(6, 5),
+        cellIndex(7, 7),
+      ],
+      seed: "missing-exclusion-before-single",
+    };
+    const state = addExcludedMarks(
+      {
+        ...createInitialPlayerState(0),
+        pieces: new Set([cellIndex(0, 0)]),
+      },
+      [
+        cellIndex(1, 3),
+        cellIndex(1, 4),
+        cellIndex(1, 5),
+        cellIndex(1, 6),
+        cellIndex(1, 7),
+      ],
+    );
+
+    const moves = findLogicalMoves(puzzle, state);
+    const missingIndex = moves.findIndex(
+      (move) => move.technique === "missing-exclusion",
+    );
+    const singleIndex = moves.findIndex(
+      (move) => move.technique === "single-candidate",
+    );
+
+    expect(missingIndex).toBeGreaterThanOrEqual(0);
+    expect(singleIndex).toBeGreaterThanOrEqual(0);
+    expect(missingIndex).toBeLessThan(singleIndex);
+    expect(moves[missingIndex]?.excludeCells).toContain(cellIndex(1, 1));
   });
 
   it("suggests multi-region line exclusions when several Regions are confined to the same lines", () => {
@@ -272,5 +349,43 @@ describe("generator", () => {
     const b = generatePuzzle({ seed: "same-seed" });
     expect(a.regions).toEqual(b.regions);
     expect(a.solution).toEqual(b.solution);
+  });
+});
+
+describe("pointer interaction", () => {
+  it("places a piece when released after the long press duration even if the timer callback has not marked it ready yet", () => {
+    expect(
+      pointerReleaseAction({
+        elapsedMs: 520,
+        longPressMs: 520,
+        dragging: false,
+        longPressReady: false,
+        longPressCanceled: false,
+      }),
+    ).toBe("place-piece");
+  });
+
+  it("suppresses the follow-up click when a ready long press was canceled by leaving the cell", () => {
+    expect(
+      pointerReleaseAction({
+        elapsedMs: 700,
+        longPressMs: 520,
+        dragging: false,
+        longPressReady: true,
+        longPressCanceled: true,
+      }),
+    ).toBe("suppress-click");
+  });
+
+  it("keeps a short press as a normal tap", () => {
+    expect(
+      pointerReleaseAction({
+        elapsedMs: 120,
+        longPressMs: 520,
+        dragging: false,
+        longPressReady: false,
+        longPressCanceled: false,
+      }),
+    ).toBe("tap");
   });
 });

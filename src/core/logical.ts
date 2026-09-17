@@ -8,7 +8,7 @@ import {
   type PlayerState,
   type Puzzle,
 } from "./model";
-import { regionLineExclusions } from "./shortcuts";
+import { exclusionsFromPiece, regionLineExclusions } from "./shortcuts";
 import { hasContradiction } from "./solver";
 
 export type TechniqueId =
@@ -16,7 +16,8 @@ export type TechniqueId =
   | "single-candidate"
   | "region-line"
   | "multi-region-line"
-  | "region-depletion";
+  | "region-depletion"
+  | "missing-exclusion";
 
 export interface LogicalMove {
   readonly technique: TechniqueId;
@@ -55,10 +56,11 @@ export function findLogicalMoves(
   }
 
   return [
-    ...findSingleCandidates(puzzle, state),
     ...findRegionLineMoves(puzzle, state),
     ...findMultiRegionLineMoves(puzzle, state),
     ...findRegionDepletionMoves(puzzle, state),
+    ...findMissingExclusionMoves(puzzle, state),
+    ...findSingleCandidates(puzzle, state),
   ];
 }
 
@@ -211,6 +213,34 @@ function findRegionLineMoves(
       ],
     });
   }
+  return moves;
+}
+
+function findMissingExclusionMoves(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+): LogicalMove[] {
+  const moves: LogicalMove[] = [];
+
+  for (const piece of state.pieces) {
+    const excludeCells = exclusionsFromPiece(piece, puzzle).filter(
+      (index) => !isBlocked(state, index),
+    );
+    if (excludeCells.length === 0) continue;
+
+    moves.push({
+      technique: "missing-exclusion",
+      title: "タコから分かる×の置き忘れがあります",
+      focusCells: [piece],
+      excludeCells,
+      explanation: [
+        "確定済みのタコに注目してください。",
+        "同じ行・列・Regionと周囲1マスには、もうタコを置けません。",
+        "まずそれらの未整理セルを×にして、盤面を整理できます。",
+      ],
+    });
+  }
+
   return moves;
 }
 
