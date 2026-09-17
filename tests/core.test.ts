@@ -10,6 +10,7 @@ import { generatePuzzle } from "../src/core/generator";
 import {
   addExcludedMarks,
   placePiece,
+  resetPlayerProgress,
   toggleExcluded,
 } from "../src/core/player";
 import { validatePuzzleShape, validateSolution } from "../src/core/rules";
@@ -84,6 +85,27 @@ describe("player operations", () => {
     const state = placePiece(puzzle, createInitialPlayerState(0), wrong ?? 0);
     expect(state.fixedErrors.has(wrong ?? 0)).toBe(true);
     expect(state.mistakes).toBe(1);
+  });
+
+  it("resets board marks, pieces, mistakes, and hint count for the same puzzle", () => {
+    const state = resetPlayerProgress(
+      {
+        ...createInitialPlayerState(100),
+        excluded: new Set([cellIndex(0, 0)]),
+        pieces: new Set([cellIndex(1, 2)]),
+        fixedErrors: new Set([cellIndex(3, 4)]),
+        mistakes: 2,
+        hintsUsed: 3,
+      },
+      200,
+    );
+
+    expect(state.excluded.size).toBe(0);
+    expect(state.pieces.size).toBe(0);
+    expect(state.fixedErrors.size).toBe(0);
+    expect(state.mistakes).toBe(0);
+    expect(state.hintsUsed).toBe(0);
+    expect(state.startedAt).toBe(200);
   });
 });
 

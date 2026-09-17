@@ -13,6 +13,7 @@ import {
   addExcludedMarks,
   countHintUsed,
   placePiece,
+  resetPlayerProgress,
   toggleExcluded,
 } from "./core/player";
 import { isComplete } from "./core/rules";
@@ -81,6 +82,11 @@ function newGame(): void {
   const seed = `game-${Date.now()}`;
   puzzle.value = generatePuzzle({ seed });
   state.value = createInitialPlayerState();
+  hint.value = undefined;
+}
+
+function resetProgress(): void {
+  state.value = resetPlayerProgress(state.value);
   hint.value = undefined;
 }
 
@@ -352,6 +358,7 @@ function cellClasses(index: number): Record<string, boolean> {
       <button v-if="canShowHint(complete)" type="button" @click="showHint">
         ヒント
       </button>
+      <button type="button" @click="resetProgress">リセット</button>
       <button type="button" @click="newGame">新しい問題</button>
     </section>
 

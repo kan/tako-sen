@@ -53,3 +53,18 @@ export function addExcludedMarks(
 export function countHintUsed(state: PlayerState): PlayerState {
   return { ...state, hintsUsed: state.hintsUsed + 1 };
 }
+
+export function resetPlayerProgress(
+  state: PlayerState,
+  now = Date.now(),
+): PlayerState {
+  return {
+    ...state,
+    excluded: new Set(),
+    pieces: new Set(),
+    fixedErrors: new Set(),
+    mistakes: 0,
+    hintsUsed: 0,
+    startedAt: now,
+  };
+}
