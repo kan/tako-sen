@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -51,8 +51,12 @@ const state = ref<PlayerState>(
 const selectedDifficulty = ref<PuzzleDifficulty>(
   puzzle.value.difficulty ?? "easy",
 );
+const currentTime = ref(Date.now());
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
+const showClearDialog = ref(false);
+const clearElapsedSeconds = ref<number | undefined>();
+const clearDialogMessage = ref("");
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -62,6 +66,7 @@ type HintPanel =
     };
 
 const hint = ref<HintPanel | undefined>();
+const hintDialogOpen = ref(false);
 const pressedCell = ref<number | undefined>();
 let longPressTimer: number | undefined;
 let activePointer:
@@ -78,6 +83,7 @@ let activePointer:
   | undefined;
 let suppressNextClick = false;
 let suppressClickUntil = 0;
+let clockTimer: number | undefined;
 
 const cells = computed(() =>
   Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
@@ -93,8 +99,17 @@ const actualDifficultyLabel = computed(() =>
 const regionColorIndexes = computed(() =>
   assignRegionColorIndexes(puzzle.value),
 );
+const elapsedSeconds = computed(() =>
+  Math.max(0, Math.floor((currentTime.value - state.value.startedAt) / 1000)),
+);
+const displayedElapsedSeconds = computed(
+  () => clearElapsedSeconds.value ?? elapsedSeconds.value,
+);
 
 onMounted(() => {
+  clockTimer = window.setInterval(() => {
+    currentTime.value = Date.now();
+  }, 1000);
   const saved = loadGame();
   if (saved) {
     puzzle.value = saved.puzzle;
@@ -104,6 +119,10 @@ onMounted(() => {
   }
 });
 
+onUnmounted(() => {
+  if (clockTimer !== undefined) window.clearInterval(clockTimer);
+});
+
 watch(
   [puzzle, state],
   () => {
@@ -111,6 +130,14 @@ watch(
   },
   { deep: true },
 );
+
+watch(complete, (isCompleteNow, wasComplete) => {
+  if (isCompleteNow && !wasComplete) {
+    clearElapsedSeconds.value = elapsedSeconds.value;
+    clearDialogMessage.value = "";
+    showClearDialog.value = true;
+  }
+});
 
 function newGame(): void {
   const seed = `game-${Date.now()}`;
@@ -122,6 +149,10 @@ function newGame(): void {
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
+  hintDialogOpen.value = false;
+  showClearDialog.value = false;
+  clearElapsedSeconds.value = undefined;
+  clearDialogMessage.value = "";
   restoreSeedCode.value = "";
   seedMessage.value = "新しい問題を生成しました。";
 }
@@ -153,6 +184,10 @@ function restoreFromSeed(): void {
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
+  hintDialogOpen.value = false;
+  showClearDialog.value = false;
+  clearElapsedSeconds.value = undefined;
+  clearDialogMessage.value = "";
   seedMessage.value = "シードから問題を復元しました。";
 }
 
@@ -163,6 +198,10 @@ function resetProgress(): void {
     puzzle.value.givens,
   );
   hint.value = undefined;
+  hintDialogOpen.value = false;
+  showClearDialog.value = false;
+  clearElapsedSeconds.value = undefined;
+  clearDialogMessage.value = "";
 }
 
 function cellLabel(index: number): string {
@@ -314,6 +353,7 @@ function onShortcut(index: number): void {
 function showHint(): void {
   if (!canShowHint(complete.value)) {
     hint.value = undefined;
+    hintDialogOpen.value = false;
     return;
   }
 
@@ -326,6 +366,7 @@ function showHint(): void {
       state.value = countHintUsed(state.value);
     }
     hint.value = { kind: "move", move: nextHint };
+    hintDialogOpen.value = true;
     return;
   }
 
@@ -338,6 +379,25 @@ function showHint(): void {
       "×の付け忘れや、タコからの一括消去・Region-Line消去を見直してください。",
     ],
   };
+  hintDialogOpen.value = true;
+}
+
+function closeHintDialog(): void {
+  hintDialogOpen.value = false;
+}
+
+function closeClearDialog(): void {
+  showClearDialog.value = false;
+}
+
+async function copyResultSeed(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(puzzleSeedCode.value);
+    clearDialogMessage.value = "シードをコピーしました。";
+  } catch {
+    clearDialogMessage.value =
+      "コピーできませんでした。シードを手動で選択してください。";
+  }
 }
 
 function logicalMoveKey(move: LogicalMove): string {
@@ -399,6 +459,12 @@ function difficultyLabel(rating: DifficultyRating): string {
       return "未分類";
   }
 }
+
+function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
 </script>
 
 <template>
@@ -408,56 +474,59 @@ function difficultyLabel(rating: DifficultyRating): string {
       <p class="eyebrow">PROTOTYPE</p>
     </header>
 
-    <section class="status-bar" aria-live="polite">
-      <span>ミス {{ state.mistakes }}</span>
-      <span>ヒント {{ state.hintsUsed }}</span>
-      <span v-if="complete" class="clear">CLEAR</span>
-      <span v-else-if="contradiction" class="warning">矛盾あり</span>
-      <span v-else>進行中</span>
-      <span>評価 {{ actualDifficultyLabel }}</span>
-    </section>
+    <section class="play-area">
+      <section class="status-bar" aria-live="polite">
+        <span>ミス {{ state.mistakes }}</span>
+        <span>ヒント {{ state.hintsUsed }}</span>
+        <span>時間 {{ formatElapsed(displayedElapsedSeconds) }}</span>
+        <span v-if="complete" class="clear">CLEAR</span>
+        <span v-else-if="contradiction" class="warning">矛盾あり</span>
+        <span v-else>進行中</span>
+        <span>評価 {{ actualDifficultyLabel }}</span>
+      </section>
 
-    <section class="board-wrap">
-      <div
-        class="board"
-        role="grid"
-        aria-label="TAKO-SEN 8×8 board"
-        @pointermove.prevent="onBoardPointerMove"
-        @pointerup="endPointerPress"
-        @pointercancel="cancelLongPress"
-        @pointerleave="onBoardPointerLeave"
-      >
-        <button
-          v-for="index in cells"
-          :key="index"
-          class="cell"
-          :class="cellClasses(index)"
-          :style="cellStyles(index)"
-          :data-cell-index="index"
-          :data-region="puzzle.regions[index]"
-          :aria-label="cellLabel(index)"
-          role="gridcell"
-          @click="onTap(index)"
-          @dblclick.prevent="onShortcut(index)"
-          @pointerdown.prevent="startPointerPress(index, $event)"
+      <section class="board-wrap">
+        <div
+          class="board"
+          role="grid"
+          aria-label="TAKO-SEN 8×8 board"
+          @pointermove.prevent="onBoardPointerMove"
+          @pointerup="endPointerPress"
+          @pointercancel="cancelLongPress"
+          @pointerleave="onBoardPointerLeave"
         >
-          <span v-if="state.pieces.has(index)" aria-hidden="true" class="tako"
-            >🐙</span
+          <button
+            v-for="index in cells"
+            :key="index"
+            class="cell"
+            :class="cellClasses(index)"
+            :style="cellStyles(index)"
+            :data-cell-index="index"
+            :data-region="puzzle.regions[index]"
+            :aria-label="cellLabel(index)"
+            role="gridcell"
+            @click="onTap(index)"
+            @dblclick.prevent="onShortcut(index)"
+            @pointerdown.prevent="startPointerPress(index, $event)"
           >
-          <span
-            v-else-if="state.fixedErrors.has(index)"
-            aria-hidden="true"
-            class="fixed-error"
-            >×</span
-          >
-          <span
-            v-else-if="state.excluded.has(index)"
-            aria-hidden="true"
-            class="mark"
-            >×</span
-          >
-        </button>
-      </div>
+            <span v-if="state.pieces.has(index)" aria-hidden="true" class="tako"
+              >🐙</span
+            >
+            <span
+              v-else-if="state.fixedErrors.has(index)"
+              aria-hidden="true"
+              class="fixed-error"
+              >×</span
+            >
+            <span
+              v-else-if="state.excluded.has(index)"
+              aria-hidden="true"
+              class="mark"
+              >×</span
+            >
+          </button>
+        </div>
+      </section>
     </section>
 
     <section class="actions">
@@ -501,18 +570,89 @@ function difficultyLabel(rating: DifficultyRating): string {
       </div>
     </details>
 
-    <section v-if="hint && canShowHint(complete)" class="hint-card">
-      <h2>{{ hint.kind === "move" ? hint.move.title : hint.title }}</h2>
-      <ol>
-        <li
-          v-for="line in hint.kind === 'move'
-            ? hint.move.explanation
-            : hint.explanation"
-          :key="line"
-        >
-          {{ line }}
-        </li>
-      </ol>
-    </section>
+    <div
+      v-if="hint && hintDialogOpen && canShowHint(complete)"
+      class="dialog-backdrop"
+      role="presentation"
+      @click.self="closeHintDialog"
+    >
+      <section
+        class="dialog-card hint-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="hint-title"
+      >
+        <div class="dialog-header">
+          <h2 id="hint-title">
+            {{ hint.kind === "move" ? hint.move.title : hint.title }}
+          </h2>
+          <button type="button" class="dialog-close" @click="closeHintDialog">
+            閉じる
+          </button>
+        </div>
+        <ol>
+          <li
+            v-for="line in hint.kind === 'move'
+              ? hint.move.explanation
+              : hint.explanation"
+            :key="line"
+          >
+            {{ line }}
+          </li>
+        </ol>
+      </section>
+    </div>
+
+    <div
+      v-if="complete && showClearDialog"
+      class="dialog-backdrop clear-backdrop"
+      role="presentation"
+      @click.self="closeClearDialog"
+    >
+      <section
+        class="dialog-card clear-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clear-title"
+      >
+        <p class="clear-badge">CLEAR</p>
+        <h2 id="clear-title">クリアしました！</h2>
+        <dl class="result-list">
+          <div>
+            <dt>難易度</dt>
+            <dd>{{ actualDifficultyLabel }}</dd>
+          </div>
+          <div>
+            <dt>時間</dt>
+            <dd>{{ formatElapsed(displayedElapsedSeconds) }}</dd>
+          </div>
+          <div>
+            <dt>ミス</dt>
+            <dd>{{ state.mistakes }}</dd>
+          </div>
+          <div>
+            <dt>ヒント</dt>
+            <dd>{{ state.hintsUsed }}</dd>
+          </div>
+          <div>
+            <dt>シード</dt>
+            <dd class="result-seed-row">
+              <span class="result-seed">{{ puzzleSeedCode }}</span>
+              <button type="button" class="inline-copy" @click="copyResultSeed">
+                コピー
+              </button>
+            </dd>
+          </div>
+        </dl>
+        <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
+          {{ clearDialogMessage }}
+        </p>
+        <div class="dialog-actions">
+          <button type="button" @click="newGame">次の問題へ</button>
+          <button type="button" @click="resetProgress">もう一度</button>
+          <button type="button" @click="closeClearDialog">盤面を見る</button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
