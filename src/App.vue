@@ -9,7 +9,12 @@ import {
   type PlayerState,
   type Puzzle,
 } from "./core/model";
-import { generatePuzzle } from "./core/generator";
+import { generatePuzzleWithAnalysis } from "./core/generator";
+import {
+  analyzePuzzleDifficulty,
+  type DifficultyRating,
+  type PuzzleDifficultyAnalysis,
+} from "./core/difficulty";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
 import {
   addExcludedMarks,
@@ -28,8 +33,16 @@ import { pointerReleaseAction } from "./ui/pointer";
 
 const longPressMs = 520;
 const dragStartThresholdPx = 12;
-const puzzle = ref<Puzzle>(generatePuzzle({ seed: "tako-sen-prototype" }));
-const state = ref<PlayerState>(createInitialPlayerState());
+const initialGenerated = generatePuzzleWithAnalysis({
+  seed: "tako-sen-prototype",
+});
+const puzzle = ref<Puzzle>(initialGenerated.puzzle);
+const difficultyAnalysis = ref<PuzzleDifficultyAnalysis>(
+  initialGenerated.analysis,
+);
+const state = ref<PlayerState>(
+  createInitialPlayerState(undefined, puzzle.value.givens),
+);
 const selectedDifficulty = ref<PuzzleDifficulty>(
   puzzle.value.difficulty ?? "easy",
 );
@@ -69,12 +82,16 @@ const contradiction = computed(() =>
   hasContradiction(puzzle.value, state.value),
 );
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
+const actualDifficultyLabel = computed(() =>
+  difficultyLabel(difficultyAnalysis.value.rating),
+);
 
 onMounted(() => {
   const saved = loadGame();
   if (saved) {
     puzzle.value = saved.puzzle;
     state.value = saved.state;
+    difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
     selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
   }
 });
@@ -89,8 +106,13 @@ watch(
 
 function newGame(): void {
   const seed = `game-${Date.now()}`;
-  puzzle.value = generatePuzzle({ seed, difficulty: selectedDifficulty.value });
-  state.value = createInitialPlayerState();
+  const generated = generatePuzzleWithAnalysis({
+    seed,
+    difficulty: selectedDifficulty.value,
+  });
+  puzzle.value = generated.puzzle;
+  difficultyAnalysis.value = generated.analysis;
+  state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
   restoreSeedCode.value = "";
   seedMessage.value = "新しい問題を生成しました。";
@@ -115,17 +137,23 @@ function restoreFromSeed(): void {
   }
 
   selectedDifficulty.value = parsed.difficulty;
-  puzzle.value = generatePuzzle({
+  const generated = generatePuzzleWithAnalysis({
     seed: parsed.seed,
     difficulty: parsed.difficulty,
   });
-  state.value = createInitialPlayerState();
+  puzzle.value = generated.puzzle;
+  difficultyAnalysis.value = generated.analysis;
+  state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
   seedMessage.value = "シードから問題を復元しました。";
 }
 
 function resetProgress(): void {
-  state.value = resetPlayerProgress(state.value);
+  state.value = resetPlayerProgress(
+    state.value,
+    undefined,
+    puzzle.value.givens,
+  );
   hint.value = undefined;
 }
 
@@ -334,6 +362,19 @@ function cellClasses(index: number): Record<string, boolean> {
       hint.value.move.excludeCells.includes(index),
   };
 }
+
+function difficultyLabel(rating: DifficultyRating): string {
+  switch (rating) {
+    case "easy":
+      return "初級";
+    case "normal":
+      return "中級";
+    case "hard":
+      return "上級";
+    case "unsupported":
+      return "未分類";
+  }
+}
 </script>
 
 <template>
@@ -349,6 +390,7 @@ function cellClasses(index: number): Record<string, boolean> {
       <span v-if="complete" class="clear">CLEAR</span>
       <span v-else-if="contradiction" class="warning">矛盾あり</span>
       <span v-else>進行中</span>
+      <span>評価 {{ actualDifficultyLabel }}</span>
     </section>
 
     <section class="board-wrap">

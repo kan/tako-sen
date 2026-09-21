@@ -12,6 +12,7 @@ import { validatePuzzleShape, validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
 import {
   analyzePuzzleDifficulty,
+  type DifficultyRating,
   type PuzzleDifficultyAnalysis,
 } from "./difficulty";
 
@@ -31,82 +32,229 @@ export const GENERATOR_VERSION = "g1";
 export function generatePuzzleWithAnalysis(
   options: GenerateOptions = {},
 ): GeneratedPuzzle {
-  const puzzle = generatePuzzle(options);
-  return {
-    puzzle,
-    analysis: analyzePuzzleDifficulty(puzzle),
-  };
-}
-
-export function generatePuzzle(options: GenerateOptions = {}): Puzzle {
   const seed = options.seed ?? String(Date.now());
   const difficulty = options.difficulty ?? "easy";
   const maxAttempts = options.maxAttempts ?? 80;
-  const curated = generateCuratedPuzzle(seed, difficulty);
-  if (
-    validatePuzzleShape(curated).valid &&
-    validateSolution(curated).valid &&
-    solvePuzzle(curated, { maxSolutions: 2 }).status === "unique"
-  ) {
-    return curated;
+  const targetRating = targetRatingForDifficulty(difficulty);
+  let fallback: GeneratedPuzzle | undefined;
+
+  for (const puzzle of generatePuzzleCandidates(
+    seed,
+    difficulty,
+    maxAttempts,
+  )) {
+    const solved = solvePuzzle(puzzle, { maxSolutions: 2 });
+    if (solved.status !== "unique") continue;
+
+    const verifiedPuzzle = { ...puzzle, solution: solved.solutions[0] };
+    if (
+      !validatePuzzleShape(verifiedPuzzle).valid ||
+      !validateSolution(verifiedPuzzle).valid
+    ) {
+      continue;
+    }
+
+    const generated = {
+      puzzle: verifiedPuzzle,
+      analysis: analyzePuzzleDifficulty(verifiedPuzzle),
+    };
+    if (!fallback || isBetterFallback(generated, fallback, targetRating)) {
+      fallback = generated;
+    }
+    if (generated.analysis.rating === targetRating) return generated;
   }
 
+  if (fallback) return fallback;
+
+  throw new Error(`Failed to generate a unique puzzle for seed: ${seed}`);
+}
+
+export function generatePuzzle(options: GenerateOptions = {}): Puzzle {
+  return generatePuzzleWithAnalysis(options).puzzle;
+}
+
+function* generatePuzzleCandidates(
+  seed: string,
+  difficulty: PuzzleDifficulty,
+  maxAttempts: number,
+): Generator<Puzzle> {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const random = createSeededRandom(
       `${GENERATOR_VERSION}:${difficulty}:${seed}:${attempt}`,
     );
     const solution = generateSolution(random);
-    const regions = growRegions(solution, random);
-    const puzzle: Puzzle = {
-      size: BOARD_SIZE,
-      regions,
-      solution,
-      seed,
-      difficulty,
-      generatorVersion: GENERATOR_VERSION,
-    };
-
-    if (!validatePuzzleShape(puzzle).valid || !validateSolution(puzzle).valid)
-      continue;
-    const solved = solvePuzzle(puzzle, { maxSolutions: 2 });
-    if (solved.status === "unique") {
-      return { ...puzzle, solution: solved.solutions[0] };
+    if (difficulty === "easy") {
+      const regionOrder = shuffled(
+        Array.from({ length: REGION_COUNT }, (_, regionId) => regionId),
+        random,
+      );
+      for (const singletonRegionIds of easySingletonRegionSets(regionOrder)) {
+        const regions = growRegions(
+          solution,
+          random,
+          new Set(singletonRegionIds),
+        );
+        const puzzle: Puzzle = {
+          size: BOARD_SIZE,
+          regions,
+          solution,
+          seed,
+          difficulty,
+          generatorVersion: GENERATOR_VERSION,
+        };
+        for (const givens of easyGivenSets(
+          singletonRegionIds.map((regionId) => solution[regionId]),
+        )) {
+          yield { ...puzzle, givens };
+        }
+      }
+    } else {
+      yield {
+        size: BOARD_SIZE,
+        regions: growRegions(solution, random),
+        solution,
+        seed,
+        difficulty,
+        generatorVersion: GENERATOR_VERSION,
+      };
     }
   }
 
-  throw new Error(`Failed to generate a unique puzzle for seed: ${seed}`);
+  if (difficulty === "easy") {
+    const curatedRandom = createSeededRandom(
+      `${GENERATOR_VERSION}:${difficulty}:${seed}:curated-order`,
+    );
+    for (const transformId of shuffled(
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      curatedRandom,
+    )) {
+      yield generateCuratedPuzzle(seed, difficulty, transformId);
+    }
+  } else {
+    yield generateCuratedPuzzle(seed, difficulty);
+  }
 }
 
-const CURATED_REGIONS = [
+function easyGivenSets(preferredGivens: readonly number[]): number[][] {
+  const sets: number[][] = [[]];
+  for (const given of preferredGivens) {
+    sets.push([given]);
+  }
+  return sets;
+}
+
+function easySingletonRegionSets(regionOrder: readonly number[]): number[][] {
+  const sets: number[][] = regionOrder.map((regionId) => [regionId]);
+  for (let first = 0; first < regionOrder.length; first += 1) {
+    for (let second = first + 1; second < regionOrder.length; second += 1) {
+      sets.push([regionOrder[first], regionOrder[second]]);
+    }
+  }
+  return sets;
+}
+
+function targetRatingForDifficulty(
+  difficulty: PuzzleDifficulty,
+): DifficultyRating {
+  switch (difficulty) {
+    case "easy":
+      return "easy";
+    case "normal":
+      return "normal";
+    case "hard":
+      return "hard";
+  }
+}
+
+function isBetterFallback(
+  candidate: GeneratedPuzzle,
+  current: GeneratedPuzzle,
+  target: DifficultyRating,
+): boolean {
+  const candidateDistance = ratingDistance(candidate.analysis.rating, target);
+  const currentDistance = ratingDistance(current.analysis.rating, target);
+  if (candidateDistance !== currentDistance) {
+    return candidateDistance < currentDistance;
+  }
+  if (target === "hard") {
+    return candidate.analysis.stepCount > current.analysis.stepCount;
+  }
+  return candidate.analysis.stepCount < current.analysis.stepCount;
+}
+
+function ratingDistance(
+  rating: DifficultyRating,
+  target: DifficultyRating,
+): number {
+  return Math.abs(ratingRank(rating) - ratingRank(target));
+}
+
+function ratingRank(rating: DifficultyRating): number {
+  switch (rating) {
+    case "easy":
+      return 0;
+    case "normal":
+      return 1;
+    case "hard":
+      return 2;
+    case "unsupported":
+      return 3;
+  }
+}
+
+const EASY_CURATED_REGIONS = [
+  6, 6, 3, 3, 3, 3, 7, 7, 5, 6, 3, 3, 3, 7, 7, 7, 5, 5, 5, 4, 7, 7, 0, 7, 5, 4,
+  4, 4, 4, 4, 0, 7, 4, 4, 2, 0, 0, 0, 0, 0, 4, 2, 2, 0, 1, 0, 0, 1, 2, 2, 2, 1,
+  1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1,
+] as const;
+
+const EASY_CURATED_SOLUTION = [1, 12, 18, 31, 37, 40, 54, 59] as const;
+
+const DEFAULT_CURATED_REGIONS = [
   7, 7, 7, 7, 4, 4, 4, 4, 7, 7, 7, 4, 4, 4, 4, 4, 6, 7, 7, 5, 4, 5, 5, 4, 6, 6,
   7, 5, 5, 5, 5, 5, 3, 6, 6, 6, 6, 6, 5, 2, 3, 3, 3, 6, 2, 2, 5, 2, 3, 1, 0, 0,
   0, 2, 2, 2, 1, 1, 0, 0, 0, 0, 2, 2,
 ] as const;
 
-const CURATED_SOLUTION = [3, 14, 16, 29, 39, 42, 52, 57] as const;
+const DEFAULT_CURATED_SOLUTION = [3, 14, 16, 29, 39, 42, 52, 57] as const;
 
 function generateCuratedPuzzle(
   seed: string,
   difficulty: PuzzleDifficulty,
+  transformIdOverride?: number,
 ): Puzzle {
   const random = createSeededRandom(
     `${GENERATOR_VERSION}:${difficulty}:${seed}`,
   );
-  const transformId = Math.floor(random.next() * 8);
+  const transformId = transformIdOverride ?? Math.floor(random.next() * 8);
   const regionPermutation = shuffled([0, 1, 2, 3, 4, 5, 6, 7], random);
   const regions = Array<number>(CELL_COUNT);
+  const source =
+    difficulty === "easy"
+      ? {
+          regions: EASY_CURATED_REGIONS,
+          solution: EASY_CURATED_SOLUTION,
+        }
+      : {
+          regions: DEFAULT_CURATED_REGIONS,
+          solution: DEFAULT_CURATED_SOLUTION,
+        };
 
   for (let index = 0; index < CELL_COUNT; index += 1) {
     regions[transformCell(index, transformId)] =
-      regionPermutation[CURATED_REGIONS[index]];
+      regionPermutation[source.regions[index]];
   }
 
   return {
     size: BOARD_SIZE,
     regions,
-    solution: CURATED_SOLUTION.map((index) =>
-      transformCell(index, transformId),
-    ).sort((a, b) => a - b),
+    solution: source.solution
+      .map((index) => transformCell(index, transformId))
+      .sort((a, b) => a - b),
+    givens:
+      difficulty === "easy"
+        ? [transformCell(EASY_CURATED_SOLUTION[5], transformId)]
+        : undefined,
     seed,
     difficulty,
     generatorVersion: GENERATOR_VERSION,
@@ -175,6 +323,7 @@ function generateSolution(random: RandomSource): number[] {
 function growRegions(
   solution: readonly number[],
   random: RandomSource,
+  fixedSingletonRegions: ReadonlySet<number> = new Set(),
 ): number[] {
   const regions = Array<number>(CELL_COUNT).fill(-1);
   const frontiers = Array.from(
@@ -185,14 +334,17 @@ function growRegions(
   for (let regionId = 0; regionId < solution.length; regionId += 1) {
     const seed = solution[regionId];
     regions[seed] = regionId;
-    addUnassignedNeighbors(seed, regions, frontiers[regionId]);
+    if (!fixedSingletonRegions.has(regionId)) {
+      addUnassignedNeighbors(seed, regions, frontiers[regionId]);
+    }
   }
 
   let unassigned = regions.filter((id) => id === -1).length;
   while (unassigned > 0) {
     const regionOrder = shuffled(
       Array.from({ length: REGION_COUNT }, (_, regionId) => regionId).filter(
-        (regionId) => frontiers[regionId].size > 0,
+        (regionId) =>
+          !fixedSingletonRegions.has(regionId) && frontiers[regionId].size > 0,
       ),
       random,
     );

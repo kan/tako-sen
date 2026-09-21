@@ -15,7 +15,7 @@ export interface ValidationResult {
 }
 
 export function validatePuzzleShape(
-  puzzle: Pick<Puzzle, "regions" | "solution">,
+  puzzle: Pick<Puzzle, "regions" | "solution" | "givens">,
 ): ValidationResult {
   const errors: string[] = [];
 
@@ -25,6 +25,12 @@ export function validatePuzzleShape(
 
   if (puzzle.solution.length !== REGION_COUNT) {
     errors.push("Solution must contain exactly 8 cells.");
+  }
+
+  for (const given of puzzle.givens ?? []) {
+    if (!puzzle.solution.includes(given)) {
+      errors.push(`Given cell must be part of the solution: ${given}.`);
+    }
   }
 
   const seenRegions = new Set(puzzle.regions);

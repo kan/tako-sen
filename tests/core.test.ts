@@ -52,6 +52,19 @@ describe("complete solver", () => {
     );
   });
 
+  it("uses puzzle givens as solver constraints", () => {
+    const puzzle = generatePuzzleWithAnalysis({
+      seed: "easy-a",
+      difficulty: "easy",
+      maxAttempts: 0,
+    }).puzzle;
+    const result = solvePuzzle(puzzle);
+    expect(result.status).toBe("unique");
+    expect(result.solutions[0]).toEqual(
+      [...puzzle.solution].sort((a, b) => a - b),
+    );
+  });
+
   it("detects contradiction from an excluded solution cell when every solution is blocked", () => {
     const puzzle = generatePuzzle({ seed: "contradiction" });
     const state = addExcludedMarks(
@@ -423,6 +436,66 @@ describe("generator", () => {
     expect(generated.puzzle.seed).toBe("generated-analysis");
     expect(generated.analysis.stepCount).toBe(generated.analysis.steps.length);
   });
+
+  it("uses difficulty analysis to select an easy puzzle when a matching candidate exists", () => {
+    const generated = generatePuzzleWithAnalysis({
+      seed: "probe2",
+      difficulty: "easy",
+      maxAttempts: 200,
+    });
+    expect(generated.analysis.rating).toBe("easy");
+  });
+
+  it("generates beginner puzzles from constrained singleton regions", () => {
+    for (const seed of ["easy-a", "easy-b", "easy-c"]) {
+      const generated = generatePuzzleWithAnalysis({
+        seed,
+        difficulty: "easy",
+        maxAttempts: 80,
+      });
+      expect(generated.analysis.rating).toBe("easy");
+      expect(generated.puzzle.givens?.length ?? 0).toBeLessThanOrEqual(1);
+      expect(hasSingletonRegion(generated.puzzle.regions)).toBe(true);
+      expect(solvePuzzle(generated.puzzle, { maxSolutions: 2 }).status).toBe(
+        "unique",
+      );
+    }
+  });
+
+  it("varies beginner shapes while keeping them easy", () => {
+    const generated = ["easy-var-a", "easy-var-b", "easy-var-c"].map((seed) =>
+      generatePuzzleWithAnalysis({
+        seed,
+        difficulty: "easy",
+        maxAttempts: 80,
+      }),
+    );
+
+    expect(generated.every(({ analysis }) => analysis.rating === "easy")).toBe(
+      true,
+    );
+    expect(
+      new Set(generated.map(({ puzzle }) => puzzle.regions.join(","))).size,
+    ).toBeGreaterThan(1);
+  });
+
+  it("uses difficulty analysis to select a normal puzzle when a matching candidate exists", () => {
+    const generated = generatePuzzleWithAnalysis({
+      seed: "scan-982",
+      difficulty: "normal",
+      maxAttempts: 1,
+    });
+    expect(generated.analysis.rating).toBe("normal");
+  });
+
+  it("uses difficulty analysis to select a hard puzzle when a matching candidate exists", () => {
+    const generated = generatePuzzleWithAnalysis({
+      seed: "probe1",
+      difficulty: "hard",
+      maxAttempts: 200,
+    });
+    expect(generated.analysis.rating).toBe("hard");
+  });
 });
 
 describe("difficulty analysis", () => {
@@ -500,3 +573,11 @@ describe("hint UI", () => {
     expect(canShowHint(false)).toBe(true);
   });
 });
+
+function hasSingletonRegion(regions: readonly number[]): boolean {
+  const counts = new Map<number, number>();
+  for (const regionId of regions) {
+    counts.set(regionId, (counts.get(regionId) ?? 0) + 1);
+  }
+  return [...counts.values()].some((count) => count === 1);
+}

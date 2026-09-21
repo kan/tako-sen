@@ -14,6 +14,7 @@ export interface Puzzle {
   readonly size: typeof BOARD_SIZE;
   readonly regions: readonly RegionId[];
   readonly solution: readonly number[];
+  readonly givens?: readonly number[];
   readonly seed: string;
   readonly difficulty?: PuzzleDifficulty;
   readonly generatorVersion?: string;
@@ -44,10 +45,13 @@ export function assertCellIndex(index: number): void {
   }
 }
 
-export function createInitialPlayerState(now = Date.now()): PlayerState {
+export function createInitialPlayerState(
+  now = Date.now(),
+  pieces: Iterable<number> = [],
+): PlayerState {
   return {
     excluded: new Set(),
-    pieces: new Set(),
+    pieces: new Set(pieces),
     fixedErrors: new Set(),
     mistakes: 0,
     hintsUsed: 0,

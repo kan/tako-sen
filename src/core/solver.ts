@@ -16,7 +16,7 @@ export interface SolveResult {
 }
 
 export function solvePuzzle(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "regions" | "givens">,
   options: {
     readonly state?: PlayerState;
     readonly maxSolutions?: number;
@@ -25,7 +25,9 @@ export function solvePuzzle(
   const maxSolutions = options.maxSolutions ?? 2;
   const blocked = new Set<number>(options.state?.excluded ?? []);
   for (const index of options.state?.fixedErrors ?? []) blocked.add(index);
-  const fixedPieces = [...(options.state?.pieces ?? [])];
+  const fixedPieces = [
+    ...new Set([...(puzzle.givens ?? []), ...(options.state?.pieces ?? [])]),
+  ];
   const rowFixed = new Map<number, number>();
   const fixedColumns = new Set<number>();
   const fixedRegions = new Set<number>();

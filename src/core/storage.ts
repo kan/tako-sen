@@ -48,7 +48,7 @@ export function loadGame(
     state: {
       ...createInitialPlayerState(saved.state.startedAt),
       excluded: new Set(saved.state.excluded),
-      pieces: new Set(saved.state.pieces),
+      pieces: new Set([...(saved.puzzle.givens ?? []), ...saved.state.pieces]),
       fixedErrors: new Set(saved.state.fixedErrors),
       mistakes: saved.state.mistakes,
       hintsUsed: saved.state.hintsUsed,

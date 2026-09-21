@@ -57,11 +57,12 @@ export function countHintUsed(state: PlayerState): PlayerState {
 export function resetPlayerProgress(
   state: PlayerState,
   now = Date.now(),
+  pieces: Iterable<number> = [],
 ): PlayerState {
   return {
     ...state,
     excluded: new Set(),
-    pieces: new Set(),
+    pieces: new Set(pieces),
     fixedErrors: new Set(),
     mistakes: 0,
     hintsUsed: 0,

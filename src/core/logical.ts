@@ -15,6 +15,7 @@ export type TechniqueId =
   | "contradiction"
   | "single-candidate"
   | "region-line"
+  | "line-region"
   | "multi-region-line"
   | "region-depletion"
   | "missing-exclusion";
@@ -57,6 +58,7 @@ export function findLogicalMoves(
 
   return [
     ...findRegionLineMoves(puzzle, state),
+    ...findLineRegionMoves(puzzle, state),
     ...findMultiRegionLineMoves(puzzle, state),
     ...findRegionDepletionMoves(puzzle, state),
     ...findMissingExclusionMoves(puzzle, state),
@@ -127,6 +129,77 @@ function findSingleCandidates(
         ],
       });
     }
+  }
+
+  return moves;
+}
+
+function findLineRegionMoves(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+): LogicalMove[] {
+  const moves: LogicalMove[] = [];
+
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    if (hasPieceInRow(state, row)) continue;
+    const candidates = rowCandidates(puzzle, row, state);
+    const regionIds = new Set(candidates.map((index) => puzzle.regions[index]));
+    if (candidates.length <= 1 || regionIds.size !== 1) continue;
+
+    const regionId = candidates.length > 0 ? puzzle.regions[candidates[0]] : -1;
+    const excludeCells = regionCells(puzzle, regionId).filter(
+      (index) =>
+        cellCoord(index).row !== row &&
+        !state.excluded.has(index) &&
+        !state.fixedErrors.has(index) &&
+        !state.pieces.has(index),
+    );
+    if (excludeCells.length === 0) continue;
+
+    moves.push({
+      technique: "line-region",
+      title: "Line-Region消去",
+      regionId,
+      row,
+      focusCells: candidates,
+      excludeCells,
+      explanation: [
+        "この行の残り候補は、同じRegion内に限定されています。",
+        "この行のタコはそのRegion内に必ず存在します。",
+        "同じRegionにある他の行のセルは×にできます。",
+      ],
+    });
+  }
+
+  for (let col = 0; col < BOARD_SIZE; col += 1) {
+    if (hasPieceInColumn(state, col)) continue;
+    const candidates = columnCandidates(puzzle, col, state);
+    const regionIds = new Set(candidates.map((index) => puzzle.regions[index]));
+    if (candidates.length <= 1 || regionIds.size !== 1) continue;
+
+    const regionId = candidates.length > 0 ? puzzle.regions[candidates[0]] : -1;
+    const excludeCells = regionCells(puzzle, regionId).filter(
+      (index) =>
+        cellCoord(index).col !== col &&
+        !state.excluded.has(index) &&
+        !state.fixedErrors.has(index) &&
+        !state.pieces.has(index),
+    );
+    if (excludeCells.length === 0) continue;
+
+    moves.push({
+      technique: "line-region",
+      title: "Line-Region消去",
+      regionId,
+      col,
+      focusCells: candidates,
+      excludeCells,
+      explanation: [
+        "この列の残り候補は、同じRegion内に限定されています。",
+        "この列のタコはそのRegion内に必ず存在します。",
+        "同じRegionにある他の列のセルは×にできます。",
+      ],
+    });
   }
 
   return moves;

@@ -5,7 +5,11 @@ import {
 } from "./model";
 import { addExcludedMarks, placePiece } from "./player";
 import { isComplete } from "./rules";
-import { findLogicalMoves, type TechniqueId } from "./logical";
+import {
+  findLogicalMoves,
+  type LogicalMove,
+  type TechniqueId,
+} from "./logical";
 
 export type DifficultyRating = "easy" | "normal" | "hard" | "unsupported";
 
@@ -27,10 +31,21 @@ export interface PuzzleDifficultyAnalysis {
   readonly steps: readonly LogicalSolveStep[];
 }
 
+const TECHNIQUE_PRIORITY: Readonly<Record<TechniqueId, number>> = {
+  contradiction: 99,
+  "missing-exclusion": 0,
+  "single-candidate": 1,
+  "region-line": 2,
+  "line-region": 2,
+  "multi-region-line": 3,
+  "region-depletion": 4,
+};
+
 const TECHNIQUES: readonly TechniqueId[] = [
   "contradiction",
   "single-candidate",
   "region-line",
+  "line-region",
   "multi-region-line",
   "region-depletion",
   "missing-exclusion",
@@ -38,7 +53,7 @@ const TECHNIQUES: readonly TechniqueId[] = [
 
 export function analyzePuzzleDifficulty(
   puzzle: Puzzle,
-  initialState: PlayerState = createInitialPlayerState(0),
+  initialState: PlayerState = createInitialPlayerState(0, puzzle.givens ?? []),
 ): PuzzleDifficultyAnalysis {
   let state = initialState;
   const steps: LogicalSolveStep[] = [];
@@ -46,7 +61,7 @@ export function analyzePuzzleDifficulty(
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
     if (isComplete(puzzle, state)) break;
-    const move = findLogicalMoves(puzzle, state)[0];
+    const move = easiestMove(findLogicalMoves(puzzle, state));
     if (!move || move.technique === "contradiction") break;
 
     const beforeExcluded = state.excluded.size;
@@ -81,7 +96,7 @@ export function analyzePuzzleDifficulty(
   const placementCount = steps.filter((step) => step.placed).length;
 
   return {
-    rating: classifyDifficulty(solved, usedTechniques),
+    rating: classifyDifficulty(solved, techniqueCounts),
     solved,
     stalled: !solved,
     stepCount: steps.length,
@@ -107,10 +122,20 @@ function createTechniqueCounts(
 
 function classifyDifficulty(
   solved: boolean,
-  usedTechniques: readonly TechniqueId[],
+  techniqueCounts: Readonly<Record<TechniqueId, number>>,
 ): DifficultyRating {
   if (!solved) return "unsupported";
-  if (usedTechniques.includes("region-depletion")) return "hard";
-  if (usedTechniques.includes("multi-region-line")) return "normal";
+
+  if (techniqueCounts["region-depletion"] > 0) return "hard";
+  if (techniqueCounts["multi-region-line"] > 0) return "normal";
   return "easy";
+}
+
+function easiestMove(moves: readonly LogicalMove[]): LogicalMove | undefined {
+  return [...moves].sort((a, b) => {
+    const priorityDiff =
+      TECHNIQUE_PRIORITY[a.technique] - TECHNIQUE_PRIORITY[b.technique];
+    if (priorityDiff !== 0) return priorityDiff;
+    return a.focusCells[0] - b.focusCells[0];
+  })[0];
 }
