@@ -5,10 +5,12 @@ import {
   cellCoord,
   createInitialPlayerState,
   getCellViewState,
+  type PuzzleDifficulty,
   type PlayerState,
   type Puzzle,
 } from "./core/model";
 import { generatePuzzle } from "./core/generator";
+import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
 import {
   addExcludedMarks,
   countHintUsed,
@@ -28,6 +30,11 @@ const longPressMs = 520;
 const dragStartThresholdPx = 12;
 const puzzle = ref<Puzzle>(generatePuzzle({ seed: "tako-sen-prototype" }));
 const state = ref<PlayerState>(createInitialPlayerState());
+const selectedDifficulty = ref<PuzzleDifficulty>(
+  puzzle.value.difficulty ?? "easy",
+);
+const restoreSeedCode = ref("");
+const seedMessage = ref("");
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -61,12 +68,14 @@ const complete = computed(() => isComplete(puzzle.value, state.value));
 const contradiction = computed(() =>
   hasContradiction(puzzle.value, state.value),
 );
+const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
 
 onMounted(() => {
   const saved = loadGame();
   if (saved) {
     puzzle.value = saved.puzzle;
     state.value = saved.state;
+    selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
   }
 });
 
@@ -80,9 +89,39 @@ watch(
 
 function newGame(): void {
   const seed = `game-${Date.now()}`;
-  puzzle.value = generatePuzzle({ seed });
+  puzzle.value = generatePuzzle({ seed, difficulty: selectedDifficulty.value });
   state.value = createInitialPlayerState();
   hint.value = undefined;
+  restoreSeedCode.value = "";
+  seedMessage.value = "新しい問題を生成しました。";
+}
+
+async function copySeed(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(puzzleSeedCode.value);
+    seedMessage.value = "シードをコピーしました。";
+  } catch {
+    seedMessage.value =
+      "コピーできませんでした。シードを手動で選択してください。";
+  }
+}
+
+function restoreFromSeed(): void {
+  const parsed = parsePuzzleSeedCode(restoreSeedCode.value);
+  if (!parsed) {
+    seedMessage.value =
+      "シードを復元できません。表示された形式のシードを入力してください。";
+    return;
+  }
+
+  selectedDifficulty.value = parsed.difficulty;
+  puzzle.value = generatePuzzle({
+    seed: parsed.seed,
+    difficulty: parsed.difficulty,
+  });
+  state.value = createInitialPlayerState();
+  hint.value = undefined;
+  seedMessage.value = "シードから問題を復元しました。";
 }
 
 function resetProgress(): void {
@@ -355,12 +394,45 @@ function cellClasses(index: number): Record<string, boolean> {
     </section>
 
     <section class="actions">
+      <label class="difficulty-select">
+        難易度
+        <select v-model="selectedDifficulty">
+          <option value="easy">初級</option>
+          <option value="normal">中級</option>
+          <option value="hard">上級</option>
+        </select>
+      </label>
       <button v-if="canShowHint(complete)" type="button" @click="showHint">
         ヒント
       </button>
       <button type="button" @click="resetProgress">リセット</button>
       <button type="button" @click="newGame">新しい問題</button>
     </section>
+
+    <details class="seed-panel">
+      <summary>シード表示・復元</summary>
+      <div class="seed-panel-body" aria-label="シード">
+        <div>
+          <span class="seed-label">現在のシード</span>
+          <code>{{ puzzleSeedCode }}</code>
+        </div>
+        <button type="button" @click="copySeed">コピー</button>
+        <label>
+          シード復元
+          <input
+            v-model="restoreSeedCode"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            placeholder="TAKO:g1:easy:..."
+          />
+        </label>
+        <button type="button" @click="restoreFromSeed">復元</button>
+        <p v-if="seedMessage" class="seed-message" aria-live="polite">
+          {{ seedMessage }}
+        </p>
+      </div>
+    </details>
 
     <section v-if="hint && canShowHint(complete)" class="hint-card">
       <h2>{{ hint.kind === "move" ? hint.move.title : hint.title }}</h2>

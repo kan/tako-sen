@@ -25,6 +25,11 @@ button {
   font: inherit;
 }
 
+select,
+input {
+  font: inherit;
+}
+
 .app-shell {
   width: min(100%, 560px);
   margin: 0 auto;
@@ -67,7 +72,8 @@ h1 {
 }
 
 .status-bar span,
-.actions button {
+.actions button,
+.difficulty-select {
   border: 2px solid #2a1b14;
   border-radius: 999px;
   padding: 8px 14px;
@@ -189,6 +195,88 @@ h1 {
   background: #ff8a5b;
   color: #2a1b14;
   font-weight: 800;
+}
+
+.difficulty-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.difficulty-select select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+}
+
+.seed-panel {
+  margin: 16px 0;
+  border: 2px solid #2a1b14;
+  border-radius: 20px;
+  background: #fffdf8;
+  box-shadow: 0 3px 0 #2a1b14;
+}
+
+.seed-panel summary {
+  padding: 12px 14px;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.seed-panel-body {
+  display: grid;
+  gap: 10px;
+  border-top: 2px solid rgb(42 27 20 / 18%);
+  padding: 12px 14px 14px;
+}
+
+.seed-panel-body code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+  border-radius: 12px;
+  padding: 8px;
+  background: #fff7ec;
+  font-size: 13px;
+}
+
+.seed-panel-body button {
+  justify-self: start;
+  border: 2px solid #2a1b14;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #ffcf70;
+  color: #2a1b14;
+  font-weight: 800;
+  box-shadow: 0 2px 0 #2a1b14;
+}
+
+.seed-panel-body label {
+  display: grid;
+  gap: 6px;
+  font-weight: 800;
+}
+
+.seed-panel-body input {
+  width: 100%;
+  border: 2px solid #2a1b14;
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: #fff;
+  color: #2a1b14;
+}
+
+.seed-label {
+  font-weight: 800;
+}
+
+.seed-message {
+  margin: 0;
+  color: #5f4636;
+  font-size: 14px;
 }
 
 .hint-card {

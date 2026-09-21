@@ -3,6 +3,7 @@ export const CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
 export const REGION_COUNT = BOARD_SIZE;
 
 export type RegionId = number;
+export type PuzzleDifficulty = "easy" | "normal" | "hard";
 
 export interface CellCoord {
   readonly row: number;
@@ -14,6 +15,8 @@ export interface Puzzle {
   readonly regions: readonly RegionId[];
   readonly solution: readonly number[];
   readonly seed: string;
+  readonly difficulty?: PuzzleDifficulty;
+  readonly generatorVersion?: string;
 }
 
 export interface PlayerState {

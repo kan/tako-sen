@@ -4,6 +4,7 @@ import {
   REGION_COUNT,
   cellCoord,
   cellIndex,
+  type PuzzleDifficulty,
   type Puzzle,
 } from "./model";
 import { createSeededRandom, shuffled, type RandomSource } from "./random";
@@ -12,13 +13,17 @@ import { solvePuzzle } from "./solver";
 
 export interface GenerateOptions {
   readonly seed?: string;
+  readonly difficulty?: PuzzleDifficulty;
   readonly maxAttempts?: number;
 }
 
+export const GENERATOR_VERSION = "g1";
+
 export function generatePuzzle(options: GenerateOptions = {}): Puzzle {
   const seed = options.seed ?? String(Date.now());
+  const difficulty = options.difficulty ?? "easy";
   const maxAttempts = options.maxAttempts ?? 80;
-  const curated = generateCuratedPuzzle(seed);
+  const curated = generateCuratedPuzzle(seed, difficulty);
   if (
     validatePuzzleShape(curated).valid &&
     validateSolution(curated).valid &&
@@ -28,10 +33,19 @@ export function generatePuzzle(options: GenerateOptions = {}): Puzzle {
   }
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const random = createSeededRandom(`${seed}:${attempt}`);
+    const random = createSeededRandom(
+      `${GENERATOR_VERSION}:${difficulty}:${seed}:${attempt}`,
+    );
     const solution = generateSolution(random);
     const regions = growRegions(solution, random);
-    const puzzle: Puzzle = { size: BOARD_SIZE, regions, solution, seed };
+    const puzzle: Puzzle = {
+      size: BOARD_SIZE,
+      regions,
+      solution,
+      seed,
+      difficulty,
+      generatorVersion: GENERATOR_VERSION,
+    };
 
     if (!validatePuzzleShape(puzzle).valid || !validateSolution(puzzle).valid)
       continue;
@@ -52,8 +66,13 @@ const CURATED_REGIONS = [
 
 const CURATED_SOLUTION = [3, 14, 16, 29, 39, 42, 52, 57] as const;
 
-function generateCuratedPuzzle(seed: string): Puzzle {
-  const random = createSeededRandom(seed);
+function generateCuratedPuzzle(
+  seed: string,
+  difficulty: PuzzleDifficulty,
+): Puzzle {
+  const random = createSeededRandom(
+    `${GENERATOR_VERSION}:${difficulty}:${seed}`,
+  );
   const transformId = Math.floor(random.next() * 8);
   const regionPermutation = shuffled([0, 1, 2, 3, 4, 5, 6, 7], random);
   const regions = Array<number>(CELL_COUNT);
@@ -70,6 +89,8 @@ function generateCuratedPuzzle(seed: string): Puzzle {
       transformCell(index, transformId),
     ).sort((a, b) => a - b),
     seed,
+    difficulty,
+    generatorVersion: GENERATOR_VERSION,
   };
 }
 

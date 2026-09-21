@@ -23,6 +23,7 @@ import {
 import { findLogicalMoves } from "../src/core/logical";
 import { canShowHint } from "../src/ui/hint";
 import { pointerReleaseAction } from "../src/ui/pointer";
+import { encodePuzzleSeed, parsePuzzleSeedCode } from "../src/core/puzzle-code";
 
 describe("core rules", () => {
   it("validates generated puzzle shape and solution", () => {
@@ -372,6 +373,42 @@ describe("generator", () => {
     const b = generatePuzzle({ seed: "same-seed" });
     expect(a.regions).toEqual(b.regions);
     expect(a.solution).toEqual(b.solution);
+  });
+
+  it("restores the same puzzle from a displayed seed code", () => {
+    const original = generatePuzzle({
+      seed: "restore-seed",
+      difficulty: "normal",
+    });
+    const parsed = parsePuzzleSeedCode(encodePuzzleSeed(original));
+
+    expect(parsed).toEqual({
+      version: "g1",
+      difficulty: "normal",
+      seed: "restore-seed",
+    });
+
+    const restored = generatePuzzle({
+      seed: parsed?.seed,
+      difficulty: parsed?.difficulty,
+    });
+    expect(restored.regions).toEqual(original.regions);
+    expect(restored.solution).toEqual(original.solution);
+    expect(solvePuzzle(restored, { maxSolutions: 2 }).status).toBe("unique");
+  });
+
+  it("uses difficulty as part of deterministic puzzle generation", () => {
+    const easy = generatePuzzle({
+      seed: "difficulty-seed",
+      difficulty: "easy",
+    });
+    const hard = generatePuzzle({
+      seed: "difficulty-seed",
+      difficulty: "hard",
+    });
+    expect(easy.difficulty).toBe("easy");
+    expect(hard.difficulty).toBe("hard");
+    expect(easy.regions).not.toEqual(hard.regions);
   });
 });
 
