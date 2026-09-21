@@ -10,6 +10,10 @@ import {
 import { createSeededRandom, shuffled, type RandomSource } from "./random";
 import { validatePuzzleShape, validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
+import {
+  analyzePuzzleDifficulty,
+  type PuzzleDifficultyAnalysis,
+} from "./difficulty";
 
 export interface GenerateOptions {
   readonly seed?: string;
@@ -17,7 +21,22 @@ export interface GenerateOptions {
   readonly maxAttempts?: number;
 }
 
+export interface GeneratedPuzzle {
+  readonly puzzle: Puzzle;
+  readonly analysis: PuzzleDifficultyAnalysis;
+}
+
 export const GENERATOR_VERSION = "g1";
+
+export function generatePuzzleWithAnalysis(
+  options: GenerateOptions = {},
+): GeneratedPuzzle {
+  const puzzle = generatePuzzle(options);
+  return {
+    puzzle,
+    analysis: analyzePuzzleDifficulty(puzzle),
+  };
+}
 
 export function generatePuzzle(options: GenerateOptions = {}): Puzzle {
   const seed = options.seed ?? String(Date.now());

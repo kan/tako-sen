@@ -6,7 +6,10 @@ import {
   isAdjacent,
   type Puzzle,
 } from "../src/core/model";
-import { generatePuzzle } from "../src/core/generator";
+import {
+  generatePuzzle,
+  generatePuzzleWithAnalysis,
+} from "../src/core/generator";
 import {
   addExcludedMarks,
   placePiece,
@@ -24,6 +27,7 @@ import { findLogicalMoves } from "../src/core/logical";
 import { canShowHint } from "../src/ui/hint";
 import { pointerReleaseAction } from "../src/ui/pointer";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "../src/core/puzzle-code";
+import { analyzePuzzleDifficulty } from "../src/core/difficulty";
 
 describe("core rules", () => {
   it("validates generated puzzle shape and solution", () => {
@@ -409,6 +413,46 @@ describe("generator", () => {
     expect(easy.difficulty).toBe("easy");
     expect(hard.difficulty).toBe("hard");
     expect(easy.regions).not.toEqual(hard.regions);
+  });
+
+  it("can return logical difficulty analysis with a generated puzzle", () => {
+    const generated = generatePuzzleWithAnalysis({
+      seed: "generated-analysis",
+      difficulty: "easy",
+    });
+    expect(generated.puzzle.seed).toBe("generated-analysis");
+    expect(generated.analysis.stepCount).toBe(generated.analysis.steps.length);
+  });
+});
+
+describe("difficulty analysis", () => {
+  it("records logical solve statistics", () => {
+    const puzzle = generatePuzzle({ seed: "difficulty-analysis" });
+    const analysis = analyzePuzzleDifficulty(puzzle);
+    expect(analysis.stepCount).toBe(analysis.steps.length);
+    expect(analysis.exclusionCount).toBe(
+      analysis.steps.reduce((sum, step) => sum + step.excludeCount, 0),
+    );
+    expect(analysis.placementCount).toBe(
+      analysis.steps.filter((step) => step.placed).length,
+    );
+  });
+
+  it("classifies a puzzle solved by single candidates as easy", () => {
+    const puzzle = generatePuzzle({ seed: "difficulty-easy" });
+    const nonSolutionCells = Array.from(
+      { length: BOARD_SIZE * BOARD_SIZE },
+      (_, index) => index,
+    ).filter((index) => !puzzle.solution.includes(index));
+    const state = addExcludedMarks(
+      createInitialPlayerState(0),
+      nonSolutionCells,
+    );
+    const analysis = analyzePuzzleDifficulty(puzzle, state);
+
+    expect(analysis.solved).toBe(true);
+    expect(analysis.rating).toBe("easy");
+    expect(analysis.techniqueCounts["single-candidate"]).toBeGreaterThan(0);
   });
 });
 
