@@ -28,6 +28,11 @@ import { canShowHint } from "../src/ui/hint";
 import { pointerReleaseAction } from "../src/ui/pointer";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "../src/core/puzzle-code";
 import { analyzePuzzleDifficulty } from "../src/core/difficulty";
+import {
+  assignRegionColorIndexes,
+  cellRegionBorders,
+  regionAdjacency,
+} from "../src/ui/region-visuals";
 
 describe("core rules", () => {
   it("validates generated puzzle shape and solution", () => {
@@ -495,6 +500,54 @@ describe("generator", () => {
       maxAttempts: 200,
     });
     expect(generated.analysis.rating).toBe("hard");
+  });
+});
+
+describe("region visuals", () => {
+  it("assigns a unique palette color to every region", () => {
+    const puzzle = generatePuzzle({
+      seed: "region-unique-colors",
+      difficulty: "easy",
+    });
+    const colorIndexes = assignRegionColorIndexes(puzzle);
+    expect(new Set(colorIndexes).size).toBe(BOARD_SIZE);
+  });
+
+  it("assigns different palette colors to adjacent regions", () => {
+    const puzzle = generatePuzzle({
+      seed: "region-visuals",
+      difficulty: "easy",
+    });
+    const colorIndexes = assignRegionColorIndexes(puzzle);
+    const adjacency = regionAdjacency(puzzle);
+
+    for (let regionId = 0; regionId < adjacency.length; regionId += 1) {
+      for (const neighbor of adjacency[regionId]) {
+        expect(colorIndexes[regionId]).not.toBe(colorIndexes[neighbor]);
+      }
+    }
+  });
+
+  it("marks region borders independently from region color", () => {
+    const puzzle = {
+      size: BOARD_SIZE,
+      solution: Array.from({ length: BOARD_SIZE }, (_, row) =>
+        cellIndex(row, row),
+      ),
+      seed: "visual-border",
+      regions: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) =>
+        index % BOARD_SIZE < 4 ? 0 : 1,
+      ),
+    } as const;
+
+    expect(cellRegionBorders(puzzle, cellIndex(0, 3))).toMatchObject({
+      right: true,
+      left: false,
+    });
+    expect(cellRegionBorders(puzzle, cellIndex(0, 2))).toMatchObject({
+      right: false,
+      left: false,
+    });
   });
 });
 

@@ -30,6 +30,11 @@ import { loadGame, saveGame } from "./core/storage";
 import { hasContradiction } from "./core/solver";
 import { canShowHint } from "./ui/hint";
 import { pointerReleaseAction } from "./ui/pointer";
+import {
+  assignRegionColorIndexes,
+  cellRegionBorders,
+  regionColorForCell,
+} from "./ui/region-visuals";
 
 const longPressMs = 520;
 const dragStartThresholdPx = 12;
@@ -84,6 +89,9 @@ const contradiction = computed(() =>
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
 const actualDifficultyLabel = computed(() =>
   difficultyLabel(difficultyAnalysis.value.rating),
+);
+const regionColorIndexes = computed(() =>
+  assignRegionColorIndexes(puzzle.value),
 );
 
 onMounted(() => {
@@ -363,6 +371,22 @@ function cellClasses(index: number): Record<string, boolean> {
   };
 }
 
+function cellStyles(index: number): Record<string, string> {
+  const color = regionColorForCell(
+    puzzle.value,
+    regionColorIndexes.value,
+    index,
+  );
+  const borders = cellRegionBorders(puzzle.value, index);
+  return {
+    backgroundColor: color.background,
+    borderTopWidth: borders.top ? "2px" : "1px",
+    borderRightWidth: borders.right ? "2px" : "1px",
+    borderBottomWidth: borders.bottom ? "2px" : "1px",
+    borderLeftWidth: borders.left ? "2px" : "1px",
+  };
+}
+
 function difficultyLabel(rating: DifficultyRating): string {
   switch (rating) {
     case "easy":
@@ -408,6 +432,7 @@ function difficultyLabel(rating: DifficultyRating): string {
           :key="index"
           class="cell"
           :class="cellClasses(index)"
+          :style="cellStyles(index)"
           :data-cell-index="index"
           :data-region="puzzle.regions[index]"
           :aria-label="cellLabel(index)"

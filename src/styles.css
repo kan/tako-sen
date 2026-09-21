@@ -115,7 +115,8 @@ h1 {
   min-width: 0;
   min-height: 0;
   padding: 0;
-  border: 1px solid rgb(42 27 20 / 28%);
+  border-style: solid;
+  border-color: rgb(42 27 20 / 82%);
   color: #2a1b14;
   cursor: pointer;
   user-select: none;
@@ -135,31 +136,6 @@ h1 {
   border: 0 solid #2a1b14;
   content: "";
   pointer-events: none;
-}
-
-.cell[data-region="0"] {
-  background: #ffd6a5;
-}
-.cell[data-region="1"] {
-  background: #fdffb6;
-}
-.cell[data-region="2"] {
-  background: #caffbf;
-}
-.cell[data-region="3"] {
-  background: #9bf6ff;
-}
-.cell[data-region="4"] {
-  background: #a0c4ff;
-}
-.cell[data-region="5"] {
-  background: #bdb2ff;
-}
-.cell[data-region="6"] {
-  background: #ffc6ff;
-}
-.cell[data-region="7"] {
-  background: #ffadad;
 }
 
 .mark,
