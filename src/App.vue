@@ -27,7 +27,6 @@ import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
 import { findLogicalMoves, type LogicalMove } from "./core/logical";
 import { loadGame, saveGame } from "./core/storage";
-import { hasContradiction } from "./core/solver";
 import { canShowHint } from "./ui/hint";
 import { pointerReleaseAction } from "./ui/pointer";
 import {
@@ -89,9 +88,6 @@ const cells = computed(() =>
   Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
-const contradiction = computed(() =>
-  hasContradiction(puzzle.value, state.value),
-);
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
 const actualDifficultyLabel = computed(() =>
   difficultyLabel(difficultyAnalysis.value.rating),
@@ -480,7 +476,6 @@ function formatElapsed(seconds: number): string {
         <span>ヒント {{ state.hintsUsed }}</span>
         <span>時間 {{ formatElapsed(displayedElapsedSeconds) }}</span>
         <span v-if="complete" class="clear">CLEAR</span>
-        <span v-else-if="contradiction" class="warning">矛盾あり</span>
         <span v-else>進行中</span>
         <span>評価 {{ actualDifficultyLabel }}</span>
       </section>

@@ -87,10 +87,6 @@ h1 {
   color: #116c35;
 }
 
-.warning {
-  color: #b91c1c;
-}
-
 .play-area {
   display: grid;
   gap: 8px;
