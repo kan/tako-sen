@@ -84,6 +84,7 @@ export function finishPlay(
   completedAt: number,
   mistakes: number,
   hintsUsed: number,
+  elapsedSeconds: number,
 ): ResultHistory {
   if (
     !history.plays.some(
@@ -100,10 +101,7 @@ export function finishPlay(
             ...play,
             status: "completed" as const,
             completedAt,
-            elapsedSeconds: Math.max(
-              0,
-              Math.floor((completedAt - play.startedAt) / 1000),
-            ),
+            elapsedSeconds,
             mistakes,
             hintsUsed,
           }

@@ -4,6 +4,7 @@ import {
   type Puzzle,
 } from "./model";
 import type { ResultHistory } from "./results";
+import type { SavedPlayTimer } from "./play-timer";
 
 const SAVE_KEY = "tako-sen.current-game.v1";
 const RESULTS_KEY = "tako-sen.results.v1";
@@ -15,6 +16,9 @@ export interface KeyValueStorage {
 
 interface SavedGame {
   readonly playId?: string;
+  readonly waitingToStart?: boolean;
+  readonly elapsedMs?: number;
+  readonly hasStarted?: boolean;
   readonly puzzle: Puzzle;
   readonly state: {
     readonly excluded: readonly number[];
@@ -31,9 +35,13 @@ export function saveGame(
   state: PlayerState,
   storage: KeyValueStorage = localStorage,
   playId?: string,
+  timer?: SavedPlayTimer,
 ): void {
   const saved: SavedGame = {
     playId,
+    waitingToStart: timer?.waitingToStart,
+    elapsedMs: timer?.elapsedMs,
+    hasStarted: timer?.hasStarted,
     puzzle,
     state: {
       excluded: [...state.excluded],
@@ -47,14 +55,24 @@ export function saveGame(
   storage.setItem(SAVE_KEY, JSON.stringify(saved));
 }
 
-export function loadGame(
-  storage: KeyValueStorage = localStorage,
-): { puzzle: Puzzle; state: PlayerState; playId?: string } | undefined {
+export function loadGame(storage: KeyValueStorage = localStorage):
+  | {
+      puzzle: Puzzle;
+      state: PlayerState;
+      playId?: string;
+      timer: SavedPlayTimer;
+    }
+  | undefined {
   const raw = storage.getItem(SAVE_KEY);
   if (!raw) return undefined;
   const saved = JSON.parse(raw) as SavedGame;
   return {
     playId: saved.playId,
+    timer: {
+      waitingToStart: saved.waitingToStart ?? false,
+      elapsedMs: saved.elapsedMs,
+      hasStarted: saved.hasStarted,
+    },
     puzzle: saved.puzzle,
     state: {
       ...createInitialPlayerState(saved.state.startedAt),

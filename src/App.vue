@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -19,6 +19,15 @@ import {
   type PuzzleDifficultyAnalysis,
 } from "./core/difficulty";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
+import {
+  createWaitingTimer,
+  elapsedTimerMs,
+  finishTimer,
+  pauseTimer,
+  restoreTimer,
+  resumeTimer,
+  type PlayTimer,
+} from "./core/play-timer";
 import {
   addExcludedMarks,
   countHintUsed,
@@ -68,8 +77,12 @@ const selectedDifficulty = ref<PuzzleDifficulty>(
   puzzle.value.difficulty ?? "easy",
 );
 const currentTime = ref(Date.now());
+const timer = ref<PlayTimer>(createWaitingTimer());
+const waitingToStart = computed(() => timer.value.status === "ready");
+const readyButton = ref<HTMLButtonElement>();
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
+const statsMessage = ref("");
 const showClearDialog = ref(false);
 const clearElapsedSeconds = ref<number | undefined>();
 const clearDialogMessage = ref("");
@@ -116,7 +129,7 @@ const regionColorIndexes = computed(() =>
   assignRegionColorIndexes(puzzle.value),
 );
 const elapsedSeconds = computed(() =>
-  Math.max(0, Math.floor((currentTime.value - state.value.startedAt) / 1000)),
+  Math.floor(elapsedTimerMs(timer.value, currentTime.value) / 1000),
 );
 const displayedElapsedSeconds = computed(
   () => clearElapsedSeconds.value ?? elapsedSeconds.value,
@@ -137,7 +150,9 @@ const userSummary = computed(() =>
 onMounted(() => {
   clockTimer = window.setInterval(() => {
     currentTime.value = Date.now();
+    if (timer.value.status === "running") saveCurrentGame();
   }, 1000);
+  window.addEventListener("pagehide", saveCurrentGame);
   const saved = loadGame();
   resultHistory.value = loadResultHistory();
   if (saved) {
@@ -146,6 +161,12 @@ onMounted(() => {
     difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
     selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
     playId.value = saved.playId;
+    timer.value = restoreTimer(
+      saved.timer,
+      saved.state.startedAt,
+      Date.now(),
+      isComplete(saved.puzzle, saved.state),
+    );
   }
   if (!playId.value) {
     beginPlay();
@@ -161,20 +182,25 @@ onMounted(() => {
   if (completedResult)
     clearElapsedSeconds.value = completedResult.elapsedSeconds;
   else if (complete.value) finalizePlay();
+  if (waitingToStart.value) focusReadyButton();
+  saveCurrentGame();
 });
 
 onUnmounted(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
+  window.removeEventListener("pagehide", saveCurrentGame);
 });
 
-watch(
-  [puzzle, state],
-  () => {
-    if (playId.value)
-      saveGame(puzzle.value, state.value, localStorage, playId.value);
-  },
-  { deep: true },
-);
+watch([puzzle, state, timer], saveCurrentGame, { deep: true });
+
+function saveCurrentGame(): void {
+  if (!playId.value) return;
+  saveGame(puzzle.value, state.value, localStorage, playId.value, {
+    waitingToStart: waitingToStart.value,
+    elapsedMs: elapsedTimerMs(timer.value, Date.now()),
+    hasStarted: timer.value.hasStarted,
+  });
+}
 
 watch(complete, (isCompleteNow, wasComplete) => {
   if (isCompleteNow && !wasComplete) {
@@ -187,7 +213,31 @@ watch(complete, (isCompleteNow, wasComplete) => {
 function beginPlay(): void {
   if (!resultHistory.value) return;
   playId.value = crypto.randomUUID();
-  saveGame(puzzle.value, state.value, localStorage, playId.value);
+  timer.value = createWaitingTimer();
+  saveCurrentGame();
+  focusReadyButton();
+}
+
+function focusReadyButton(): void {
+  void nextTick(() => readyButton.value?.focus());
+}
+
+function confirmReady(): void {
+  if (!waitingToStart.value) return;
+  const startedAt = Date.now();
+  if (!timer.value.hasStarted) state.value = { ...state.value, startedAt };
+  timer.value = resumeTimer(timer.value, startedAt);
+  currentTime.value = startedAt;
+  saveCurrentGame();
+}
+
+function pauseGame(): void {
+  if (complete.value || timer.value.status !== "running") return;
+  const now = Date.now();
+  timer.value = pauseTimer(timer.value, now);
+  currentTime.value = now;
+  saveCurrentGame();
+  focusReadyButton();
 }
 
 function registerPlay(): void {
@@ -212,12 +262,18 @@ function commitPlayerState(next: PlayerState): void {
 function finalizePlay(): void {
   if (!resultHistory.value || !playId.value) return;
   const completedAt = Date.now();
+  const clearSeconds = Math.floor(
+    elapsedTimerMs(timer.value, completedAt) / 1000,
+  );
+  timer.value = finishTimer(timer.value, completedAt);
+  currentTime.value = completedAt;
   const updated = finishPlay(
     resultHistory.value,
     playId.value,
     completedAt,
     state.value.mistakes,
     state.value.hintsUsed,
+    clearSeconds,
   );
   if (updated === resultHistory.value) return;
   resultHistory.value = updated;
@@ -225,6 +281,7 @@ function finalizePlay(): void {
   clearElapsedSeconds.value = updated.plays.find(
     (play) => play.id === playId.value,
   )?.elapsedSeconds;
+  saveCurrentGame();
 }
 
 function newGame(): void {
@@ -243,6 +300,7 @@ function newGame(): void {
   clearDialogMessage.value = "";
   restoreSeedCode.value = "";
   seedMessage.value = "新しい問題を生成しました。";
+  statsMessage.value = "";
   beginPlay();
 }
 
@@ -257,11 +315,25 @@ async function copySeed(): Promise<void> {
 }
 
 function restoreFromSeed(): void {
-  const parsed = parsePuzzleSeedCode(restoreSeedCode.value);
+  statsMessage.value = "";
+  restoreSeed(restoreSeedCode.value);
+}
+
+function restoreRecentSeed(code: string, event: MouseEvent): void {
+  if (!restoreSeed(code)) {
+    event.preventDefault();
+    statsMessage.value = seedMessage.value;
+    return;
+  }
+  statsMessage.value = "シードから問題を復元しました。";
+}
+
+function restoreSeed(code: string): boolean {
+  const parsed = parsePuzzleSeedCode(code);
   if (!parsed) {
     seedMessage.value =
       "シードを復元できません。表示された形式のシードを入力してください。";
-    return;
+    return false;
   }
 
   selectedDifficulty.value = parsed.difficulty;
@@ -279,6 +351,7 @@ function restoreFromSeed(): void {
   clearDialogMessage.value = "";
   seedMessage.value = "シードから問題を復元しました。";
   beginPlay();
+  return true;
 }
 
 function resetProgress(): void {
@@ -292,6 +365,7 @@ function resetProgress(): void {
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
+  statsMessage.value = "";
   beginPlay();
 }
 
@@ -560,16 +634,31 @@ function formatElapsed(seconds: number): string {
 
 <template>
   <main class="app-shell">
-    <header class="hero">
+    <header class="hero" :inert="waitingToStart">
       <h1>TAKO-SEN</h1>
       <p class="eyebrow">PROTOTYPE</p>
     </header>
 
-    <section class="play-area">
+    <section class="play-area" :inert="waitingToStart">
       <section class="status-bar" aria-live="polite">
         <span>ミス {{ state.mistakes }}</span>
         <span>ヒント {{ state.hintsUsed }}</span>
-        <span>時間 {{ formatElapsed(displayedElapsedSeconds) }}</span>
+        <span class="time-status">
+          時間 {{ formatElapsed(displayedElapsedSeconds) }}
+          <button
+            v-if="!complete && timer.status === 'running'"
+            type="button"
+            class="pause-button"
+            aria-label="一時停止"
+            title="一時停止"
+            @click="pauseGame"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <rect x="3" y="2" width="3" height="12" rx="1" />
+              <rect x="10" y="2" width="3" height="12" rx="1" />
+            </svg>
+          </button>
+        </span>
         <span v-if="complete" class="clear">CLEAR</span>
         <span v-else>進行中</span>
         <span>評価 {{ actualDifficultyLabel }}</span>
@@ -578,6 +667,7 @@ function formatElapsed(seconds: number): string {
       <section class="board-wrap">
         <div
           class="board"
+          id="board"
           role="grid"
           aria-label="TAKO-SEN 8×8 board"
           @pointermove.prevent="onBoardPointerMove"
@@ -619,7 +709,7 @@ function formatElapsed(seconds: number): string {
       </section>
     </section>
 
-    <section class="actions">
+    <section class="actions" :inert="waitingToStart">
       <label class="difficulty-select">
         難易度
         <select v-model="selectedDifficulty">
@@ -635,7 +725,7 @@ function formatElapsed(seconds: number): string {
       <button type="button" @click="newGame">新しい問題</button>
     </section>
 
-    <details class="seed-panel">
+    <details class="seed-panel" :inert="waitingToStart">
       <summary>シード表示・復元</summary>
       <div class="seed-panel-body" aria-label="シード">
         <div>
@@ -662,6 +752,7 @@ function formatElapsed(seconds: number): string {
 
     <details
       class="stats-panel"
+      :inert="waitingToStart"
       @toggle="showStats = ($event.target as HTMLDetailsElement).open"
     >
       <summary>ローカル成績</summary>
@@ -698,9 +789,17 @@ function formatElapsed(seconds: number): string {
         <h2>最近のシード</h2>
         <ul class="stats-list">
           <li v-for="seed in userSummary.recentSeeds" :key="seed">
-            <code>{{ seed }}</code>
+            <a
+              class="recent-seed-link"
+              href="#board"
+              @click="restoreRecentSeed(seed, $event)"
+              ><code>{{ seed }}</code></a
+            >
           </li>
         </ul>
+        <p v-if="statsMessage" class="seed-message" aria-live="polite">
+          {{ statsMessage }}
+        </p>
       </div>
     </details>
 
@@ -790,6 +889,19 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="resetProgress">もう一度</button>
           <button type="button" @click="closeClearDialog">盤面を見る</button>
         </div>
+      </section>
+    </div>
+    <div v-if="waitingToStart" class="ready-overlay" role="presentation">
+      <section
+        class="ready-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ready-title"
+      >
+        <h2 id="ready-title">READY?</h2>
+        <button ref="readyButton" type="button" @click="confirmReady">
+          OK
+        </button>
       </section>
     </div>
   </main>

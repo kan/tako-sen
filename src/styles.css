@@ -87,6 +87,34 @@ h1 {
   color: #116c35;
 }
 
+.time-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pause-button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid rgb(42 27 20 / 35%);
+  padding: 0 0 0 6px;
+  background: transparent;
+  color: #2a1b14;
+  cursor: pointer;
+}
+
+.pause-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.pause-button:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
+}
+
 .play-area {
   display: grid;
   gap: 8px;
@@ -190,7 +218,8 @@ h1 {
   font-weight: 800;
 }
 
-.seed-panel {
+.seed-panel,
+.stats-panel {
   margin: 16px 0;
   border: 2px solid #2a1b14;
   border-radius: 20px;
@@ -198,14 +227,16 @@ h1 {
   box-shadow: 0 3px 0 #2a1b14;
 }
 
-.seed-panel summary {
+.seed-panel summary,
+.stats-panel summary {
   padding: 12px 14px;
   font-weight: 800;
   cursor: pointer;
   user-select: none;
 }
 
-.seed-panel-body {
+.seed-panel-body,
+.stats-panel-body {
   display: grid;
   gap: 10px;
   border-top: 2px solid rgb(42 27 20 / 18%);
@@ -258,12 +289,7 @@ h1 {
   font-size: 14px;
 }
 
-.stats-panel {
-  margin-top: 12px;
-}
-
 .stats-panel-body {
-  padding: 8px 12px;
   overflow-wrap: anywhere;
 }
 
@@ -283,6 +309,24 @@ h1 {
   margin: 5px 0;
 }
 
+.recent-seed-link {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #fff7ec;
+  color: #2a1b14;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.recent-seed-link:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
+}
+
 .dialog-backdrop {
   position: fixed;
   z-index: 10;
@@ -291,6 +335,51 @@ h1 {
   place-items: end center;
   padding: 18px 12px;
   background: rgb(42 27 20 / 28%);
+}
+
+.ready-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(42 27 20 / 88%);
+  backdrop-filter: blur(6px);
+}
+
+.ready-card {
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+  width: min(100%, 300px);
+  border: 3px solid #2a1b14;
+  border-radius: 24px;
+  padding: 30px 20px;
+  background: #fffdf8;
+  box-shadow: 0 8px 0 #ff8a5b;
+}
+
+.ready-card h2 {
+  margin: 0;
+  font-size: clamp(32px, 9vw, 48px);
+  letter-spacing: 0.04em;
+}
+
+.ready-card button {
+  min-width: 112px;
+  border: 2px solid #2a1b14;
+  border-radius: 999px;
+  padding: 10px 24px;
+  background: #ff8a5b;
+  color: #2a1b14;
+  font-weight: 900;
+  box-shadow: 0 3px 0 #2a1b14;
+}
+
+.ready-card button:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 4px;
 }
 
 .dialog-card {
