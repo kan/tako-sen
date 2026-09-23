@@ -9,7 +9,10 @@ import {
   type PlayerState,
   type Puzzle,
 } from "./core/model";
-import { generatePuzzleWithAnalysis } from "./core/generator";
+import {
+  GENERATOR_VERSION,
+  generatePuzzleWithAnalysis,
+} from "./core/generator";
 import {
   analyzePuzzleDifficulty,
   type DifficultyRating,
@@ -26,7 +29,21 @@ import {
 import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
 import { findLogicalMoves, type LogicalMove } from "./core/logical";
-import { loadGame, saveGame } from "./core/storage";
+import {
+  loadGame,
+  loadResultHistory,
+  saveGame,
+  saveResultHistory,
+} from "./core/storage";
+import {
+  finishPlay,
+  hasPlayerMarks,
+  playerMarksChanged,
+  sameSeedRanking,
+  startPlay,
+  summarizeUser,
+  type ResultHistory,
+} from "./core/results";
 import { canShowHint } from "./ui/hint";
 import { pointerReleaseAction } from "./ui/pointer";
 import {
@@ -56,6 +73,9 @@ const seedMessage = ref("");
 const showClearDialog = ref(false);
 const clearElapsedSeconds = ref<number | undefined>();
 const clearDialogMessage = ref("");
+const playId = ref<string>();
+const resultHistory = ref<ResultHistory>();
+const showStats = ref(false);
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -101,18 +121,46 @@ const elapsedSeconds = computed(() =>
 const displayedElapsedSeconds = computed(
   () => clearElapsedSeconds.value ?? elapsedSeconds.value,
 );
+const currentRanking = computed(() =>
+  resultHistory.value
+    ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
+    : [],
+);
+const currentRank = computed(
+  () =>
+    currentRanking.value.findIndex((result) => result.id === playId.value) + 1,
+);
+const userSummary = computed(() =>
+  resultHistory.value ? summarizeUser(resultHistory.value) : undefined,
+);
 
 onMounted(() => {
   clockTimer = window.setInterval(() => {
     currentTime.value = Date.now();
   }, 1000);
   const saved = loadGame();
+  resultHistory.value = loadResultHistory();
   if (saved) {
     puzzle.value = saved.puzzle;
     state.value = saved.state;
     difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
     selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
+    playId.value = saved.playId;
   }
+  if (!playId.value) {
+    beginPlay();
+  } else if (
+    !resultHistory.value.plays.some((play) => play.id === playId.value) &&
+    hasPlayerMarks(puzzle.value, state.value)
+  ) {
+    registerPlay();
+  }
+  const completedResult = resultHistory.value.plays.find(
+    (play) => play.id === playId.value && play.status === "completed",
+  );
+  if (completedResult)
+    clearElapsedSeconds.value = completedResult.elapsedSeconds;
+  else if (complete.value) finalizePlay();
 });
 
 onUnmounted(() => {
@@ -122,18 +170,62 @@ onUnmounted(() => {
 watch(
   [puzzle, state],
   () => {
-    saveGame(puzzle.value, state.value);
+    if (playId.value)
+      saveGame(puzzle.value, state.value, localStorage, playId.value);
   },
   { deep: true },
 );
 
 watch(complete, (isCompleteNow, wasComplete) => {
   if (isCompleteNow && !wasComplete) {
-    clearElapsedSeconds.value = elapsedSeconds.value;
+    finalizePlay();
     clearDialogMessage.value = "";
     showClearDialog.value = true;
   }
 });
+
+function beginPlay(): void {
+  if (!resultHistory.value) return;
+  playId.value = crypto.randomUUID();
+  saveGame(puzzle.value, state.value, localStorage, playId.value);
+}
+
+function registerPlay(): void {
+  if (!resultHistory.value || !playId.value) return;
+  if (resultHistory.value.plays.some((play) => play.id === playId.value))
+    return;
+  resultHistory.value = startPlay(resultHistory.value, {
+    id: playId.value,
+    seedCode: puzzleSeedCode.value,
+    generatorVersion: puzzle.value.generatorVersion ?? GENERATOR_VERSION,
+    difficulty: puzzle.value.difficulty ?? "easy",
+    startedAt: state.value.startedAt,
+  });
+  saveResultHistory(resultHistory.value);
+}
+
+function commitPlayerState(next: PlayerState): void {
+  if (playerMarksChanged(state.value, next)) registerPlay();
+  state.value = next;
+}
+
+function finalizePlay(): void {
+  if (!resultHistory.value || !playId.value) return;
+  const completedAt = Date.now();
+  const updated = finishPlay(
+    resultHistory.value,
+    playId.value,
+    completedAt,
+    state.value.mistakes,
+    state.value.hintsUsed,
+  );
+  if (updated === resultHistory.value) return;
+  resultHistory.value = updated;
+  saveResultHistory(updated);
+  clearElapsedSeconds.value = updated.plays.find(
+    (play) => play.id === playId.value,
+  )?.elapsedSeconds;
+}
 
 function newGame(): void {
   const seed = `game-${Date.now()}`;
@@ -151,6 +243,7 @@ function newGame(): void {
   clearDialogMessage.value = "";
   restoreSeedCode.value = "";
   seedMessage.value = "新しい問題を生成しました。";
+  beginPlay();
 }
 
 async function copySeed(): Promise<void> {
@@ -185,6 +278,7 @@ function restoreFromSeed(): void {
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
   seedMessage.value = "シードから問題を復元しました。";
+  beginPlay();
 }
 
 function resetProgress(): void {
@@ -198,6 +292,7 @@ function resetProgress(): void {
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
+  beginPlay();
 }
 
 function cellLabel(index: number): string {
@@ -211,7 +306,7 @@ function onTap(index: number): void {
     suppressNextClick = false;
     return;
   }
-  state.value = toggleExcluded(state.value, index);
+  commitPlayerState(toggleExcluded(state.value, index));
   hint.value = undefined;
 }
 
@@ -279,10 +374,8 @@ function endPointerPress(event: PointerEvent): void {
   });
 
   if (action === "place-piece") {
-    state.value = placePiece(
-      puzzle.value,
-      state.value,
-      activePointer.startCell,
+    commitPlayerState(
+      placePiece(puzzle.value, state.value, activePointer.startCell),
     );
     hint.value = undefined;
     suppressUpcomingClick();
@@ -313,7 +406,7 @@ function suppressUpcomingClick(): void {
 
 function addDraggedExcludedMark(index: number): void {
   const previousExcludedCount = state.value.excluded.size;
-  state.value = addExcludedMarks(state.value, [index]);
+  commitPlayerState(addExcludedMarks(state.value, [index]));
   if (state.value.excluded.size !== previousExcludedCount)
     hint.value = undefined;
 }
@@ -340,9 +433,11 @@ function onBoardPointerLeave(event: PointerEvent): void {
 }
 
 function onShortcut(index: number): void {
-  state.value = addExcludedMarks(
-    state.value,
-    shortcutExclusionsForCell(puzzle.value, state.value, index),
+  commitPlayerState(
+    addExcludedMarks(
+      state.value,
+      shortcutExclusionsForCell(puzzle.value, state.value, index),
+    ),
   );
 }
 
@@ -565,6 +660,50 @@ function formatElapsed(seconds: number): string {
       </div>
     </details>
 
+    <details
+      class="stats-panel"
+      @toggle="showStats = ($event.target as HTMLDetailsElement).open"
+    >
+      <summary>ローカル成績</summary>
+      <div v-if="showStats && userSummary" class="stats-panel-body">
+        <p>
+          総プレイ {{ userSummary.plays }} 回 · クリア
+          {{ userSummary.clears }} 回 · 自己ベスト更新
+          {{ userSummary.personalBests }} 回
+        </p>
+        <h2>このシードの記録</h2>
+        <ol v-if="currentRanking.length" class="ranking-list">
+          <li v-for="result in currentRanking.slice(0, 10)" :key="result.id">
+            {{ formatElapsed(result.elapsedSeconds ?? 0) }} · ヒント
+            {{ result.hintsUsed }} · ミス {{ result.mistakes }}
+            <span v-if="result.id === playId">（今回）</span>
+          </li>
+        </ol>
+        <p v-else>このシードのクリア記録はまだありません。</p>
+        <h2>難易度別集計</h2>
+        <ul class="stats-list">
+          <li
+            v-for="summary in userSummary.byDifficulty"
+            :key="summary.difficulty"
+          >
+            <strong>{{ difficultyLabel(summary.difficulty) }}</strong
+            >：{{ summary.plays }} 回中 {{ summary.clears }} 回クリア
+            <span v-if="summary.averageSeconds !== undefined">
+              · 平均 {{ formatElapsed(Math.round(summary.averageSeconds)) }} ·
+              ミス {{ summary.averageMistakes?.toFixed(1) }} · ヒント
+              {{ summary.averageHints?.toFixed(1) }}</span
+            >
+          </li>
+        </ul>
+        <h2>最近のシード</h2>
+        <ul class="stats-list">
+          <li v-for="seed in userSummary.recentSeeds" :key="seed">
+            <code>{{ seed }}</code>
+          </li>
+        </ul>
+      </div>
+    </details>
+
     <div
       v-if="hint && hintDialogOpen && canShowHint(complete)"
       class="dialog-backdrop"
@@ -641,6 +780,10 @@ function formatElapsed(seconds: number): string {
         </dl>
         <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
           {{ clearDialogMessage }}
+        </p>
+        <p v-if="currentRank > 0">
+          このシードのローカル順位：{{ currentRank }} 位 /
+          {{ currentRanking.length }} 回
         </p>
         <div class="dialog-actions">
           <button type="button" @click="newGame">次の問題へ</button>

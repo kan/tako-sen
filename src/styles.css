@@ -258,6 +258,31 @@ h1 {
   font-size: 14px;
 }
 
+.stats-panel {
+  margin-top: 12px;
+}
+
+.stats-panel-body {
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}
+
+.stats-panel-body h2 {
+  margin: 16px 0 6px;
+  font-size: 16px;
+}
+
+.stats-list,
+.ranking-list {
+  margin: 6px 0;
+  padding-left: 24px;
+}
+
+.stats-list li,
+.ranking-list li {
+  margin: 5px 0;
+}
+
 .dialog-backdrop {
   position: fixed;
   z-index: 10;
