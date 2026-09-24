@@ -56,6 +56,13 @@ import {
 import { canShowHint } from "./ui/hint";
 import { pointerReleaseAction } from "./ui/pointer";
 import {
+  cellFeedbacksForStateChange,
+  strongestHapticFeedback,
+  vibrateForFeedback,
+  type CellFeedback,
+  type FeedbackSource,
+} from "./ui/feedback";
+import {
   assignRegionColorIndexes,
   cellRegionBorders,
   regionColorForCell,
@@ -63,6 +70,7 @@ import {
 
 const longPressMs = 520;
 const dragStartThresholdPx = 12;
+const hapticsStorageKey = "tako-sen:haptics-enabled";
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -89,6 +97,7 @@ const clearDialogMessage = ref("");
 const playId = ref<string>();
 const resultHistory = ref<ResultHistory>();
 const showStats = ref(false);
+const hapticsEnabled = ref(true);
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -100,7 +109,9 @@ type HintPanel =
 const hint = ref<HintPanel | undefined>();
 const hintDialogOpen = ref(false);
 const pressedCell = ref<number | undefined>();
+const cellFeedbacks = ref<Record<number, CellFeedback & { token: number }>>({});
 let longPressTimer: number | undefined;
+let feedbackToken = 0;
 let activePointer:
   | {
       readonly pointerId: number;
@@ -153,6 +164,7 @@ onMounted(() => {
     if (timer.value.status === "running") saveCurrentGame();
   }, 1000);
   window.addEventListener("pagehide", saveCurrentGame);
+  hapticsEnabled.value = loadHapticsEnabled();
   const saved = loadGame();
   resultHistory.value = loadResultHistory();
   if (saved) {
@@ -192,6 +204,9 @@ onUnmounted(() => {
 });
 
 watch([puzzle, state, timer], saveCurrentGame, { deep: true });
+watch(hapticsEnabled, (enabled) => {
+  localStorage.setItem(hapticsStorageKey, enabled ? "1" : "0");
+});
 
 function saveCurrentGame(): void {
   if (!playId.value) return;
@@ -207,6 +222,7 @@ watch(complete, (isCompleteNow, wasComplete) => {
     finalizePlay();
     clearDialogMessage.value = "";
     showClearDialog.value = true;
+    vibrateForFeedback(navigator, "clear", hapticsEnabled.value);
   }
 });
 
@@ -257,6 +273,17 @@ function registerPlay(): void {
 function commitPlayerState(next: PlayerState): void {
   if (playerMarksChanged(state.value, next)) registerPlay();
   state.value = next;
+}
+
+function commitPlayerStateWithFeedback(
+  next: PlayerState,
+  source: FeedbackSource,
+): void {
+  const feedbacks = cellFeedbacksForStateChange(state.value, next, source);
+  commitPlayerState(next);
+  triggerCellFeedbacks(feedbacks);
+  const haptic = strongestHapticFeedback(feedbacks);
+  if (haptic) vibrateForFeedback(navigator, haptic, hapticsEnabled.value);
 }
 
 function finalizePlay(): void {
@@ -380,7 +407,7 @@ function onTap(index: number): void {
     suppressNextClick = false;
     return;
   }
-  commitPlayerState(toggleExcluded(state.value, index));
+  commitPlayerStateWithFeedback(toggleExcluded(state.value, index), "tap");
   hint.value = undefined;
 }
 
@@ -448,8 +475,9 @@ function endPointerPress(event: PointerEvent): void {
   });
 
   if (action === "place-piece") {
-    commitPlayerState(
+    commitPlayerStateWithFeedback(
       placePiece(puzzle.value, state.value, activePointer.startCell),
+      "piece",
     );
     hint.value = undefined;
     suppressUpcomingClick();
@@ -480,7 +508,7 @@ function suppressUpcomingClick(): void {
 
 function addDraggedExcludedMark(index: number): void {
   const previousExcludedCount = state.value.excluded.size;
-  commitPlayerState(addExcludedMarks(state.value, [index]));
+  commitPlayerStateWithFeedback(addExcludedMarks(state.value, [index]), "drag");
   if (state.value.excluded.size !== previousExcludedCount)
     hint.value = undefined;
 }
@@ -507,12 +535,30 @@ function onBoardPointerLeave(event: PointerEvent): void {
 }
 
 function onShortcut(index: number): void {
-  commitPlayerState(
+  commitPlayerStateWithFeedback(
     addExcludedMarks(
       state.value,
       shortcutExclusionsForCell(puzzle.value, state.value, index),
     ),
+    "shortcut",
   );
+}
+
+function triggerCellFeedbacks(feedbacks: readonly CellFeedback[]): void {
+  if (feedbacks.length === 0) return;
+  const nextFeedbacks = { ...cellFeedbacks.value };
+  for (const feedback of feedbacks) {
+    const token = ++feedbackToken;
+    nextFeedbacks[feedback.cell] = { ...feedback, token };
+    window.setTimeout(() => {
+      const current = cellFeedbacks.value[feedback.cell];
+      if (!current || current.token !== token) return;
+      const updated = { ...cellFeedbacks.value };
+      delete updated[feedback.cell];
+      cellFeedbacks.value = updated;
+    }, 700);
+  }
+  cellFeedbacks.value = nextFeedbacks;
 }
 
 function showHint(): void {
@@ -593,6 +639,16 @@ function cellClasses(index: number): Record<string, boolean> {
     "is-hint-exclude":
       hint.value?.kind === "move" &&
       hint.value.move.excludeCells.includes(index),
+    "is-feedback-excluded-add":
+      cellFeedbacks.value[index]?.kind === "excluded-add",
+    "is-feedback-excluded-remove":
+      cellFeedbacks.value[index]?.kind === "excluded-remove",
+    "is-feedback-shortcut-exclude":
+      cellFeedbacks.value[index]?.kind === "shortcut-exclude",
+    "is-feedback-piece-place":
+      cellFeedbacks.value[index]?.kind === "piece-place",
+    "is-feedback-fixed-error":
+      cellFeedbacks.value[index]?.kind === "fixed-error",
   };
 }
 
@@ -609,7 +665,13 @@ function cellStyles(index: number): Record<string, string> {
     borderRightWidth: borders.right ? "2px" : "1px",
     borderBottomWidth: borders.bottom ? "2px" : "1px",
     borderLeftWidth: borders.left ? "2px" : "1px",
+    "--feedback-order": String(cellFeedbacks.value[index]?.order ?? 0),
+    "--feedback-delay": `${Math.min(cellFeedbacks.value[index]?.order ?? 0, 12) * 22}ms`,
   };
+}
+
+function loadHapticsEnabled(): boolean {
+  return localStorage.getItem(hapticsStorageKey) !== "0";
 }
 
 function difficultyLabel(rating: DifficultyRating): string {
@@ -723,6 +785,10 @@ function formatElapsed(seconds: number): string {
       </button>
       <button type="button" @click="resetProgress">リセット</button>
       <button type="button" @click="newGame">新しい問題</button>
+      <label class="haptics-toggle">
+        <input v-model="hapticsEnabled" type="checkbox" />
+        振動
+      </label>
     </section>
 
     <details class="seed-panel" :inert="waitingToStart">

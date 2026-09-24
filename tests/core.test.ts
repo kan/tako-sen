@@ -26,6 +26,11 @@ import {
 import { findLogicalMoves } from "../src/core/logical";
 import { canShowHint } from "../src/ui/hint";
 import { pointerReleaseAction } from "../src/ui/pointer";
+import {
+  cellFeedbacksForStateChange,
+  strongestHapticFeedback,
+  vibrateForFeedback,
+} from "../src/ui/feedback";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "../src/core/puzzle-code";
 import { analyzePuzzleDifficulty } from "../src/core/difficulty";
 import {
@@ -617,6 +622,100 @@ describe("pointer interaction", () => {
         longPressCanceled: false,
       }),
     ).toBe("tap");
+  });
+});
+
+describe("UI feedback", () => {
+  it("classifies added, removed, shortcut, piece, and fixed-error feedback from state changes", () => {
+    const base = {
+      ...createInitialPlayerState(0),
+      excluded: new Set([cellIndex(0, 0), cellIndex(0, 1)]),
+    };
+
+    expect(
+      cellFeedbacksForStateChange(
+        base,
+        {
+          ...base,
+          excluded: new Set([
+            cellIndex(0, 0),
+            cellIndex(0, 1),
+            cellIndex(0, 2),
+          ]),
+        },
+        "tap",
+      ),
+    ).toEqual([{ cell: cellIndex(0, 2), kind: "excluded-add", order: 0 }]);
+
+    expect(
+      cellFeedbacksForStateChange(
+        base,
+        {
+          ...base,
+          excluded: new Set([cellIndex(0, 0)]),
+        },
+        "tap",
+      ),
+    ).toEqual([{ cell: cellIndex(0, 1), kind: "excluded-remove", order: 0 }]);
+
+    expect(
+      cellFeedbacksForStateChange(
+        base,
+        {
+          ...base,
+          excluded: new Set([
+            cellIndex(0, 0),
+            cellIndex(0, 1),
+            cellIndex(0, 2),
+          ]),
+        },
+        "shortcut",
+      )[0]?.kind,
+    ).toBe("shortcut-exclude");
+
+    expect(
+      cellFeedbacksForStateChange(
+        base,
+        {
+          ...base,
+          excluded: new Set([cellIndex(0, 0)]),
+          pieces: new Set([cellIndex(0, 1)]),
+        },
+        "piece",
+      ),
+    ).toEqual([{ cell: cellIndex(0, 1), kind: "piece-place", order: 0 }]);
+
+    expect(
+      cellFeedbacksForStateChange(
+        base,
+        {
+          ...base,
+          excluded: new Set([cellIndex(0, 0)]),
+          fixedErrors: new Set([cellIndex(0, 1)]),
+        },
+        "piece",
+      ),
+    ).toEqual([{ cell: cellIndex(0, 1), kind: "fixed-error", order: 0 }]);
+  });
+
+  it("uses the strongest haptic pattern and respects the enabled flag", () => {
+    const calls: number[][] = [];
+    const device = {
+      vibrate: (pattern: VibratePattern) => {
+        calls.push(Array.isArray(pattern) ? pattern : [pattern]);
+        return true;
+      },
+    };
+    const feedback = strongestHapticFeedback([
+      { cell: cellIndex(0, 0), kind: "excluded-add", order: 0 },
+      { cell: cellIndex(0, 1), kind: "fixed-error", order: 1 },
+    ]);
+
+    expect(feedback).toBe("fixed-error");
+    expect(vibrateForFeedback(device, feedback ?? "clear", true)).toBe(true);
+    expect(calls[0]).toEqual([20, 28, 45]);
+    expect(vibrateForFeedback(device, "clear", false)).toBe(false);
+    expect(calls).toHaveLength(1);
   });
 });
 
