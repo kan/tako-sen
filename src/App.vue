@@ -108,6 +108,9 @@ type HintPanel =
 
 const hint = ref<HintPanel | undefined>();
 const hintDialogOpen = ref(false);
+const hintDialogRef = ref<HTMLElement>();
+const clearDialogRef = ref<HTMLElement>();
+let focusBeforeDialog: HTMLElement | null = null;
 const pressedCell = ref<number | undefined>();
 const cellFeedbacks = ref<Record<number, CellFeedback & { token: number }>>({});
 let longPressTimer: number | undefined;
@@ -132,6 +135,12 @@ const cells = computed(() =>
   Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
+const activeDialog = computed<"hint" | "clear" | undefined>(() => {
+  if (complete.value && showClearDialog.value) return "clear";
+  if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
+    return "hint";
+  return undefined;
+});
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
 const actualDifficultyLabel = computed(() =>
   difficultyLabel(difficultyAnalysis.value.rating),
@@ -204,6 +213,21 @@ onUnmounted(() => {
 });
 
 watch([puzzle, state, timer], saveCurrentGame, { deep: true });
+watch(activeDialog, async (dialog, previous) => {
+  if (dialog && !previous) {
+    focusBeforeDialog =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  }
+  await nextTick();
+  if (dialog) {
+    (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
+  } else if (previous) {
+    if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
+    focusBeforeDialog = null;
+  }
+});
 watch(hapticsEnabled, (enabled) => {
   localStorage.setItem(hapticsStorageKey, enabled ? "1" : "0");
 });
@@ -601,6 +625,41 @@ function closeClearDialog(): void {
   showClearDialog.value = false;
 }
 
+function onDialogKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (activeDialog.value === "hint") closeHintDialog();
+    else if (activeDialog.value === "clear") closeClearDialog();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const dialog =
+    activeDialog.value === "hint" ? hintDialogRef.value : clearDialogRef.value;
+  if (!dialog) return;
+  const buttons = [
+    ...dialog.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+  ];
+  if (buttons.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = buttons[0];
+  const last = buttons[buttons.length - 1];
+  if (
+    event.shiftKey &&
+    (document.activeElement === first || document.activeElement === dialog)
+  ) {
+    event.preventDefault();
+    last.focus();
+  } else if (
+    !event.shiftKey &&
+    (document.activeElement === last || document.activeElement === dialog)
+  ) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 async function copyResultSeed(): Promise<void> {
   try {
     await navigator.clipboard.writeText(puzzleSeedCode.value);
@@ -696,12 +755,12 @@ function formatElapsed(seconds: number): string {
 
 <template>
   <main class="app-shell">
-    <header class="hero" :inert="waitingToStart">
+    <header class="hero" :inert="waitingToStart || !!activeDialog">
       <h1>TAKO-SEN</h1>
       <p class="eyebrow">PROTOTYPE</p>
     </header>
 
-    <section class="play-area" :inert="waitingToStart">
+    <section class="play-area" :inert="waitingToStart || !!activeDialog">
       <section class="status-bar" aria-live="polite">
         <span>ミス {{ state.mistakes }}</span>
         <span>ヒント {{ state.hintsUsed }}</span>
@@ -771,7 +830,7 @@ function formatElapsed(seconds: number): string {
       </section>
     </section>
 
-    <section class="actions" :inert="waitingToStart">
+    <section class="actions" :inert="waitingToStart || !!activeDialog">
       <label class="difficulty-select">
         難易度
         <select v-model="selectedDifficulty">
@@ -791,7 +850,7 @@ function formatElapsed(seconds: number): string {
       </label>
     </section>
 
-    <details class="seed-panel" :inert="waitingToStart">
+    <details class="seed-panel" :inert="waitingToStart || !!activeDialog">
       <summary>シード表示・復元</summary>
       <div class="seed-panel-body" aria-label="シード">
         <div>
@@ -818,7 +877,7 @@ function formatElapsed(seconds: number): string {
 
     <details
       class="stats-panel"
-      :inert="waitingToStart"
+      :inert="waitingToStart || !!activeDialog"
       @toggle="showStats = ($event.target as HTMLDetailsElement).open"
     >
       <summary>ローカル成績</summary>
@@ -876,10 +935,13 @@ function formatElapsed(seconds: number): string {
       @click.self="closeHintDialog"
     >
       <section
+        ref="hintDialogRef"
         class="dialog-card hint-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="hint-title"
+        tabindex="-1"
+        @keydown="onDialogKeydown"
       >
         <div class="dialog-header">
           <h2 id="hint-title">
@@ -909,10 +971,13 @@ function formatElapsed(seconds: number): string {
       @click.self="closeClearDialog"
     >
       <section
+        ref="clearDialogRef"
         class="dialog-card clear-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="clear-title"
+        tabindex="-1"
+        @keydown="onDialogKeydown"
       >
         <p class="clear-badge">CLEAR</p>
         <h2 id="clear-title">クリアしました！</h2>

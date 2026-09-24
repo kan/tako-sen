@@ -8,9 +8,9 @@ TAKO-SEN は、Star Battle 系のパズルをベースにした、スマート�
 
 このリポジトリは現在開発中です。
 
-8×8 の問題生成からクリア、ヒント、ローカル成績まで遊べるプロトタイプです。問題の多様性・難易度精度、ヒントの段階的開示、演出やアクセシビリティは引き続き改善中です。
+8×8 の問題生成からクリア、ヒント、ローカル成績まで遊べる初期版です。問題の多様性・難易度精度、ヒントの段階的開示、アクセシビリティは引き続き改善中です。
 
-詳細な設計方針は [`docs/DESIGN.md`](docs/DESIGN.md)、直近の実装計画は [`docs/MILESTONE.md`](docs/MILESTONE.md) を参照してください。
+詳細な設計方針は [`docs/DESIGN.md`](docs/DESIGN.md)、初期版の実装経緯は [`docs/MILESTONE.md`](docs/MILESTONE.md)、次フェーズの仕様と着手順は [`docs/NEXT_PHASE.md`](docs/NEXT_PHASE.md) を参照してください。
 
 ## 現在できること
 
