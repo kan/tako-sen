@@ -23,9 +23,22 @@ import {
   regionLineExclusions,
   shortcutExclusionsForCell,
 } from "../src/core/shortcuts";
-import { findLogicalMoves } from "../src/core/logical";
-import { canShowHint } from "../src/ui/hint";
-import { pointerReleaseAction } from "../src/ui/pointer";
+import {
+  findContradictionExclusions,
+  findLogicalMoves,
+} from "../src/core/logical";
+import {
+  canShowHint,
+  hintExcludeCells,
+  hintFocusCells,
+  hintStageCount,
+  hintStageLines,
+} from "../src/ui/hint";
+import {
+  canonicalPuzzleDefinition,
+  puzzleId,
+} from "../src/core/puzzle-identity";
+import { LONG_PRESS_MS, pointerReleaseAction } from "../src/ui/pointer";
 import {
   cellFeedbacksForStateChange,
   strongestHapticFeedback,
@@ -113,6 +126,22 @@ describe("player operations", () => {
     const state = placePiece(puzzle, createInitialPlayerState(0), wrong ?? 0);
     expect(state.fixedErrors.has(wrong ?? 0)).toBe(true);
     expect(state.mistakes).toBe(1);
+  });
+
+  it("requires removing × before placing a piece on that cell", () => {
+    const puzzle = generatePuzzle({ seed: "excluded-piece" });
+    const correct = puzzle.solution[0];
+    const wrong = Array.from(
+      { length: BOARD_SIZE * BOARD_SIZE },
+      (_, index) => index,
+    ).find((index) => !puzzle.solution.includes(index));
+    expect(wrong).toBeDefined();
+    for (const index of [correct, wrong ?? 0]) {
+      const excluded = toggleExcluded(createInitialPlayerState(0), index);
+      expect(placePiece(puzzle, excluded, index)).toBe(excluded);
+      const unmarked = toggleExcluded(excluded, index);
+      expect(placePiece(puzzle, unmarked, index)).not.toBe(unmarked);
+    }
   });
 
   it("resets board marks, pieces, mistakes, and hint count for the same puzzle", () => {
@@ -220,6 +249,63 @@ describe("shortcuts", () => {
 });
 
 describe("logical hints", () => {
+  it("reveals reasoning and exclusions only in later stages", () => {
+    const puzzle = generatePuzzle({ seed: "hint-stages" });
+    const move = findLogicalMoves(
+      puzzle,
+      createInitialPlayerState(0, puzzle.givens),
+    ).find((candidate) => candidate.technique !== "contradiction");
+    expect(move).toBeDefined();
+    if (!move) return;
+    expect(hintStageCount(move)).toBe(3);
+    expect(hintStageLines(move, 1)).not.toEqual(move.explanation);
+    expect(hintStageLines(move, 2)).toEqual([move.explanation[0]]);
+    expect(hintStageLines(move, 3)).toEqual(move.explanation.slice(1));
+    expect(hintExcludeCells(move, 1)).toEqual([]);
+    expect(hintExcludeCells(move, 2)).toEqual([]);
+    expect(hintExcludeCells(move, 3)).toEqual(move.excludeCells);
+    expect(hintFocusCells(puzzle, move, 2)).toEqual(move.focusCells);
+  });
+
+  it("does not reveal a single-candidate cell in the first stage", () => {
+    const puzzle = generatePuzzle({ seed: "hint-single-stage" });
+    const answer = puzzle.solution.find(
+      (cell) => Math.floor(cell / BOARD_SIZE) === 0,
+    );
+    expect(answer).toBeDefined();
+    const state = addExcludedMarks(
+      createInitialPlayerState(0),
+      Array.from({ length: BOARD_SIZE }, (_, col) => cellIndex(0, col)).filter(
+        (cell) => cell !== answer,
+      ),
+    );
+    const move = findLogicalMoves(puzzle, state).find(
+      (candidate) =>
+        candidate.technique === "single-candidate" && candidate.row === 0,
+    );
+    expect(move).toBeDefined();
+    if (!move) return;
+    expect(hintFocusCells(puzzle, move, 1)).toHaveLength(BOARD_SIZE);
+    expect(hintFocusCells(puzzle, move, 2)).toEqual([answer]);
+  });
+
+  it("only pinpoints a removable contradictory × at the last stage", () => {
+    const puzzle = generatePuzzle({ seed: "hint-cause" });
+    const wrongMark = puzzle.solution[0];
+    const state = addExcludedMarks(createInitialPlayerState(0), [wrongMark]);
+    const move = findLogicalMoves(puzzle, state)[0];
+    expect(move.technique).toBe("contradiction");
+    const causes = findContradictionExclusions(puzzle, state);
+    expect(causes).toEqual([wrongMark]);
+    expect(hintStageCount(move)).toBe(4);
+    expect(hintFocusCells(puzzle, move, 1, causes)).toEqual([]);
+    expect(hintFocusCells(puzzle, move, 4, causes)).toEqual(causes);
+    expect(hintStageLines(move, 4, causes)[0]).toContain("1個");
+    expect(
+      findContradictionExclusions(puzzle, createInitialPlayerState(0)),
+    ).toEqual([]);
+  });
+
   it("does not suggest another piece in a row that already has a confirmed piece, even when fixed errors leave one open cell", () => {
     const puzzle = generatePuzzle({ seed: "hint-fixed-error" });
     const confirmedPiece = puzzle.solution[0];
@@ -395,6 +481,28 @@ describe("logical hints", () => {
 });
 
 describe("generator", () => {
+  it("identifies the playable board without exposing the solution or seed", async () => {
+    const puzzle = generatePuzzle({ seed: "identity" });
+    const equivalent = {
+      ...puzzle,
+      seed: "another-seed",
+      solution: [...puzzle.solution].reverse(),
+    };
+    expect(canonicalPuzzleDefinition(equivalent)).toBe(
+      canonicalPuzzleDefinition(puzzle),
+    );
+    expect(await puzzleId(equivalent)).toBe(await puzzleId(puzzle));
+    expect(await puzzleId({ ...puzzle, generatorVersion: "g2" })).not.toBe(
+      await puzzleId(puzzle),
+    );
+    expect(
+      await puzzleId({ ...puzzle, regions: [...puzzle.regions].reverse() }),
+    ).not.toBe(await puzzleId(puzzle));
+    expect(
+      await puzzleId({ ...puzzle, givens: [puzzle.solution[0]] }),
+    ).not.toBe(await puzzleId(puzzle));
+  });
+
   it("is deterministic for the same seed", () => {
     const a = generatePuzzle({ seed: "same-seed" });
     const b = generatePuzzle({ seed: "same-seed" });
@@ -588,11 +696,34 @@ describe("difficulty analysis", () => {
 });
 
 describe("pointer interaction", () => {
+  it("does not confirm or unmark an excluded cell after a long press", () => {
+    expect(
+      pointerReleaseAction({
+        elapsedMs: LONG_PRESS_MS,
+        longPressMs: LONG_PRESS_MS,
+        dragging: false,
+        longPressReady: false,
+        longPressCanceled: false,
+        pieceDisabled: true,
+      }),
+    ).toBe("suppress-click");
+    expect(
+      pointerReleaseAction({
+        elapsedMs: LONG_PRESS_MS - 1,
+        longPressMs: LONG_PRESS_MS,
+        dragging: false,
+        longPressReady: false,
+        longPressCanceled: false,
+        pieceDisabled: true,
+      }),
+    ).toBe("tap");
+  });
+
   it("places a piece when released after the long press duration even if the timer callback has not marked it ready yet", () => {
     expect(
       pointerReleaseAction({
-        elapsedMs: 520,
-        longPressMs: 520,
+        elapsedMs: LONG_PRESS_MS,
+        longPressMs: LONG_PRESS_MS,
         dragging: false,
         longPressReady: false,
         longPressCanceled: false,
@@ -604,7 +735,7 @@ describe("pointer interaction", () => {
     expect(
       pointerReleaseAction({
         elapsedMs: 700,
-        longPressMs: 520,
+        longPressMs: LONG_PRESS_MS,
         dragging: false,
         longPressReady: true,
         longPressCanceled: true,
@@ -615,8 +746,8 @@ describe("pointer interaction", () => {
   it("keeps a short press as a normal tap", () => {
     expect(
       pointerReleaseAction({
-        elapsedMs: 120,
-        longPressMs: 520,
+        elapsedMs: LONG_PRESS_MS - 1,
+        longPressMs: LONG_PRESS_MS,
         dragging: false,
         longPressReady: false,
         longPressCanceled: false,

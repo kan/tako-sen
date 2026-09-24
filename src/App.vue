@@ -37,7 +37,11 @@ import {
 } from "./core/player";
 import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
-import { findLogicalMoves, type LogicalMove } from "./core/logical";
+import {
+  findContradictionExclusions,
+  findLogicalMoves,
+  type LogicalMove,
+} from "./core/logical";
 import {
   loadGame,
   loadResultHistory,
@@ -53,8 +57,14 @@ import {
   summarizeUser,
   type ResultHistory,
 } from "./core/results";
-import { canShowHint } from "./ui/hint";
-import { pointerReleaseAction } from "./ui/pointer";
+import {
+  canShowHint,
+  hintExcludeCells,
+  hintFocusCells,
+  hintStageCount,
+  hintStageLines,
+} from "./ui/hint";
+import { LONG_PRESS_MS, pointerReleaseAction } from "./ui/pointer";
 import {
   cellFeedbacksForStateChange,
   strongestHapticFeedback,
@@ -68,7 +78,6 @@ import {
   regionColorForCell,
 } from "./ui/region-visuals";
 
-const longPressMs = 520;
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const initialGenerated = generatePuzzleWithAnalysis({
@@ -88,6 +97,7 @@ const currentTime = ref(Date.now());
 const timer = ref<PlayTimer>(createWaitingTimer());
 const waitingToStart = computed(() => timer.value.status === "ready");
 const readyButton = ref<HTMLButtonElement>();
+const boardWrap = ref<HTMLElement>();
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
 const statsMessage = ref("");
@@ -108,6 +118,7 @@ type HintPanel =
 
 const hint = ref<HintPanel | undefined>();
 const hintDialogOpen = ref(false);
+const hintStage = ref(1);
 const hintDialogRef = ref<HTMLElement>();
 const clearDialogRef = ref<HTMLElement>();
 let focusBeforeDialog: HTMLElement | null = null;
@@ -125,6 +136,7 @@ let activePointer:
       dragging: boolean;
       longPressReady: boolean;
       longPressCanceled: boolean;
+      readonly pieceDisabled: boolean;
     }
   | undefined;
 let suppressNextClick = false;
@@ -165,6 +177,13 @@ const currentRank = computed(
 );
 const userSummary = computed(() =>
   resultHistory.value ? summarizeUser(resultHistory.value) : undefined,
+);
+const contradictionCells = computed(() =>
+  hint.value?.kind === "move" &&
+  hint.value.move.technique === "contradiction" &&
+  hintStage.value === 4
+    ? findContradictionExclusions(puzzle.value, state.value)
+    : [],
 );
 
 onMounted(() => {
@@ -345,6 +364,7 @@ function newGame(): void {
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
+  hintStage.value = 1;
   hintDialogOpen.value = false;
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
@@ -353,6 +373,16 @@ function newGame(): void {
   seedMessage.value = "新しい問題を生成しました。";
   statsMessage.value = "";
   beginPlay();
+  centerBoardAfterPuzzleChange();
+}
+
+function centerBoardAfterPuzzleChange(): void {
+  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  void nextTick(() =>
+    boardWrap.value?.scrollIntoView({ block: "center", behavior }),
+  );
 }
 
 async function copySeed(): Promise<void> {
@@ -371,8 +401,8 @@ function restoreFromSeed(): void {
 }
 
 function restoreRecentSeed(code: string, event: MouseEvent): void {
+  event.preventDefault();
   if (!restoreSeed(code)) {
-    event.preventDefault();
     statsMessage.value = seedMessage.value;
     return;
   }
@@ -396,12 +426,14 @@ function restoreSeed(code: string): boolean {
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
   hint.value = undefined;
+  hintStage.value = 1;
   hintDialogOpen.value = false;
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
   seedMessage.value = "シードから問題を復元しました。";
   beginPlay();
+  centerBoardAfterPuzzleChange();
   return true;
 }
 
@@ -412,6 +444,7 @@ function resetProgress(): void {
     puzzle.value.givens,
   );
   hint.value = undefined;
+  hintStage.value = 1;
   hintDialogOpen.value = false;
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
@@ -438,6 +471,7 @@ function onTap(index: number): void {
 function startPointerPress(index: number, event: PointerEvent): void {
   if (!event.isPrimary) return;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  const pieceDisabled = state.value.excluded.has(index);
   activePointer = {
     pointerId: event.pointerId,
     startCell: index,
@@ -447,8 +481,9 @@ function startPointerPress(index: number, event: PointerEvent): void {
     dragging: false,
     longPressReady: false,
     longPressCanceled: false,
+    pieceDisabled,
   };
-  startLongPress(index);
+  if (!pieceDisabled) startLongPress(index);
 }
 
 function startLongPress(index: number): void {
@@ -459,7 +494,7 @@ function startLongPress(index: number): void {
       pressedCell.value = index;
     }
     longPressTimer = undefined;
-  }, longPressMs);
+  }, LONG_PRESS_MS);
 }
 
 function onBoardPointerMove(event: PointerEvent): void {
@@ -492,10 +527,11 @@ function endPointerPress(event: PointerEvent): void {
 
   const action = pointerReleaseAction({
     elapsedMs: Date.now() - activePointer.startedAt,
-    longPressMs,
+    longPressMs: LONG_PRESS_MS,
     dragging: activePointer.dragging,
     longPressReady: activePointer.longPressReady,
     longPressCanceled: activePointer.longPressCanceled,
+    pieceDisabled: activePointer.pieceDisabled,
   });
 
   if (action === "place-piece") {
@@ -599,6 +635,7 @@ function showHint(): void {
       logicalMoveKey(hint.value.move) !== logicalMoveKey(nextHint)
     ) {
       state.value = countHintUsed(state.value);
+      hintStage.value = 1;
     }
     hint.value = { kind: "move", move: nextHint };
     hintDialogOpen.value = true;
@@ -621,6 +658,33 @@ function closeHintDialog(): void {
   hintDialogOpen.value = false;
 }
 
+function revealNextHintStage(): void {
+  if (hint.value?.kind !== "move") return;
+  hintStage.value = Math.min(
+    hintStage.value + 1,
+    hintStageCount(hint.value.move),
+  );
+  if (hintStage.value === hintStageCount(hint.value.move))
+    void nextTick(() => hintDialogRef.value?.focus());
+}
+
+function applyHintExclusions(): void {
+  if (
+    hint.value?.kind !== "move" ||
+    hintStage.value < 3 ||
+    hint.value.move.technique === "contradiction"
+  )
+    return;
+  const exclusions = hintExcludeCells(hint.value.move, hintStage.value);
+  if (exclusions.length === 0) return;
+  commitPlayerStateWithFeedback(
+    addExcludedMarks(state.value, exclusions),
+    "shortcut",
+  );
+  hint.value = undefined;
+  closeHintDialog();
+}
+
 function closeClearDialog(): void {
   showClearDialog.value = false;
 }
@@ -636,15 +700,17 @@ function onDialogKeydown(event: KeyboardEvent): void {
   const dialog =
     activeDialog.value === "hint" ? hintDialogRef.value : clearDialogRef.value;
   if (!dialog) return;
-  const buttons = [
-    ...dialog.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+  const focusable = [
+    ...dialog.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), select:not([disabled]), input:not([disabled]), a[href]",
+    ),
   ];
-  if (buttons.length === 0) {
+  if (focusable.length === 0) {
     event.preventDefault();
     return;
   }
-  const first = buttons[0];
-  const last = buttons[buttons.length - 1];
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
   if (
     event.shiftKey &&
     (document.activeElement === first || document.activeElement === dialog)
@@ -694,10 +760,16 @@ function cellClasses(index: number): Record<string, boolean> {
     "is-fixed-error": viewState === "fixed-error",
     "is-pressed": pressedCell.value === index,
     "is-hint-focus":
-      hint.value?.kind === "move" && hint.value.move.focusCells.includes(index),
+      hint.value?.kind === "move" &&
+      hintFocusCells(
+        puzzle.value,
+        hint.value.move,
+        hintStage.value,
+        contradictionCells.value,
+      ).includes(index),
     "is-hint-exclude":
       hint.value?.kind === "move" &&
-      hint.value.move.excludeCells.includes(index),
+      hintExcludeCells(hint.value.move, hintStage.value).includes(index),
     "is-feedback-excluded-add":
       cellFeedbacks.value[index]?.kind === "excluded-add",
     "is-feedback-excluded-remove":
@@ -785,7 +857,7 @@ function formatElapsed(seconds: number): string {
         <span>評価 {{ actualDifficultyLabel }}</span>
       </section>
 
-      <section class="board-wrap">
+      <section ref="boardWrap" class="board-wrap">
         <div
           class="board"
           id="board"
@@ -945,22 +1017,51 @@ function formatElapsed(seconds: number): string {
       >
         <div class="dialog-header">
           <h2 id="hint-title">
-            {{ hint.kind === "move" ? hint.move.title : hint.title }}
+            {{ hint.kind === "move" ? "ヒント" : hint.title }}
           </h2>
           <button type="button" class="dialog-close" @click="closeHintDialog">
             閉じる
           </button>
         </div>
+        <p v-if="hint.kind === 'move'">
+          {{
+            hintStage >= 3 || hint.move.technique === "contradiction"
+              ? hint.move.title
+              : hintStage === 2
+                ? "パターンを確認"
+                : "注目箇所"
+          }}
+          · ステップ {{ hintStage }} / {{ hintStageCount(hint.move) }}
+        </p>
         <ol>
           <li
             v-for="line in hint.kind === 'move'
-              ? hint.move.explanation
+              ? hintStageLines(hint.move, hintStage, contradictionCells)
               : hint.explanation"
             :key="line"
           >
             {{ line }}
           </li>
         </ol>
+        <div v-if="hint.kind === 'move'" class="dialog-actions">
+          <button
+            v-if="hintStage < hintStageCount(hint.move)"
+            type="button"
+            @click="revealNextHintStage"
+          >
+            次のヒント
+          </button>
+          <button
+            v-if="hintStage >= 3 && hint.move.excludeCells.length > 0"
+            type="button"
+            @click="applyHintExclusions"
+          >
+            ×を適用
+          </button>
+          <p v-if="hintStage >= 3 && hint.move.placeCell !== undefined">
+            強調されたセルを長押しするとタコを確定できます。
+          </p>
+        </div>
       </section>
     </div>
 
@@ -970,6 +1071,17 @@ function formatElapsed(seconds: number): string {
       role="presentation"
       @click.self="closeClearDialog"
     >
+      <div class="clear-confetti" aria-hidden="true">
+        <span
+          v-for="index in 20"
+          :key="index"
+          :style="{
+            '--offset-x': `${(index - 10.5) * 30}px`,
+            '--delay': `${index * 20}ms`,
+            '--rotation': `${index * 57}deg`,
+          }"
+        />
+      </div>
       <section
         ref="clearDialogRef"
         class="dialog-card clear-card"
@@ -1015,6 +1127,14 @@ function formatElapsed(seconds: number): string {
           このシードのローカル順位：{{ currentRank }} 位 /
           {{ currentRanking.length }} 回
         </p>
+        <label class="clear-next-difficulty">
+          次の問題の難易度
+          <select v-model="selectedDifficulty">
+            <option value="easy">初級</option>
+            <option value="normal">中級</option>
+            <option value="hard">上級</option>
+          </select>
+        </label>
         <div class="dialog-actions">
           <button type="button" @click="newGame">次の問題へ</button>
           <button type="button" @click="resetProgress">もう一度</button>

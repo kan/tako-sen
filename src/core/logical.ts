@@ -66,6 +66,19 @@ export function findLogicalMoves(
   ];
 }
 
+/** Removing one of these marks alone makes the current constraints solvable. */
+export function findContradictionExclusions(
+  puzzle: Pick<Puzzle, "regions">,
+  state: PlayerState,
+): number[] {
+  if (!hasContradiction(puzzle, state)) return [];
+  return [...state.excluded].filter((index) => {
+    const excluded = new Set(state.excluded);
+    excluded.delete(index);
+    return !hasContradiction(puzzle, { ...state, excluded });
+  });
+}
+
 function findSingleCandidates(
   puzzle: Pick<Puzzle, "regions">,
   state: PlayerState,

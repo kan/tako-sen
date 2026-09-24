@@ -15,7 +15,8 @@ import {
   saveResultHistory,
   type KeyValueStorage,
 } from "../src/core/storage";
-import { createInitialPlayerState, type Puzzle } from "../src/core/model";
+import { createInitialPlayerState } from "../src/core/model";
+import { generatePuzzle } from "../src/core/generator";
 
 function memoryStorage(): KeyValueStorage {
   const items = new Map<string, string>();
@@ -26,6 +27,8 @@ function memoryStorage(): KeyValueStorage {
     },
   };
 }
+
+const savedPuzzle = generatePuzzle({ seed: "storage-fixture" });
 
 function begin(
   history: ResultHistory,
@@ -56,12 +59,7 @@ describe("local results", () => {
 
   it("keeps the current attempt id in the separate in-progress save", () => {
     const storage = memoryStorage();
-    const puzzle = {
-      size: 8,
-      regions: Array(64).fill(0),
-      solution: [],
-      seed: "one",
-    } as Puzzle;
+    const puzzle = savedPuzzle;
     const state = createInitialPlayerState(1234);
     const history = begin(
       loadResultHistory(storage, () => "user"),
@@ -98,7 +96,7 @@ describe("local results", () => {
     storage.setItem(
       "tako-sen.current-game.v1",
       JSON.stringify({
-        puzzle: { size: 8, regions: [], solution: [], seed: "old" },
+        puzzle: savedPuzzle,
         state: {
           excluded: [],
           pieces: [],
@@ -110,6 +108,65 @@ describe("local results", () => {
       }),
     );
     expect(loadGame(storage)?.timer.waitingToStart).toBe(false);
+  });
+
+  it("backs up malformed current-game data and starts without it", () => {
+    const storage = memoryStorage();
+    storage.setItem("tako-sen.current-game.v1", "{broken");
+    expect(loadGame(storage)).toBeUndefined();
+    expect(storage.getItem("tako-sen.current-game.v1.corrupt")).toBe("{broken");
+  });
+
+  it("rejects an invalid saved board without losing its raw value", () => {
+    const storage = memoryStorage();
+    const raw = JSON.stringify({
+      puzzle: { ...savedPuzzle, regions: [] },
+      state: {
+        excluded: [],
+        pieces: [],
+        fixedErrors: [],
+        mistakes: 0,
+        hintsUsed: 0,
+        startedAt: 1000,
+      },
+    });
+    storage.setItem("tako-sen.current-game.v1", raw);
+    expect(loadGame(storage)).toBeUndefined();
+    expect(storage.getItem("tako-sen.current-game.v1.corrupt")).toBe(raw);
+  });
+
+  it("backs up invalid result records and creates a new local session", () => {
+    const storage = memoryStorage();
+    const raw = JSON.stringify({
+      version: 1,
+      userId: "old",
+      plays: [{ id: "bad" }],
+    });
+    storage.setItem("tako-sen.results.v1", raw);
+    expect(loadResultHistory(storage, () => "replacement")).toEqual({
+      version: 1,
+      userId: "replacement",
+      plays: [],
+    });
+    expect(storage.getItem("tako-sen.results.v1.corrupt")).toBe(raw);
+  });
+
+  it("continues offline play when browser storage is unavailable", () => {
+    const unavailable: KeyValueStorage = {
+      getItem: () => {
+        throw new Error("unavailable");
+      },
+      setItem: () => {
+        throw new Error("unavailable");
+      },
+    };
+    expect(loadGame(unavailable)).toBeUndefined();
+    const history = loadResultHistory(unavailable, () => "temporary");
+    expect(history.userId).toBe("temporary");
+    expect(() =>
+      saveGame(savedPuzzle, createInitialPlayerState(0), unavailable),
+    ).not.toThrow();
+    expect(() => saveResultHistory(history, unavailable)).not.toThrow();
   });
 
   it("does not start a play for an untouched board, even with a given piece", () => {

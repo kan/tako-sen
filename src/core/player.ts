@@ -21,20 +21,22 @@ export function placePiece(
   index: number,
 ): PlayerState {
   assertCellIndex(index);
-  if (state.pieces.has(index) || state.fixedErrors.has(index)) return state;
-
-  const excluded = new Set(state.excluded);
-  excluded.delete(index);
+  if (
+    state.pieces.has(index) ||
+    state.fixedErrors.has(index) ||
+    state.excluded.has(index)
+  )
+    return state;
 
   if (isCorrectPiece(puzzle, index)) {
     const pieces = new Set(state.pieces);
     pieces.add(index);
-    return { ...state, excluded, pieces };
+    return { ...state, pieces };
   }
 
   const fixedErrors = new Set(state.fixedErrors);
   fixedErrors.add(index);
-  return { ...state, excluded, fixedErrors, mistakes: state.mistakes + 1 };
+  return { ...state, fixedErrors, mistakes: state.mistakes + 1 };
 }
 
 export function addExcludedMarks(
