@@ -60,6 +60,35 @@ npm install
 npm run dev
 ```
 
+未ログイン・オフラインでのプレイには API の起動は不要です。履歴同期をローカルで試す場合は、Clerk Development アプリの公開可能キーを `.env.local` に設定します。
+
+```text
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+```
+
+別途、秘密鍵を含む `.dev.vars` をリポジトリ直下に作成します。どちらのファイルも Git の管理対象外です。`CLERK_PUBLISHABLE_KEY` には `.env.local` と同じ公開可能キーを設定します。`CLERK_SECRET_KEY` は Clerk Dashboard の Secret Key を使い、チャットやリポジトリへ貼らないでください。
+
+```text
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+CLERK_WEBHOOK_SIGNING_SECRET=whsec_...
+ALLOWED_ORIGINS="http://localhost:5173,http://localhost:8787"
+```
+
+`CLERK_WEBHOOK_SIGNING_SECRET` は Clerk Dashboard の Webhooks で `POST /api/clerk-webhook` に `user.deleted` を配信するエンドポイントを作成した後、その Signing Secret を設定します。ローカルで webhook を試すには外部から到達できる HTTPS 転送が必要です。値をチャットやリポジトリに貼らないでください。
+
+最初にローカル D1 へマイグレーションを適用し、2つのターミナルで API と画面を起動します。Vite の `/api` はローカル Worker へ転送されます。
+
+```bash
+npx wrangler d1 migrations apply tako-sen-dev --local
+npm run build
+npm run dev:api
+# 別ターミナルで
+npm run dev
+```
+
+ログイン後の「オンライン履歴」から明示的に取り込んだクリア結果だけを送信します。送信後もローカル履歴は削除しません。通信失敗時もゲーム本体は引き続き利用できます。退会操作では Clerk アカウントとオンライン履歴を削除し、端末のローカル履歴は残します。Clerk Dashboard 等から直接削除された場合の履歴削除には、`POST /api/clerk-webhook` に `user.deleted` を送る Clerk webhook と `CLERK_WEBHOOK_SIGNING_SECRET` の設定が必要です。Webhook の設定・到達確認と公開環境へのデプロイは未完了です。
+
 ## テスト
 
 ```bash

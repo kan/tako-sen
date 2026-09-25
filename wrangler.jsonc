@@ -2,8 +2,31 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tako-sen",
   "compatibility_date": "2026-09-15",
+  "main": "./src/worker/index.ts",
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tako-sen-dev",
+      "database_id": "0030813b-7c99-403d-b33b-85fd632ebf65",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "secrets": {
+    "required": [
+      "CLERK_PUBLISHABLE_KEY",
+      "CLERK_SECRET_KEY",
+      "CLERK_WEBHOOK_SIGNING_SECRET",
+      "ALLOWED_ORIGINS",
+    ],
+  },
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true },
   },
 }

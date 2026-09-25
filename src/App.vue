@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/vue";
+import AccountHistory from "./ui/AccountHistory.vue";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -1014,6 +1015,12 @@ function formatElapsed(seconds: number): string {
         </p>
       </div>
     </details>
+
+    <AccountHistory
+      v-if="onlineAuthEnabled && resultHistory"
+      :plays="resultHistory.plays"
+      :inert="waitingToStart || !!activeDialog"
+    />
 
     <div
       v-if="hint && hintDialogOpen && canShowHint(complete)"

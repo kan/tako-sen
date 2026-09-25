@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "wrangler dev",
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "format": "prettier --write ."
   },
   "dependencies": {
+    "@clerk/backend": "^3.20.1",
     "@clerk/vue": "^2.5.6",
     "@vitejs/plugin-vue": "^5.2.0",
     "typescript": "^5.7.0",
@@ -20,6 +22,8 @@
     "vue-tsc": "^2.2.0"
   },
   "devDependencies": {
-    "prettier": "^3.4.0"
+    "@types/node": "^26.6.2",
+    "prettier": "^3.4.0",
+    "wrangler": "^4.140.0"
   }
 }
