@@ -1,4 +1,6 @@
-import type { Puzzle } from "./model";
+import { BOARD_SIZE, type Puzzle } from "./model";
+import { validateSolution } from "./rules";
+import { solvePuzzle } from "./solver";
 
 /** The seed and solution are deliberately absent: identity is the playable board. */
 export function canonicalPuzzleDefinition(
@@ -13,9 +15,15 @@ export function canonicalPuzzleDefinition(
   ]);
 }
 
-export async function puzzleId(
-  puzzle: Pick<Puzzle, "size" | "regions" | "givens" | "generatorVersion">,
-): Promise<string> {
+export async function puzzleId(puzzle: Puzzle): Promise<string> {
+  if (
+    puzzle.size !== BOARD_SIZE ||
+    !validateSolution(puzzle).valid ||
+    new Set(puzzle.givens ?? []).size !== (puzzle.givens ?? []).length ||
+    solvePuzzle(puzzle, { maxSolutions: 2 }).status !== "unique"
+  ) {
+    throw new Error("Cannot identify an invalid or non-unique puzzle.");
+  }
   const input = new TextEncoder().encode(canonicalPuzzleDefinition(puzzle));
   const hash = await crypto.subtle.digest("SHA-256", input);
   const hex = [...new Uint8Array(hash)]

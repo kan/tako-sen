@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/vue";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -80,6 +81,7 @@ import {
 
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
+const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -830,6 +832,19 @@ function formatElapsed(seconds: number): string {
     <header class="hero" :inert="waitingToStart || !!activeDialog">
       <h1>TAKO-SEN</h1>
       <p class="eyebrow">PROTOTYPE</p>
+      <nav
+        v-if="onlineAuthEnabled"
+        class="account-controls"
+        aria-label="アカウント"
+      >
+        <Show when="signed-out">
+          <SignInButton><button type="button">ログイン</button></SignInButton>
+          <SignUpButton
+            ><button type="button">アカウント作成</button></SignUpButton
+          >
+        </Show>
+        <Show when="signed-in"><UserButton /></Show>
+      </nav>
     </header>
 
     <section class="play-area" :inert="waitingToStart || !!activeDialog">

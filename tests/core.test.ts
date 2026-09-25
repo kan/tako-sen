@@ -495,12 +495,34 @@ describe("generator", () => {
     expect(await puzzleId({ ...puzzle, generatorVersion: "g2" })).not.toBe(
       await puzzleId(puzzle),
     );
-    expect(
-      await puzzleId({ ...puzzle, regions: [...puzzle.regions].reverse() }),
-    ).not.toBe(await puzzleId(puzzle));
+    const otherBoard = generatePuzzle({ seed: "other-identity" });
+    expect(await puzzleId(otherBoard)).not.toBe(await puzzleId(puzzle));
     expect(
       await puzzleId({ ...puzzle, givens: [puzzle.solution[0]] }),
     ).not.toBe(await puzzleId(puzzle));
+  });
+
+  it("rejects invalid or non-unique boards before assigning an id", async () => {
+    const puzzle = generatePuzzle({ seed: "identity-validation" });
+    await expect(
+      puzzleId({ ...puzzle, regions: puzzle.regions.slice(1) }),
+    ).rejects.toThrow("invalid or non-unique");
+    await expect(
+      puzzleId({ ...puzzle, givens: [puzzle.solution[0], puzzle.solution[0]] }),
+    ).rejects.toThrow("invalid or non-unique");
+    await expect(puzzleId({ ...puzzle, solution: [] })).rejects.toThrow(
+      "invalid or non-unique",
+    );
+    const rowRegions = Array.from(
+      { length: BOARD_SIZE * BOARD_SIZE },
+      (_, cell) => Math.floor(cell / BOARD_SIZE),
+    );
+    expect(validateSolution({ ...puzzle, regions: rowRegions }).valid).toBe(
+      true,
+    );
+    await expect(puzzleId({ ...puzzle, regions: rowRegions })).rejects.toThrow(
+      "invalid or non-unique",
+    );
   });
 
   it("is deterministic for the same seed", () => {
