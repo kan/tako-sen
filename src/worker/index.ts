@@ -1,11 +1,13 @@
 import { createClerkClient } from "@clerk/backend";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { verifyCompletedPlayUpload } from "../core/online-history";
+import { createSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import {
   deleteAccountHistory,
   listCompletedPlays,
   saveCompletedPlay,
 } from "./history";
+import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 
 const maxBodyBytes = 4096;
 const maxWebhookBytes = 65536;
@@ -51,19 +53,56 @@ export default {
         return json({ error: "service_unavailable" }, 503);
       }
     }
-    if (pathname !== "/api/plays" && pathname !== "/api/account") {
+    if (pathname.startsWith("/api/puzzles/")) {
+      if (request.method !== "GET")
+        return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+      let id: string;
+      try {
+        id = decodeURIComponent(pathname.slice("/api/puzzles/".length));
+      } catch {
+        return json({ error: "invalid_puzzle_id" }, 400);
+      }
+      if (!/^p1:[0-9a-f]{64}$/.test(id))
+        return json({ error: "invalid_puzzle_id" }, 400);
+      try {
+        const snapshot = await getSharedPuzzle(env.DB, id);
+        return snapshot
+          ? json({ puzzle: snapshot })
+          : json({ error: "not_found" }, 404);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "shared_puzzle_read_failure",
+            error: String(error),
+          }),
+        );
+        return json({ error: "service_unavailable" }, 503);
+      }
+    }
+    if (
+      pathname !== "/api/plays" &&
+      pathname !== "/api/account" &&
+      pathname !== "/api/puzzles"
+    ) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
       return env.ASSETS.fetch(request);
     }
     const isAccountDeletion = pathname === "/api/account";
+    const isPuzzleCreation = pathname === "/api/puzzles";
     if (
       isAccountDeletion
         ? request.method !== "DELETE"
-        : request.method !== "GET" && request.method !== "POST"
+        : isPuzzleCreation
+          ? request.method !== "POST"
+          : request.method !== "GET" && request.method !== "POST"
     ) {
       return json({ error: "method_not_allowed" }, 405, {
-        Allow: isAccountDeletion ? "DELETE" : "GET, POST",
+        Allow: isAccountDeletion
+          ? "DELETE"
+          : isPuzzleCreation
+            ? "POST"
+            : "GET, POST",
       });
     }
 
@@ -94,6 +133,41 @@ export default {
         await deleteAccountHistory(env.DB, accountId);
         await clerk.users.deleteUser(accountId);
         return json({ status: "deleted" });
+      }
+
+      if (isPuzzleCreation) {
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let seedCode: unknown;
+        try {
+          const body: unknown = JSON.parse(await readLimitedBody(request, 512));
+          seedCode =
+            body && typeof body === "object" && "seedCode" in body
+              ? body.seedCode
+              : undefined;
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        if (typeof seedCode !== "string")
+          return json({ error: "invalid_seed_code" }, 400);
+        let snapshot;
+        try {
+          snapshot = await createSharedPuzzleSnapshot(seedCode);
+        } catch {
+          return json({ error: "invalid_seed_code" }, 400);
+        }
+        const outcome = await saveSharedPuzzle(env.DB, snapshot);
+        return json(
+          {
+            puzzle:
+              outcome === "created"
+                ? snapshot
+                : await getSharedPuzzle(env.DB, snapshot.id),
+          },
+          outcome === "created" ? 201 : 200,
+        );
       }
 
       if (request.method === "GET") {

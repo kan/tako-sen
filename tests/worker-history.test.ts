@@ -4,6 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { generatePuzzle } from "../src/core/generator";
 import { createCompletedPlayUpload } from "../src/core/online-history";
+import {
+  createSharedPuzzleSnapshot,
+  restoreSharedPuzzleSnapshot,
+} from "../src/core/shared-puzzle";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import {
   deleteAccountHistory,
@@ -11,6 +15,7 @@ import {
   saveCompletedPlay,
 } from "../src/worker/history";
 import worker from "../src/worker/index";
+import { getSharedPuzzle, saveSharedPuzzle } from "../src/worker/puzzles";
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 
@@ -20,13 +25,49 @@ beforeAll(async () => {
     persist: false,
     remoteBindings: false,
   });
-  const migration = readFileSync(
-    new URL("../migrations/0001_completed_plays.sql", import.meta.url),
-    "utf8",
-  );
-  for (const statement of migration.split(";").map((sql) => sql.trim())) {
-    if (statement) await platform.env.DB.prepare(statement).run();
+  for (const file of ["0001_completed_plays.sql", "0002_shared_puzzles.sql"]) {
+    const migration = readFileSync(
+      new URL(`../migrations/${file}`, import.meta.url),
+      "utf8",
+    );
+    for (const statement of migration.split(";").map((sql) => sql.trim())) {
+      if (statement) await platform.env.DB.prepare(statement).run();
+    }
   }
+});
+
+describe("public puzzle snapshots", () => {
+  it("saves a validated snapshot without a solution", async () => {
+    const snapshot = await createSharedPuzzleSnapshot(
+      "TAKO:g1:easy:d1-shared-puzzle",
+    );
+    const db = platform.env.DB;
+    expect(await saveSharedPuzzle(db, snapshot)).toBe("created");
+    expect(await saveSharedPuzzle(db, snapshot)).toBe("existing");
+    const stored = await getSharedPuzzle(db, snapshot.id);
+    expect(stored).toEqual(snapshot);
+    expect("solution" in (stored ?? {})).toBe(false);
+    await expect(restoreSharedPuzzleSnapshot(stored)).resolves.toHaveProperty(
+      "solution",
+    );
+    const response = await worker.fetch(
+      new Request(
+        `https://example.com/api/puzzles/${encodeURIComponent(snapshot.id)}`,
+      ) as Parameters<typeof worker.fetch>[0],
+      { DB: db } as Env,
+    );
+    expect(response.status).toBe(200);
+    const publicBody: { puzzle: unknown } = await response.json();
+    expect(publicBody.puzzle).toEqual(snapshot);
+    expect("solution" in (publicBody.puzzle as object)).toBe(false);
+    const invalid = await worker.fetch(
+      new Request("https://example.com/api/puzzles/not-a-puzzle") as Parameters<
+        typeof worker.fetch
+      >[0],
+      { DB: db } as Env,
+    );
+    expect(invalid.status).toBe(400);
+  });
 });
 
 afterAll(async () => {

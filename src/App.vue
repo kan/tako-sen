@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
+import SharePuzzle from "./ui/SharePuzzle.vue";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -21,6 +22,8 @@ import {
   type PuzzleDifficultyAnalysis,
 } from "./core/difficulty";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
+import { puzzleId } from "./core/puzzle-identity";
+import { restoreSharedPuzzleSnapshot } from "./core/shared-puzzle";
 import {
   createWaitingTimer,
   elapsedTimerMs,
@@ -227,6 +230,7 @@ onMounted(() => {
   else if (complete.value) finalizePlay();
   if (waitingToStart.value) focusReadyButton();
   saveCurrentGame();
+  void openSharedPuzzleFromUrl(saved);
 });
 
 onUnmounted(() => {
@@ -358,6 +362,7 @@ function finalizePlay(): void {
 }
 
 function newGame(): void {
+  clearSharedPuzzleUrl();
   const seed = `game-${Date.now()}`;
   const generated = generatePuzzleWithAnalysis({
     seed,
@@ -420,6 +425,8 @@ function restoreSeed(code: string): boolean {
     return false;
   }
 
+  clearSharedPuzzleUrl();
+
   selectedDifficulty.value = parsed.difficulty;
   const generated = generatePuzzleWithAnalysis({
     seed: parsed.seed,
@@ -438,6 +445,62 @@ function restoreSeed(code: string): boolean {
   beginPlay();
   centerBoardAfterPuzzleChange();
   return true;
+}
+
+async function openSharedPuzzleFromUrl(
+  saved: ReturnType<typeof loadGame>,
+): Promise<void> {
+  const id = new URL(window.location.href).searchParams.get("p");
+  if (!id) return;
+  if (!/^p1:[0-9a-f]{64}$/.test(id)) {
+    seedMessage.value = "共有リンクの問題 ID が不正です。";
+    return;
+  }
+  try {
+    if (saved) {
+      try {
+        if ((await puzzleId(saved.puzzle)) === id) return;
+      } catch {
+        // A legacy local puzzle must not prevent a valid shared link opening.
+      }
+    }
+    const response = await fetch(`/api/puzzles/${encodeURIComponent(id)}`);
+    if (!response.ok)
+      throw new Error(`取得に失敗しました (${response.status})。`);
+    const data: { puzzle: unknown } = await response.json();
+    const shared = await restoreSharedPuzzleSnapshot(data.puzzle);
+    if (
+      saved &&
+      hasPlayerMarks(saved.puzzle, saved.state) &&
+      !window.confirm(
+        "共有された問題を開くと、この端末で進行中の盤面を置き換えます。開きますか？",
+      )
+    )
+      return;
+    puzzle.value = shared;
+    difficultyAnalysis.value = analyzePuzzleDifficulty(shared);
+    selectedDifficulty.value = shared.difficulty ?? "easy";
+    state.value = createInitialPlayerState(undefined, shared.givens);
+    hint.value = undefined;
+    hintStage.value = 1;
+    hintDialogOpen.value = false;
+    showClearDialog.value = false;
+    clearElapsedSeconds.value = undefined;
+    clearDialogMessage.value = "";
+    seedMessage.value = "共有された問題を開きました。";
+    beginPlay();
+    centerBoardAfterPuzzleChange();
+  } catch {
+    seedMessage.value =
+      "共有された問題を開けませんでした。ローカルプレイは続けられます。";
+  }
+}
+
+function clearSharedPuzzleUrl(): void {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("p")) return;
+  url.searchParams.delete("p");
+  window.history.replaceState(null, "", url);
 }
 
 function resetProgress(): void {
@@ -957,6 +1020,7 @@ function formatElapsed(seconds: number): string {
           />
         </label>
         <button type="button" @click="restoreFromSeed">復元</button>
+        <SharePuzzle v-if="onlineAuthEnabled" :seed-code="puzzleSeedCode" />
         <p v-if="seedMessage" class="seed-message" aria-live="polite">
           {{ seedMessage }}
         </p>
