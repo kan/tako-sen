@@ -87,7 +87,17 @@ npm run dev:api
 npm run dev
 ```
 
-ログイン後の「オンライン履歴」から明示的に取り込んだクリア結果だけを送信します。送信後もローカル履歴は削除しません。通信失敗時もゲーム本体は引き続き利用できます。退会操作では Clerk アカウントとオンライン履歴を削除し、端末のローカル履歴は残します。Clerk Dashboard 等から直接削除された場合の履歴削除には、`POST /api/clerk-webhook` に `user.deleted` を送る Clerk webhook と `CLERK_WEBHOOK_SIGNING_SECRET` の設定が必要です。Webhook の設定・到達確認と公開環境へのデプロイは未完了です。
+ログイン後の「オンライン履歴」から明示的に取り込んだクリア結果だけを送信します。送信後もローカル履歴は削除しません。通信失敗時もゲーム本体は引き続き利用できます。退会操作では Clerk アカウントとオンライン履歴を削除し、端末のローカル履歴は残します。Clerk Dashboard 等から直接削除された場合の履歴削除には、`POST /api/clerk-webhook` に `user.deleted` を送る Clerk webhook と `CLERK_WEBHOOK_SIGNING_SECRET` の設定が必要です。開発用 Worker を公開し、同一アカウントでの別端末同期、別アカウントの履歴分離、使い捨てアカウントの退会を確認済みです。Clerk Dashboard の `user.deleted` テスト配信も `200` で成功しました。
+
+### 公開前の確認事項
+
+開発用デプロイと確認の手順は [`docs/DEPLOY_DEV.md`](docs/DEPLOY_DEV.md) を参照してください。開発用 URL は <https://tako-sen.kan-fushihara.workers.dev> です。本番公開ではありません。
+
+- 現在の D1 binding は開発用 `tako-sen-dev` を指します。本番公開時には保存先を分け、対象を確認してください。
+- 開発用 Clerk キーを使う公開 URL は動作確認用として扱います。本番運用には Clerk の本番インスタンスと専用ドメインが必要です。
+- Worker 側に `CLERK_PUBLISHABLE_KEY`、`CLERK_SECRET_KEY`、`CLERK_WEBHOOK_SIGNING_SECRET`、`ALLOWED_ORIGINS` を設定します。`ALLOWED_ORIGINS` には実際の公開 URL の origin を指定します。`.dev.vars` の値はデプロイ先へ自動転送されません。
+- Clerk Dashboard で `user.deleted` を `https://<公開URL>/api/clerk-webhook` に配信し、署名シークレットを Worker に設定します。Webhook の到達、再送、失敗時の確認方法を検証してから利用者へ案内してください。
+- 別端末から本人の履歴取得、未認証の `401`、他者の履歴が見えないことを確認します。退会の実動作確認にはテスト用アカウントだけを使い、ローカル履歴が残ることも確認します。
 
 ## テスト
 
