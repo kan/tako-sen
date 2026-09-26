@@ -355,6 +355,71 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.online-history-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.online-history-filters label {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.online-history-filters label:last-child {
+  grid-column: 1 / -1;
+}
+
+.online-history-filters select,
+.online-history-filters input {
+  min-width: 0;
+  border: 2px solid #2a1b14;
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: #fff;
+  color: #2a1b14;
+}
+
+.stats-panel-body details {
+  border-top: 1px solid rgb(42 27 20 / 18%);
+}
+
+.stats-panel-body details summary {
+  padding: 8px 0;
+}
+
+.online-history-trend {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.online-history-trend li {
+  display: grid;
+  grid-template-columns: auto minmax(36px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.online-history-trend-track {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: #fff0d0;
+}
+
+.online-history-trend-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #e67e4c;
+}
+
 .stats-panel-body h2 {
   margin: 16px 0 6px;
   font-size: 16px;
