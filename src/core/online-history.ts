@@ -16,6 +16,10 @@ export interface CompletedPlayUpload {
   readonly hintsUsed: number;
 }
 
+export interface OnlinePlay extends CompletedPlayUpload {
+  readonly isPublic: boolean;
+}
+
 /** Local userId is not an account credential and is never uploaded. */
 export async function createCompletedPlayUpload(
   play: PlayResult,

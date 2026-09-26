@@ -8,6 +8,7 @@ import {
   saveCompletedPlay,
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
+import { listLeaderboard, setPublication } from "./leaderboard";
 
 const maxBodyBytes = 4096;
 const maxWebhookBytes = 65536;
@@ -15,6 +16,24 @@ const maxWebhookBytes = 65536;
 export default {
   async fetch(request, env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    if (pathname.startsWith("/api/leaderboards/")) {
+      if (request.method !== "GET")
+        return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+      let id: string;
+      try {
+        id = decodeURIComponent(pathname.slice("/api/leaderboards/".length));
+      } catch {
+        return json({ error: "invalid_puzzle_id" }, 400);
+      }
+      if (!/^p1:[0-9a-f]{64}$/.test(id))
+        return json({ error: "invalid_puzzle_id" }, 400);
+      try {
+        return json({ entries: await listLeaderboard(env.DB, id) });
+      } catch {
+        console.error(JSON.stringify({ event: "leaderboard_read_failure" }));
+        return json({ error: "service_unavailable" }, 503);
+      }
+    }
     if (pathname === "/api/clerk-webhook") {
       if (request.method !== "POST")
         return json({ error: "method_not_allowed" }, 405, { Allow: "POST" });
@@ -79,10 +98,16 @@ export default {
         return json({ error: "service_unavailable" }, 503);
       }
     }
+    const publication =
+      /^\/api\/plays\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/publication$/i.exec(
+        pathname,
+      );
     if (
       pathname !== "/api/plays" &&
       pathname !== "/api/account" &&
-      pathname !== "/api/puzzles"
+      pathname !== "/api/puzzles" &&
+      pathname !== "/api/publications" &&
+      !publication
     ) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
@@ -90,19 +115,16 @@ export default {
     }
     const isAccountDeletion = pathname === "/api/account";
     const isPuzzleCreation = pathname === "/api/puzzles";
-    if (
-      isAccountDeletion
-        ? request.method !== "DELETE"
+    const allowedMethods = publication
+      ? ["PUT", "DELETE"]
+      : isAccountDeletion || pathname === "/api/publications"
+        ? ["DELETE"]
         : isPuzzleCreation
-          ? request.method !== "POST"
-          : request.method !== "GET" && request.method !== "POST"
-    ) {
+          ? ["POST"]
+          : ["GET", "POST"];
+    if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
-        Allow: isAccountDeletion
-          ? "DELETE"
-          : isPuzzleCreation
-            ? "POST"
-            : "GET, POST",
+        Allow: allowedMethods.join(", "),
       });
     }
 
@@ -128,6 +150,29 @@ export default {
       });
       const accountId = auth.isAuthenticated ? auth.toAuth().userId : null;
       if (!accountId) return json({ error: "unauthorized" }, 401);
+
+      if (pathname === "/api/publications") {
+        await env.DB.prepare(
+          "UPDATE completed_plays SET is_public = 0 WHERE account_id = ?",
+        )
+          .bind(accountId)
+          .run();
+        return json({ status: "withdrawn" });
+      }
+
+      if (publication) {
+        const outcome = await setPublication(
+          env.DB,
+          accountId,
+          publication[1],
+          request.method === "PUT",
+          Date.now(),
+        );
+        if (outcome === "not_found") return json({ error: "not_found" }, 404);
+        if (outcome === "rate_limited")
+          return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+        return json({ isPublic: request.method === "PUT" });
+      }
 
       if (isAccountDeletion) {
         await deleteAccountHistory(env.DB, accountId);

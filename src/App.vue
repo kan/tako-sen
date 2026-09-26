@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
+import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import {
   BOARD_SIZE,
@@ -1079,6 +1080,11 @@ function formatElapsed(seconds: number): string {
         </p>
       </div>
     </details>
+
+    <PublicLeaderboard
+      :puzzle="puzzle"
+      :inert="waitingToStart || !!activeDialog"
+    />
 
     <AccountHistory
       v-if="onlineAuthEnabled && resultHistory"

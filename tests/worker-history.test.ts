@@ -16,6 +16,7 @@ import {
 } from "../src/worker/history";
 import worker from "../src/worker/index";
 import { getSharedPuzzle, saveSharedPuzzle } from "../src/worker/puzzles";
+import { listLeaderboard, setPublication } from "../src/worker/leaderboard";
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 
@@ -25,7 +26,11 @@ beforeAll(async () => {
     persist: false,
     remoteBindings: false,
   });
-  for (const file of ["0001_completed_plays.sql", "0002_shared_puzzles.sql"]) {
+  for (const file of [
+    "0001_completed_plays.sql",
+    "0002_shared_puzzles.sql",
+    "0003_public_leaderboards.sql",
+  ]) {
     const migration = readFileSync(
       new URL(`../migrations/${file}`, import.meta.url),
       "utf8",
@@ -97,13 +102,19 @@ describe("account-owned history storage", () => {
       await saveCompletedPlay(db, "account-a", { ...play, mistakes: 1 }),
     ).toBe("conflict");
     expect(await saveCompletedPlay(db, "account-b", play)).toBe("created");
-    expect(await listCompletedPlays(db, "account-a")).toEqual([play]);
-    expect(await listCompletedPlays(db, "account-b")).toEqual([play]);
+    expect(await listCompletedPlays(db, "account-a")).toEqual([
+      { ...play, isPublic: false },
+    ]);
+    expect(await listCompletedPlays(db, "account-b")).toEqual([
+      { ...play, isPublic: false },
+    ]);
     expect(await listCompletedPlays(db, "account-c")).toEqual([]);
     await deleteAccountHistory(db, "account-a");
     await deleteAccountHistory(db, "account-a");
     expect(await listCompletedPlays(db, "account-a")).toEqual([]);
-    expect(await listCompletedPlays(db, "account-b")).toEqual([play]);
+    expect(await listCompletedPlays(db, "account-b")).toEqual([
+      { ...play, isPublic: false },
+    ]);
 
     const secret = "history-test-signing-secret";
     const body = JSON.stringify({
@@ -134,12 +145,25 @@ describe("account-owned history storage", () => {
       env,
     );
     expect(invalid.status).toBe(400);
-    expect(await listCompletedPlays(db, "account-b")).toEqual([play]);
+    expect(await listCompletedPlays(db, "account-b")).toEqual([
+      { ...play, isPublic: false },
+    ]);
+    await setPublication(db, "account-b", play.playId, true, 0);
+    expect(await listLeaderboard(db, play.puzzleId)).toHaveLength(1);
     const valid = await worker.fetch(
       webhook(signature) as Parameters<typeof worker.fetch>[0],
       env,
     );
     expect(valid.status).toBe(200);
     expect(await listCompletedPlays(db, "account-b")).toEqual([]);
+    expect(await listLeaderboard(db, play.puzzleId)).toEqual([]);
+    expect(
+      await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM leaderboard_profiles WHERE account_id = ?",
+        )
+        .bind("account-b")
+        .first("n"),
+    ).toBe(0);
   });
 });

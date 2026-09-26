@@ -3,7 +3,7 @@ import { useAuth } from "@clerk/vue";
 import { computed, ref, watch } from "vue";
 import {
   createCompletedPlayUpload,
-  type CompletedPlayUpload,
+  type OnlinePlay,
 } from "../core/online-history";
 import { analyzeOnlineHistory } from "../core/online-stats";
 import type { PuzzleDifficulty } from "../core/model";
@@ -14,7 +14,7 @@ const { getToken, isLoaded, isSignedIn, signOut, userId } = useAuth();
 const localCompleted = computed(() =>
   props.plays.filter((play) => play.status === "completed"),
 );
-const onlinePlays = ref<CompletedPlayUpload[]>([]);
+const onlinePlays = ref<OnlinePlay[]>([]);
 const selectedDifficulty = ref<"all" | PuzzleDifficulty>("all");
 const selectedPeriod = ref<"all" | "7" | "30">("all");
 const searchQuery = ref("");
@@ -68,7 +68,7 @@ async function refresh(): Promise<void> {
     const response = await authenticatedFetch(accountId, "/api/plays");
     if (!response.ok)
       throw new Error(`取得に失敗しました (${response.status})。`);
-    const data: { plays: CompletedPlayUpload[] } = await response.json();
+    const data: { plays: OnlinePlay[] } = await response.json();
     if (userId.value !== accountId) return;
     onlinePlays.value = data.plays;
     asOf.value = Date.now();
@@ -109,7 +109,7 @@ async function importLocal(): Promise<void> {
     try {
       const response = await authenticatedFetch(accountId, "/api/plays");
       if (response.ok) {
-        const data: { plays: CompletedPlayUpload[] } = await response.json();
+        const data: { plays: OnlinePlay[] } = await response.json();
         if (userId.value === accountId) {
           onlinePlays.value = data.plays;
           asOf.value = Date.now();
@@ -134,7 +134,7 @@ async function deleteAccount(): Promise<void> {
   if (!accountId || busy.value) return;
   if (
     !window.confirm(
-      "退会すると Clerk アカウントとオンライン履歴を削除します。端末のローカル履歴は残ります。元に戻せません。退会しますか？",
+      "退会すると Clerk アカウント、オンライン履歴、公開ランキングの記録と匿名名を削除します。端末のローカル履歴は残ります。元に戻せません。退会しますか？",
     )
   )
     return;
@@ -153,6 +153,85 @@ async function deleteAccount(): Promise<void> {
     if (userId.value === accountId)
       message.value =
         "退会処理を確認できませんでした。オンライン履歴が削除済みの可能性があります。ログインできる場合は再試行してください。";
+  } finally {
+    busy.value = false;
+  }
+}
+
+function isPublished(playId: string): boolean {
+  return onlinePlays.value.some(
+    (play) => play.playId === playId && play.isPublic,
+  );
+}
+
+async function withdrawAll(): Promise<void> {
+  const accountId = userId.value;
+  if (!accountId || busy.value) return;
+  if (
+    !window.confirm(
+      "直近500件より古い記録を含め、すべての公開を取り消しますか？オンライン履歴とローカル履歴は残ります。",
+    )
+  )
+    return;
+  busy.value = true;
+  message.value = "";
+  try {
+    const response = await authenticatedFetch(accountId, "/api/publications", {
+      method: "DELETE",
+    });
+    if (!response.ok) throw new Error("Withdrawal failed.");
+    if (userId.value !== accountId) return;
+    onlinePlays.value = onlinePlays.value.map((play) => ({
+      ...play,
+      isPublic: false,
+    }));
+    message.value = "すべての公開を取り消しました。履歴は残っています。";
+  } catch {
+    if (userId.value === accountId)
+      message.value =
+        "公開取り消しを確認できませんでした。再試行してください。";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function changePublication(playId: string): Promise<void> {
+  const accountId = userId.value;
+  const play = onlinePlays.value.find((entry) => entry.playId === playId);
+  if (!accountId || !play || busy.value) return;
+  const publish = !play.isPublic;
+  if (
+    publish &&
+    !window.confirm(
+      `この記録を公開しますか？\n時間 ${formatSeconds(play.elapsedSeconds)}・ヒント ${play.hintsUsed}・ミス ${play.mistakes}\n自動生成の匿名名と成績を誰でも閲覧できます。氏名・メールは公開しません。公開はいつでも取り消せます。`,
+    )
+  )
+    return;
+  busy.value = true;
+  message.value = "";
+  try {
+    const response = await authenticatedFetch(
+      accountId,
+      `/api/plays/${playId}/publication`,
+      { method: publish ? "PUT" : "DELETE" },
+    );
+    if (userId.value !== accountId) return;
+    if (response.status === 429) {
+      message.value =
+        "公開操作が多すぎます。1分後に再試行してください。公開取り消しは可能です。";
+      return;
+    }
+    if (!response.ok) throw new Error("Publication failed.");
+    onlinePlays.value = onlinePlays.value.map((entry) =>
+      entry.playId === playId ? { ...entry, isPublic: publish } : entry,
+    );
+    message.value = publish
+      ? "この記録を公開しました。同じ問題では公開済みの自己ベスト1件が表示されます。"
+      : "この記録の公開を取り消しました。他の公開済み記録と非公開履歴は残ります。";
+  } catch {
+    if (userId.value === accountId)
+      message.value =
+        "公開状態を変更できませんでした。「オンライン履歴を更新」で状態を確認してください。";
   } finally {
     busy.value = false;
   }
@@ -196,6 +275,9 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
         </button>
         <button type="button" :disabled="busy" @click="refresh">
           オンライン履歴を更新
+        </button>
+        <button type="button" :disabled="busy" @click="withdrawAll">
+          すべてのランキング公開を取り消す
         </button>
         <p v-if="message" aria-live="polite">{{ message }}</p>
         <template v-if="onlinePlays.length">
@@ -279,12 +361,29 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
           </details>
           <details v-if="historyView.plays.length">
             <summary>該当する履歴（{{ historyView.count }} 件）</summary>
+            <p>
+              公開は記録ごとの任意参加です。時間は自己申告の参考記録です。自動生成の匿名名は問題間で共通になります。
+            </p>
             <ol class="ranking-list">
               <li v-for="play in historyView.plays" :key="play.playId">
                 {{ formatDate(play.completedAt) }} ·
                 <code>{{ play.seedCode }}</code> ·
                 {{ formatSeconds(play.elapsedSeconds) }} · ヒント
                 {{ play.hintsUsed }} · ミス {{ play.mistakes }}
+                <span>{{
+                  isPublished(play.playId) ? "公開中" : "非公開"
+                }}</span>
+                <button
+                  type="button"
+                  :disabled="busy"
+                  @click="changePublication(play.playId)"
+                >
+                  {{
+                    isPublished(play.playId)
+                      ? "公開を取り消す"
+                      : "ランキングに公開"
+                  }}
+                </button>
               </li>
             </ol>
           </details>
