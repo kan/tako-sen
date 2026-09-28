@@ -5,6 +5,8 @@ import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
+import Tutorial from "./ui/Tutorial.vue";
+import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
 import {
   BOARD_SIZE,
@@ -92,6 +94,7 @@ const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineGameName = ref("");
 const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
+const tutorialOpen = ref(false);
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -159,7 +162,10 @@ const cells = computed(() =>
   Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
-const activeDialog = computed<"hint" | "clear" | "account" | undefined>(() => {
+const activeDialog = computed<
+  "tutorial" | "hint" | "clear" | "account" | undefined
+>(() => {
+  if (tutorialOpen.value) return "tutorial";
   if (complete.value && showClearDialog.value) return "clear";
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
     return "hint";
@@ -235,6 +241,7 @@ onMounted(() => {
   if (completedResult)
     clearElapsedSeconds.value = completedResult.elapsedSeconds;
   else if (complete.value) finalizePlay();
+  tutorialOpen.value = shouldShowTutorial(localStorage);
   if (waitingToStart.value) focusReadyButton();
   saveCurrentGame();
   void openSharedPuzzleFromUrl(saved);
@@ -255,10 +262,11 @@ watch(activeDialog, async (dialog, previous) => {
   }
   await nextTick();
   if (dialog) {
-    if (dialog !== "account")
+    if (dialog !== "account" && dialog !== "tutorial")
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
-    if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
+    if (waitingToStart.value) focusReadyButton();
+    else if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
     else if (previous === "account")
       document
         .querySelector<HTMLButtonElement>(".account-controls button")
@@ -297,7 +305,19 @@ function beginPlay(): void {
 }
 
 function focusReadyButton(): void {
-  void nextTick(() => readyButton.value?.focus());
+  void nextTick(() => {
+    if (!activeDialog.value) readyButton.value?.focus();
+  });
+}
+
+function openTutorial(): void {
+  tutorialOpen.value = true;
+  pauseGame();
+}
+
+function closeTutorial(): void {
+  rememberTutorial(localStorage);
+  tutorialOpen.value = false;
 }
 
 function confirmReady(): void {
@@ -893,6 +913,14 @@ function formatElapsed(seconds: number): string {
     <header class="hero" :inert="waitingToStart || !!activeDialog">
       <h1>TAKO-SEN</h1>
       <p class="eyebrow">PROTOTYPE</p>
+      <button
+        type="button"
+        class="tutorial-trigger"
+        aria-haspopup="dialog"
+        @click="openTutorial"
+      >
+        遊び方
+      </button>
       <nav
         v-if="onlineAuthEnabled"
         class="account-controls"
@@ -1102,7 +1130,7 @@ function formatElapsed(seconds: number): string {
     />
 
     <div
-      v-if="hint && hintDialogOpen && canShowHint(complete)"
+      v-if="hint && activeDialog === 'hint'"
       class="dialog-backdrop"
       role="presentation"
       @click.self="closeHintDialog"
@@ -1167,7 +1195,7 @@ function formatElapsed(seconds: number): string {
     </div>
 
     <div
-      v-if="complete && showClearDialog"
+      v-if="activeDialog === 'clear'"
       class="dialog-backdrop clear-backdrop"
       role="presentation"
       @click.self="closeClearDialog"
@@ -1246,7 +1274,16 @@ function formatElapsed(seconds: number): string {
         </div>
       </section>
     </div>
-    <div v-if="waitingToStart" class="ready-overlay" role="presentation">
+    <Tutorial
+      :open="activeDialog === 'tutorial'"
+      :online-enabled="onlineAuthEnabled"
+      @close="closeTutorial"
+    />
+    <div
+      v-if="waitingToStart && !tutorialOpen"
+      class="ready-overlay"
+      role="presentation"
+    >
       <section
         class="ready-card"
         role="dialog"
@@ -1257,6 +1294,7 @@ function formatElapsed(seconds: number): string {
         <button ref="readyButton" type="button" @click="confirmReady">
           OK
         </button>
+        <button type="button" @click="openTutorial">遊び方</button>
       </section>
     </div>
   </main>

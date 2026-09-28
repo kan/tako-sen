@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
+import Tutorial from "../src/ui/Tutorial.vue";
 import { trapDialogFocus } from "../src/ui/dialog";
 import type { Puzzle } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
@@ -10,10 +11,25 @@ const auth = vi.hoisted(() => ({
   user: undefined as Ref<string | null> | undefined,
 }));
 vi.mock("@clerk/vue", async () => {
-  const { ref, computed } = await import("vue");
+  const { ref, computed, defineComponent, h } = await import("vue");
   const user = ref<string | null>("ui-account");
   auth.user = user;
   return {
+    Show: defineComponent({
+      props: { when: String },
+      setup:
+        (props, { slots }) =>
+        () =>
+          (props.when === "signed-out" ? !user.value : !!user.value)
+            ? slots.default?.()
+            : [],
+    }),
+    SignInButton: defineComponent({
+      setup:
+        (_, { slots }) =>
+        () =>
+          h("div", slots.default?.()),
+    }),
     useAuth: () => ({
       userId: user,
       isLoaded: ref(true),
@@ -143,6 +159,151 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 const puzzle = { seed: "first" } as Puzzle;
+
+describe("tutorial dialog", () => {
+  it("offers login only when configured and closes before handing off to login", async () => {
+    auth.user!.value = null;
+    const container = root();
+    const close = vi.fn();
+    renderer.render(
+      h(Tutorial, { open: true, onlineEnabled: true, onClose: close }),
+      container,
+    );
+    await nextTick();
+    for (let step = 0; step < 4; step++) {
+      (
+        find(container, (n) => n.tag === "button" && n.text.trim() === "次へ")!
+          .props.onClick as () => void
+      )();
+      await nextTick();
+    }
+    (
+      find(
+        container,
+        (n) => n.tag === "button" && n.text.trim() === "ログインして参加",
+      )!.props.onClick as () => void
+    )();
+    expect(close).toHaveBeenCalledOnce();
+    expect(request).not.toHaveBeenCalled();
+    auth.user!.value = "ui-account";
+    await nextTick();
+    expect(
+      find(
+        container,
+        (n) => n.tag === "button" && n.text.trim() === "ログインして参加",
+      ),
+    ).toBeUndefined();
+    expect(
+      find(container, (n) =>
+        n.text.includes("この環境ではオンライン機能は無効です"),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("works before login, focuses on opening and each step, and resets on reopening", async () => {
+    const container = root();
+    const open = ref(true);
+    const close = vi.fn(() => {
+      open.value = false;
+    });
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(Tutorial, {
+            open: open.value,
+            onlineEnabled: false,
+            onClose: close,
+          }),
+      }),
+      container,
+    );
+    await nextTick();
+    const dialog = () => find(container, (n) => n.props.role === "dialog")!;
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) => n.tag === "button" && n.text.trim() === label,
+      )!;
+      expect(button).toBeDefined();
+      (button.props.onClick as () => void)();
+      await nextTick();
+    };
+    expect(dialog().focus).toHaveBeenCalled();
+    const reminder = () =>
+      find(
+        container,
+        (n) =>
+          n.tag === "p" &&
+          n.text.trim() === "後から「遊び方」でいつでも読み直せます。",
+      );
+    expect(reminder()).toBeUndefined();
+    expect(
+      find(container, (n) => n.tag === "svg" && n.props.role === "img"),
+    ).toBeDefined();
+    for (let step = 0; step < 4; step++) await click("次へ");
+    expect(reminder()).toBeDefined();
+    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
+      "ランキングに参加",
+    );
+    expect(
+      find(container, (n) => n.text === "ログインして参加"),
+    ).toBeUndefined();
+    await click("戻る");
+    expect(reminder()).toBeUndefined();
+    expect(
+      find(
+        container,
+        (n) =>
+          n.tag === "svg" &&
+          String(n.props["aria-label"]).includes("青いエリアの候補"),
+      ),
+    ).toBeDefined();
+    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
+      "基本の定石",
+    );
+    await click("スキップ");
+    expect(close).toHaveBeenCalledOnce();
+    expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
+    open.value = true;
+    await nextTick();
+    await nextTick();
+    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
+      "タコを8匹置こう",
+    );
+    const backdrop = find(
+      container,
+      (n) => n.props.class === "dialog-backdrop",
+    )!;
+    (backdrop.props.onKeydown as (event: unknown) => void)({
+      key: "Escape",
+      preventDefault: vi.fn(),
+    });
+    await nextTick();
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it("finishes the last page with the play action", async () => {
+    const container = root();
+    const close = vi.fn();
+    renderer.render(
+      h(Tutorial, { open: true, onlineEnabled: false, onClose: close }),
+      container,
+    );
+    await nextTick();
+    for (let step = 0; step < 4; step++) {
+      (
+        find(container, (n) => n.tag === "button" && n.text.trim() === "次へ")!
+          .props.onClick as () => void
+      )();
+      await nextTick();
+    }
+    (
+      find(container, (n) => n.tag === "button" && n.text.trim() === "遊ぶ")!
+        .props.onClick as () => void
+    )();
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
 
 describe("automatic leaderboard refresh", () => {
   it("refreshes on initial display, completion, upload acknowledgement and panel reopening without a button", async () => {
