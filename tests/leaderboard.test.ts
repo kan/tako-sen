@@ -1,14 +1,19 @@
-import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import type { CompletedPlayUpload } from "../src/core/online-history";
+import { createCompletedPlayUpload } from "../src/core/online-history";
 import {
   deleteAccountHistory,
   listCompletedPlays,
   saveCompletedPlay,
 } from "../src/worker/history";
-import { listLeaderboard, setPublication } from "../src/worker/leaderboard";
+import { listLeaderboard } from "../src/worker/leaderboard";
+import {
+  getAccountProfile,
+  registerAccountProfile,
+} from "../src/worker/profile";
 import worker from "../src/worker/index";
+import { migrateTestDatabase } from "./migrations";
 
 const auth = vi.hoisted(() => ({ account: null as string | null }));
 vi.mock("@clerk/backend", () => ({
@@ -17,6 +22,7 @@ vi.mock("@clerk/backend", () => ({
       isAuthenticated: auth.account !== null,
       toAuth: () => ({ userId: auth.account }),
     }),
+    users: { deleteUser: async () => undefined },
   }),
 }));
 
@@ -45,169 +51,263 @@ beforeAll(async () => {
     persist: false,
     remoteBindings: false,
   });
-  for (const file of [
-    "0001_completed_plays.sql",
-    "0002_shared_puzzles.sql",
-    "0003_public_leaderboards.sql",
-  ]) {
-    if (file === "0003_public_leaderboards.sql") {
-      await saveCompletedPlay(platform.env.DB, "pre-migration", play());
-    }
-    const sql = readFileSync(
-      new URL(`../migrations/${file}`, import.meta.url),
-      "utf8",
-    );
-    for (const statement of sql.split(";").map((s) => s.trim())) {
-      if (statement) await platform.env.DB.prepare(statement).run();
-    }
-  }
+  const db = platform.env.DB;
+  await migrateTestDatabase(db, async () => {
+    await db
+      .prepare(
+        "INSERT INTO leaderboard_profiles (account_id, display_name) VALUES ('legacy', 'タコ-旧匿名名')",
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO completed_plays
+      (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty, started_at,
+       completed_at, elapsed_seconds, mistakes, hints_used, is_public)
+      VALUES ('legacy', ?, ?, 'TAKO:g1:easy:ranking', 'g1', 'easy', 1000, 101000, 100, 0, 0, 1)`,
+      )
+      .bind(crypto.randomUUID(), puzzleId)
+      .run();
+  });
 });
 afterAll(async () => {
   await platform?.dispose();
 });
 
-describe("opt-in public leaderboard", () => {
-  it("does not publish pre-existing history when the migration is applied", async () => {
+describe("consented automatic first-clear ranking", () => {
+  it("withdraws legacy publications without deleting history or treating generated aliases as consent", async () => {
     const db = platform.env.DB;
-    const records = await listCompletedPlays(db, "pre-migration");
-    expect(records).toHaveLength(1);
-    expect(records[0].isPublic).toBe(false);
+    expect(await getAccountProfile(db, "legacy")).toBeNull();
+    expect((await listCompletedPlays(db, "legacy"))[0].isPublic).toBe(false);
     expect(await listLeaderboard(db, puzzleId)).toEqual([]);
-    await deleteAccountHistory(db, "pre-migration");
+    await registerAccountProfile(db, "legacy", "新しいゲーム名");
+    expect((await getAccountProfile(db, "legacy"))?.displayName).toBe(
+      "新しいゲーム名",
+    );
+    expect(await listLeaderboard(db, puzzleId)).toEqual([]);
+    await deleteAccountHistory(db, "legacy");
   });
-  it("keeps uploads private and only publishes the owner's saved score", async () => {
+  it("never publishes old history when consent is registered or old uploads are retried", async () => {
     const db = platform.env.DB;
-    const record = play();
-    await saveCompletedPlay(db, "owner", record);
-    expect(await listCompletedPlays(db, "owner")).toEqual([
-      { ...record, isPublic: false },
+    const old = play();
+    await saveCompletedPlay(db, "old", old);
+    expect(await saveCompletedPlay(db, "missing", play(), true)).toBe(
+      "profile_required",
+    );
+    await registerAccountProfile(db, "old", "昔のタコ");
+    expect(await saveCompletedPlay(db, "old", old, true)).toBe("duplicate");
+    expect(await listLeaderboard(db, puzzleId)).toEqual([]);
+    expect((await listCompletedPlays(db, "old"))[0].isPublic).toBe(false);
+    await deleteAccountHistory(db, "old");
+  });
+
+  it("publishes the first server registration, not the fastest or earliest completed play", async () => {
+    const db = platform.env.DB;
+    await registerAccountProfile(db, "first", "初回タコ");
+    const first = play({ completedAt: 200000, elapsedSeconds: 150 });
+    const retry = play({ completedAt: 100000, elapsedSeconds: 1 });
+    expect(await saveCompletedPlay(db, "first", first, true)).toBe("created");
+    expect(await saveCompletedPlay(db, "first", retry, true)).toBe("created");
+    expect(await saveCompletedPlay(db, "first", first, true)).toBe("duplicate");
+    expect(
+      await saveCompletedPlay(db, "first", { ...first, mistakes: 1 }, true),
+    ).toBe("conflict");
+    expect(await listLeaderboard(db, puzzleId)).toEqual([
+      {
+        rank: 1,
+        displayName: "初回タコ",
+        elapsedSeconds: 150,
+        hintsUsed: 0,
+        mistakes: 0,
+      },
     ]);
-    expect(await listLeaderboard(db, puzzleId)).toEqual([]);
-    expect(await setPublication(db, "stranger", record.playId, true, 0)).toBe(
-      "not_found",
-    );
-    expect(await setPublication(db, "owner", record.playId, true, 0)).toBe(
-      "ok",
-    );
-    expect(await setPublication(db, "owner", record.playId, true, 0)).toBe(
-      "ok",
-    );
-    expect(await saveCompletedPlay(db, "owner", record)).toBe("duplicate");
-    expect((await listCompletedPlays(db, "owner"))[0].isPublic).toBe(true);
-    expect(await setPublication(db, "stranger", record.playId, false, 0)).toBe(
-      "not_found",
-    );
-    const entries = await listLeaderboard(db, puzzleId);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
-      rank: 1,
-      displayName: expect.stringMatching(/^タコ-[a-f0-9]{16}$/),
-      elapsedSeconds: 100,
-      hintsUsed: 0,
-      mistakes: 0,
-    });
-    await deleteAccountHistory(db, "owner");
+    expect(
+      (await listCompletedPlays(db, "first")).filter((p) => p.isPublic),
+    ).toHaveLength(1);
+    await deleteAccountHistory(db, "first");
   });
 
-  it("selects each participant's public best, ties by all score fields, and separates puzzles", async () => {
+  it("atomically selects exactly one initial score for concurrent requests", async () => {
     const db = platform.env.DB;
+    await registerAccountProfile(db, "race", "並列タコ");
     const records = [
-      ["best-a", play({ elapsedSeconds: 50 })],
-      ["best-a", play({ elapsedSeconds: 70 })],
-      ["best-a", play({ elapsedSeconds: 1 })],
-      ["best-b", play({ elapsedSeconds: 50 })],
-      ["best-c", play({ elapsedSeconds: 50, hintsUsed: 1 })],
-      ["best-d", play({ elapsedSeconds: 50, hintsUsed: 1, mistakes: 1 })],
-      ["best-e", play({ puzzleId: `p1:${"b".repeat(64)}` })],
-    ] as const;
-    for (const [index, [owner, record]] of records.entries()) {
-      await saveCompletedPlay(db, owner, record);
-      if (index !== 2) await setPublication(db, owner, record.playId, true, 0);
-    }
-    const entries = await listLeaderboard(db, puzzleId);
-    expect(entries.map((e) => e.rank)).toEqual([1, 1, 3, 4]);
-    expect(entries.map((e) => e.hintsUsed)).toEqual([0, 0, 1, 1]);
-    expect(entries.map((e) => e.mistakes)).toEqual([0, 0, 0, 1]);
-    await setPublication(db, "best-a", records[0][1].playId, false, 0);
+      play({ elapsedSeconds: 80 }),
+      play({ elapsedSeconds: 10 }),
+    ];
     expect(
-      (await listLeaderboard(db, puzzleId)).map((e) => e.elapsedSeconds),
-    ).toEqual([50, 50, 50, 70]);
-    for (const owner of new Set(records.map(([owner]) => owner)))
-      await deleteAccountHistory(db, owner);
-  });
-
-  it("limits concurrent publication attempts but never blocks withdrawal, and resets the window", async () => {
-    const db = platform.env.DB;
-    const records = Array.from({ length: 12 }, () => play());
-    for (const record of records)
-      await saveCompletedPlay(db, "limited", record);
-    const outcomes = await Promise.all(
-      records.map((r) => setPublication(db, "limited", r.playId, true, 1000)),
+      await Promise.all(
+        records.map((p) => saveCompletedPlay(db, "race", p, true)),
+      ),
+    ).toEqual(["created", "created"]);
+    const history = await listCompletedPlays(db, "race");
+    expect(history.filter((p) => p.isPublic)).toHaveLength(1);
+    expect((await listLeaderboard(db, puzzleId))[0].elapsedSeconds).toBe(
+      history.find((p) => p.isPublic)?.elapsedSeconds,
     );
-    expect(outcomes.filter((r) => r === "ok")).toHaveLength(10);
-    expect(outcomes.filter((r) => r === "rate_limited")).toHaveLength(2);
-    const published = records[outcomes.indexOf("ok")];
-    const blocked = records[outcomes.indexOf("rate_limited")];
-    expect(
-      await setPublication(db, "limited", published.playId, true, 1000),
-    ).toBe("ok");
-    expect(
-      await setPublication(db, "limited", published.playId, false, 1000),
-    ).toBe("ok");
-    expect(
-      await setPublication(db, "limited", published.playId, false, 1000),
-    ).toBe("ok");
-    expect(
-      await setPublication(db, "limited", blocked.playId, true, 60999),
-    ).toBe("rate_limited");
-    expect(
-      await setPublication(db, "limited", blocked.playId, true, 61000),
-    ).toBe("ok");
-    await deleteAccountHistory(db, "limited");
-    for (const table of [
-      "completed_plays",
-      "leaderboard_profiles",
-      "publication_limits",
-    ]) {
-      expect(
-        await db
-          .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?`)
-          .bind("limited")
-          .first("n"),
-      ).toBe(0);
-    }
+    await deleteAccountHistory(db, "race");
   });
 
-  it("requires authentication and ownership for mutation; public responses expose only score and alias", async () => {
+  it("ranks equal scores equally, isolates puzzles and removes all account data on deletion", async () => {
     const db = platform.env.DB;
-    const record = play();
-    await saveCompletedPlay(db, "http-owner", record);
+    const owners = ["tie-a", "tie-b", "tie-c", "different"];
+    for (const [index, owner] of owners.entries()) {
+      await registerAccountProfile(db, owner, `タコ-${owner}`);
+      await saveCompletedPlay(
+        db,
+        owner,
+        play({
+          hintsUsed: index === 2 ? 1 : 0,
+          puzzleId: index === 3 ? `p1:${"b".repeat(64)}` : puzzleId,
+        }),
+        true,
+      );
+    }
+    expect((await listLeaderboard(db, puzzleId)).map((p) => p.rank)).toEqual([
+      1, 1, 3,
+    ]);
+    await deleteAccountHistory(db, "tie-a");
+    expect(await getAccountProfile(db, "tie-a")).toBeNull();
+    expect(await listCompletedPlays(db, "tie-a")).toEqual([]);
+    expect(await listLeaderboard(db, puzzleId)).toHaveLength(2);
+    expect(await saveCompletedPlay(db, "tie-a", play(), true)).toBe(
+      "profile_required",
+    );
+    for (const owner of owners) await deleteAccountHistory(db, owner);
+  });
+
+  it("limits new uploads, leaves retries idempotent, and rolls back denied scores", async () => {
+    const db = platform.env.DB;
+    await registerAccountProfile(db, "limited", "制限タコ");
+    const records = Array.from({ length: 10 }, () => play());
+    for (const record of records)
+      await saveCompletedPlay(db, "limited", record, true);
+    expect(await saveCompletedPlay(db, "limited", records[0], true)).toBe(
+      "duplicate",
+    );
+    const blocked = play({ puzzleId: `p1:${"c".repeat(64)}` });
+    await expect(
+      saveCompletedPlay(db, "limited", blocked, true),
+    ).rejects.toThrow("play_rate_limited");
+    expect(await listCompletedPlays(db, "limited")).toHaveLength(10);
+    expect(await listLeaderboard(db, blocked.puzzleId)).toEqual([]);
+    await db
+      .prepare(
+        "UPDATE publication_limits SET window_start = 0 WHERE account_id = ?",
+      )
+      .bind("limited")
+      .run();
+    expect(await saveCompletedPlay(db, "limited", blocked, true)).toBe(
+      "created",
+    );
+    await deleteAccountHistory(db, "limited");
+  });
+
+  it("requires authenticated explicit consent and never exposes account identifiers", async () => {
+    const db = platform.env.DB;
     const env = { DB: db, ALLOWED_ORIGINS: "https://example.com" } as Env;
     const call = (
       path: string,
       method = "GET",
+      body?: unknown,
       origin = "https://example.com",
     ) =>
       worker.fetch(
         new Request(`https://example.com/api/${path}`, {
           method,
-          headers: { Origin: origin },
+          headers: { Origin: origin, "Content-Type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
         }) as Parameters<typeof worker.fetch>[0],
         env,
       );
-    const path = `plays/${record.playId}/publication`;
     auth.account = null;
-    expect((await call(path, "PUT")).status).toBe(401);
-    expect((await call(path, "DELETE")).status).toBe(401);
-    auth.account = "another";
-    expect((await call(path, "PUT")).status).toBe(404);
-    auth.account = "http-owner";
-    expect((await call(path, "PUT", "https://evil.example")).status).toBe(403);
-    expect((await call(path, "POST")).status).toBe(405);
-    expect((await call(path, "PUT")).status).toBe(200);
+    expect((await call("profile")).status).toBe(401);
+    auth.account = "http";
+    expect(
+      (await call("profile", "POST", { displayName: "HTTPタコ" })).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("profile", "POST", {
+          displayName: "<script>",
+          consentVersion: 1,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          "profile",
+          "POST",
+          { displayName: "HTTPタコ", consentVersion: 1 },
+          "https://evil.example",
+        )
+      ).status,
+    ).toBe(403);
+    expect((await call("plays", "POST", {})).status).toBe(403);
+    expect(
+      (
+        await call("profile", "POST", {
+          displayName: "HTTPタコ",
+          consentVersion: 1,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await getAccountProfile(db, "http")).toEqual({
+      displayName: "HTTPタコ",
+      consentVersion: 1,
+    });
+    await registerAccountProfile(db, "http", "上書きしない");
+    expect((await getAccountProfile(db, "http"))?.displayName).toBe("HTTPタコ");
+    auth.account = "other-http";
+    expect(
+      (
+        await call("profile", "POST", {
+          displayName: "HTTPタコ",
+          consentVersion: 1,
+        })
+      ).status,
+    ).toBe(409);
+    expect(await getAccountProfile(db, "other-http")).toBeNull();
+    auth.account = "emoji-http";
+    const emojiName = "👨‍👩‍👧‍👦".repeat(20);
+    expect(
+      (
+        await call("profile", "POST", {
+          displayName: emojiName,
+          consentVersion: 1,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await getAccountProfile(db, "emoji-http"))?.displayName).toBe(
+      emojiName,
+    );
+    await deleteAccountHistory(db, "emoji-http");
+    auth.account = "http";
+    const upload = await createCompletedPlayUpload({
+      id: crypto.randomUUID(),
+      userId: "local-id",
+      status: "completed",
+      seedCode: "TAKO:g1:easy:http-first",
+      generatorVersion: "g1",
+      difficulty: "easy",
+      startedAt: 1000,
+      completedAt: 61000,
+      elapsedSeconds: 60,
+      hintsUsed: 0,
+      mistakes: 0,
+    });
+    expect((await call("plays", "POST", upload)).status).toBe(201);
+    expect((await call("plays", "POST", upload)).status).toBe(200);
+    expect(
+      (await call("plays", "POST", { ...upload, mistakes: 1 })).status,
+    ).toBe(409);
+    expect(
+      (await call(`plays/${upload.playId}/publication`, "DELETE")).status,
+    ).toBe(404);
+    expect((await call("publications", "DELETE")).status).toBe(404);
     auth.account = null;
-    const response = await call(`leaderboards/${encodeURIComponent(puzzleId)}`);
-    expect(response.status).toBe(200);
+    const response = await call(
+      `leaderboards/${encodeURIComponent(upload.puzzleId)}`,
+    );
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const body: { entries: object[] } = await response.json();
     expect(Object.keys(body.entries[0]).sort()).toEqual([
@@ -217,72 +317,10 @@ describe("opt-in public leaderboard", () => {
       "mistakes",
       "rank",
     ]);
-    expect((await call("leaderboards/invalid")).status).toBe(400);
     expect((await call("leaderboards/%ZZ")).status).toBe(400);
-    expect(
-      (await call(`leaderboards/${encodeURIComponent(puzzleId)}`, "POST"))
-        .status,
-    ).toBe(405);
-    auth.account = "http-owner";
-    expect((await call(path, "DELETE")).status).toBe(200);
-    expect(await listLeaderboard(db, puzzleId)).toEqual([]);
-    expect(await listCompletedPlays(db, "http-owner")).toHaveLength(1);
-    await db
-      .prepare(
-        "UPDATE publication_limits SET attempts = 10, window_start = ? WHERE account_id = ?",
-      )
-      .bind(Date.now(), "http-owner")
-      .run();
-    const limited = await call(path, "PUT");
-    expect(limited.status).toBe(429);
-    expect(limited.headers.get("Retry-After")).toBe("60");
-    expect((await call(path, "DELETE")).status).toBe(200);
-    await deleteAccountHistory(db, "http-owner");
-    auth.account = null;
-  });
-
-  it("withdraws all owned publications, including records outside the 500-item history, without deleting history", async () => {
-    const db = platform.env.DB;
-    const oldest = play({ completedAt: 1000 });
-    await saveCompletedPlay(db, "old-owner", oldest);
-    await setPublication(db, "old-owner", oldest.playId, true, 0);
-    await saveCompletedPlay(db, "other-owner", oldest);
-    await setPublication(db, "other-owner", oldest.playId, true, 0);
-    await db
-      .prepare(
-        `WITH RECURSIVE numbers(n) AS (
-      SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 500
-    ) INSERT INTO completed_plays
-      SELECT account_id, 'old-test-' || n, puzzle_id, seed_code, generator_version,
-        difficulty, started_at, 2000 + n, elapsed_seconds, mistakes, hints_used, 0
-      FROM completed_plays CROSS JOIN numbers WHERE account_id = ? AND play_id = ?`,
-      )
-      .bind("old-owner", oldest.playId)
-      .run();
-    expect(
-      (await listCompletedPlays(db, "old-owner")).some(
-        (p) => p.playId === oldest.playId,
-      ),
-    ).toBe(false);
-    auth.account = "old-owner";
-    const response = await worker.fetch(
-      new Request("https://example.com/api/publications", {
-        method: "DELETE",
-      }) as Parameters<typeof worker.fetch>[0],
-      { DB: db, ALLOWED_ORIGINS: "https://example.com" } as Env,
-    );
-    expect(response.status).toBe(200);
-    expect(await listLeaderboard(db, puzzleId)).toHaveLength(1);
-    expect(
-      await db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM completed_plays WHERE account_id = ?",
-        )
-        .bind("old-owner")
-        .first("n"),
-    ).toBe(501);
-    await deleteAccountHistory(db, "old-owner");
-    await deleteAccountHistory(db, "other-owner");
+    auth.account = "http";
+    expect((await call("account", "DELETE")).status).toBe(200);
+    expect(await listLeaderboard(db, upload.puzzleId)).toEqual([]);
     auth.account = null;
   });
 });

@@ -209,7 +209,7 @@ function isSavedGame(value: unknown): value is SavedGame {
   return validateSolution(puzzle as unknown as Puzzle).valid;
 }
 
-function isResultHistory(value: unknown): value is ResultHistory {
+export function isResultHistory(value: unknown): value is ResultHistory {
   if (
     !isRecord(value) ||
     value.version !== 1 ||

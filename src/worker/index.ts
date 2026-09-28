@@ -8,7 +8,12 @@ import {
   saveCompletedPlay,
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
-import { listLeaderboard, setPublication } from "./leaderboard";
+import { listLeaderboard } from "./leaderboard";
+import { getAccountProfile, registerAccountProfile } from "./profile";
+import {
+  RANKING_CONSENT_VERSION,
+  validateGameName,
+} from "../core/account-profile";
 
 const maxBodyBytes = 4096;
 const maxWebhookBytes = 65536;
@@ -98,16 +103,11 @@ export default {
         return json({ error: "service_unavailable" }, 503);
       }
     }
-    const publication =
-      /^\/api\/plays\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/publication$/i.exec(
-        pathname,
-      );
     if (
       pathname !== "/api/plays" &&
       pathname !== "/api/account" &&
       pathname !== "/api/puzzles" &&
-      pathname !== "/api/publications" &&
-      !publication
+      pathname !== "/api/profile"
     ) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
@@ -115,13 +115,11 @@ export default {
     }
     const isAccountDeletion = pathname === "/api/account";
     const isPuzzleCreation = pathname === "/api/puzzles";
-    const allowedMethods = publication
-      ? ["PUT", "DELETE"]
-      : isAccountDeletion || pathname === "/api/publications"
-        ? ["DELETE"]
-        : isPuzzleCreation
-          ? ["POST"]
-          : ["GET", "POST"];
+    const allowedMethods = isAccountDeletion
+      ? ["DELETE"]
+      : isPuzzleCreation
+        ? ["POST"]
+        : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: allowedMethods.join(", "),
@@ -151,33 +149,37 @@ export default {
       const accountId = auth.isAuthenticated ? auth.toAuth().userId : null;
       if (!accountId) return json({ error: "unauthorized" }, 401);
 
-      if (pathname === "/api/publications") {
-        await env.DB.prepare(
-          "UPDATE completed_plays SET is_public = 0 WHERE account_id = ?",
-        )
-          .bind(accountId)
-          .run();
-        return json({ status: "withdrawn" });
-      }
-
-      if (publication) {
-        const outcome = await setPublication(
-          env.DB,
-          accountId,
-          publication[1],
-          request.method === "PUT",
-          Date.now(),
-        );
-        if (outcome === "not_found") return json({ error: "not_found" }, 404);
-        if (outcome === "rate_limited")
-          return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
-        return json({ isPublic: request.method === "PUT" });
-      }
-
       if (isAccountDeletion) {
         await deleteAccountHistory(env.DB, accountId);
         await clerk.users.deleteUser(accountId);
         return json({ status: "deleted" });
+      }
+
+      if (pathname === "/api/profile") {
+        if (request.method === "GET")
+          return json({ profile: await getAccountProfile(env.DB, accountId) });
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let body;
+        try {
+          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        const name = validateGameName(body?.displayName);
+        if (!name || body?.consentVersion !== RANKING_CONSENT_VERSION)
+          return json({ error: "invalid_profile" }, 400);
+        try {
+          return json({
+            profile: await registerAccountProfile(env.DB, accountId, name),
+          });
+        } catch (error) {
+          if (String(error).includes("UNIQUE constraint failed"))
+            return json({ error: "name_taken" }, 409);
+          throw error;
+        }
       }
 
       if (isPuzzleCreation) {
@@ -218,6 +220,8 @@ export default {
       if (request.method === "GET") {
         return json({ plays: await listCompletedPlays(env.DB, accountId) });
       }
+      if (!(await getAccountProfile(env.DB, accountId)))
+        return json({ error: "profile_required" }, 403);
       if (
         !request.headers.get("Content-Type")?.startsWith("application/json")
       ) {
@@ -235,11 +239,15 @@ export default {
       } catch {
         return json({ error: "invalid_play" }, 400);
       }
-      const outcome = await saveCompletedPlay(env.DB, accountId, play);
+      const outcome = await saveCompletedPlay(env.DB, accountId, play, true);
+      if (outcome === "profile_required")
+        return json({ error: "profile_required" }, 403);
       return outcome === "conflict"
         ? json({ error: "play_id_conflict" }, 409)
         : json({ status: outcome }, outcome === "created" ? 201 : 200);
     } catch (error) {
+      if (String(error).includes("play_rate_limited"))
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       console.error(
         JSON.stringify({ event: "history_api_failure", error: String(error) }),
       );

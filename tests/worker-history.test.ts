@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { generatePuzzle } from "../src/core/generator";
@@ -16,7 +15,9 @@ import {
 } from "../src/worker/history";
 import worker from "../src/worker/index";
 import { getSharedPuzzle, saveSharedPuzzle } from "../src/worker/puzzles";
-import { listLeaderboard, setPublication } from "../src/worker/leaderboard";
+import { listLeaderboard } from "../src/worker/leaderboard";
+import { registerAccountProfile } from "../src/worker/profile";
+import { migrateTestDatabase } from "./migrations";
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 
@@ -26,19 +27,7 @@ beforeAll(async () => {
     persist: false,
     remoteBindings: false,
   });
-  for (const file of [
-    "0001_completed_plays.sql",
-    "0002_shared_puzzles.sql",
-    "0003_public_leaderboards.sql",
-  ]) {
-    const migration = readFileSync(
-      new URL(`../migrations/${file}`, import.meta.url),
-      "utf8",
-    );
-    for (const statement of migration.split(";").map((sql) => sql.trim())) {
-      if (statement) await platform.env.DB.prepare(statement).run();
-    }
-  }
+  await migrateTestDatabase(platform.env.DB);
 });
 
 describe("public puzzle snapshots", () => {
@@ -148,7 +137,11 @@ describe("account-owned history storage", () => {
     expect(await listCompletedPlays(db, "account-b")).toEqual([
       { ...play, isPublic: false },
     ]);
-    await setPublication(db, "account-b", play.playId, true, 0);
+    await registerAccountProfile(db, "account-b", "テストタコ");
+    await saveCompletedPlay(db, "account-b", {
+      ...play,
+      playId: crypto.randomUUID(),
+    });
     expect(await listLeaderboard(db, play.puzzleId)).toHaveLength(1);
     const valid = await worker.fetch(
       webhook(signature) as Parameters<typeof worker.fetch>[0],

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/vue";
+import { Show, SignInButton, SignUpButton } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
+import GameName from "./ui/GameName.vue";
+import { trapDialogFocus } from "./ui/dialog";
 import {
   BOARD_SIZE,
   cellCoord,
@@ -87,6 +89,9 @@ import {
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+const onlineGameName = ref("");
+const rankingRevision = ref(0);
+const accountDialogOpen = ref(false);
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -154,10 +159,11 @@ const cells = computed(() =>
   Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
-const activeDialog = computed<"hint" | "clear" | undefined>(() => {
+const activeDialog = computed<"hint" | "clear" | "account" | undefined>(() => {
   if (complete.value && showClearDialog.value) return "clear";
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
     return "hint";
+  if (accountDialogOpen.value) return "account";
   return undefined;
 });
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
@@ -249,9 +255,14 @@ watch(activeDialog, async (dialog, previous) => {
   }
   await nextTick();
   if (dialog) {
-    (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
+    if (dialog !== "account")
+      (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
     if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
+    else if (previous === "account")
+      document
+        .querySelector<HTMLButtonElement>(".account-controls button")
+        ?.focus();
     focusBeforeDialog = null;
   }
 });
@@ -756,6 +767,14 @@ function closeClearDialog(): void {
   showClearDialog.value = false;
 }
 
+async function showLeaderboard(): Promise<void> {
+  closeClearDialog();
+  await nextTick();
+  const ranking = document.getElementById("public-leaderboard");
+  ranking?.querySelector("summary")?.focus({ preventScroll: true });
+  ranking?.scrollIntoView({ block: "nearest" });
+}
+
 function onDialogKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -767,30 +786,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   const dialog =
     activeDialog.value === "hint" ? hintDialogRef.value : clearDialogRef.value;
   if (!dialog) return;
-  const focusable = [
-    ...dialog.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), select:not([disabled]), input:not([disabled]), a[href]",
-    ),
-  ];
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (
-    event.shiftKey &&
-    (document.activeElement === first || document.activeElement === dialog)
-  ) {
-    event.preventDefault();
-    last.focus();
-  } else if (
-    !event.shiftKey &&
-    (document.activeElement === last || document.activeElement === dialog)
-  ) {
-    event.preventDefault();
-    first.focus();
-  }
+  trapDialogFocus(event, dialog);
 }
 
 async function copyResultSeed(): Promise<void> {
@@ -908,7 +904,15 @@ function formatElapsed(seconds: number): string {
             ><button type="button">アカウント作成</button></SignUpButton
           >
         </Show>
-        <Show when="signed-in"><UserButton /></Show>
+        <Show when="signed-in"
+          ><button
+            type="button"
+            aria-haspopup="dialog"
+            :aria-expanded="accountDialogOpen"
+            @click="accountDialogOpen = true"
+          >
+            <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
+        ></Show>
       </nav>
     </header>
 
@@ -1083,13 +1087,18 @@ function formatElapsed(seconds: number): string {
 
     <PublicLeaderboard
       :puzzle="puzzle"
+      :revision="rankingRevision"
+      :complete="complete"
       :inert="waitingToStart || !!activeDialog"
     />
 
     <AccountHistory
       v-if="onlineAuthEnabled && resultHistory"
       :plays="resultHistory.plays"
-      :inert="waitingToStart || !!activeDialog"
+      :open="activeDialog === 'account'"
+      @close="accountDialogOpen = false"
+      @profile="onlineGameName = $event"
+      @synced="rankingRevision += 1"
     />
 
     <div
@@ -1231,6 +1240,9 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="newGame">次の問題へ</button>
           <button type="button" @click="resetProgress">もう一度</button>
           <button type="button" @click="closeClearDialog">盤面を見る</button>
+          <button type="button" @click="showLeaderboard">
+            この問題のランキング
+          </button>
         </div>
       </section>
     </div>

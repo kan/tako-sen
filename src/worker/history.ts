@@ -1,12 +1,16 @@
 import type { CompletedPlayUpload, OnlinePlay } from "../core/online-history";
 
-export type SaveOutcome = "created" | "duplicate" | "conflict";
+export type SaveOutcome =
+  "created" | "duplicate" | "conflict" | "profile_required";
 
 export async function deleteAccountHistory(
   db: D1Database,
   accountId: string,
 ): Promise<void> {
   await db.batch([
+    db
+      .prepare("DELETE FROM first_ranked_plays WHERE account_id = ?")
+      .bind(accountId),
     db
       .prepare("DELETE FROM completed_plays WHERE account_id = ?")
       .bind(accountId),
@@ -23,13 +27,16 @@ export async function saveCompletedPlay(
   db: D1Database,
   accountId: string,
   play: CompletedPlayUpload,
+  requireProfile = false,
 ): Promise<SaveOutcome> {
   const inserted = await db
     .prepare(
       `INSERT INTO completed_plays
        (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
-        started_at, completed_at, elapsed_seconds, mistakes, hints_used)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
+       WHERE ? = 0 OR EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
        ON CONFLICT(account_id, play_id) DO NOTHING`,
     )
     .bind(
@@ -44,6 +51,9 @@ export async function saveCompletedPlay(
       play.elapsedSeconds,
       play.mistakes,
       play.hintsUsed,
+      accountId,
+      requireProfile ? 1 : 0,
+      accountId,
     )
     .run();
   if (inserted.meta.changes > 0) return "created";
@@ -56,7 +66,10 @@ export async function saveCompletedPlay(
     )
     .bind(accountId, play.playId)
     .first<StoredPlay>();
-  if (!existing) throw new Error("Stored play disappeared after conflict.");
+  if (!existing) {
+    if (requireProfile) return "profile_required";
+    throw new Error("Stored play disappeared after conflict.");
+  }
   return samePlay(existing, play) ? "duplicate" : "conflict";
 }
 

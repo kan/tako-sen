@@ -59,6 +59,21 @@ input {
   font-weight: 800;
 }
 
+.game-name {
+  overflow-wrap: anywhere;
+}
+.name-emoji {
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-variant-emoji: emoji;
+}
+.account-card input {
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui,
+    sans-serif;
+  font-variant-emoji: emoji;
+}
+
 .eyebrow {
   display: inline-block;
   margin: 0;
