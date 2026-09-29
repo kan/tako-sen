@@ -118,14 +118,12 @@ input {
 
 .seed-panel > h3,
 .stats-panel > h3,
-.seed-panel > .haptics-toggle {
+.seed-panel > .haptics-settings {
   margin: 12px;
 }
 
-.seed-panel > .haptics-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.haptics-settings p {
+  line-height: 1.6;
 }
 
 .account-controls {

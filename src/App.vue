@@ -82,6 +82,8 @@ import {
   cellFeedbacksForStateChange,
   strongestHapticFeedback,
   vibrateForFeedback,
+  vibrationApiAvailable,
+  requestVibration,
   type CellFeedback,
   type FeedbackSource,
 } from "./ui/feedback";
@@ -143,6 +145,8 @@ const playId = ref<string>();
 const resultHistory = ref<ResultHistory>();
 const showStats = ref(false);
 const hapticsEnabled = ref(true);
+const hapticsApiAvailable = ref(false);
+const hapticsTestMessage = ref("");
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -235,6 +239,7 @@ onMounted(() => {
   window.addEventListener("blur", suspendGame);
   document.addEventListener("visibilitychange", onVisibilityChange);
   hapticsEnabled.value = loadHapticsEnabled();
+  hapticsApiAvailable.value = vibrationApiAvailable(navigator);
   const saved = loadGame();
   resultHistory.value = loadResultHistory();
   if (saved) {
@@ -301,7 +306,21 @@ watch(activeDialog, async (dialog, previous) => {
 });
 watch(hapticsEnabled, (enabled) => {
   localStorage.setItem(hapticsStorageKey, enabled ? "1" : "0");
+  hapticsTestMessage.value = "";
 });
+
+function testHaptics(): void {
+  // click内で同期的に要求し、短い通常パターンとの感じ方の差も切り分ける。
+  const result = requestVibration(navigator, 100, hapticsEnabled.value);
+  hapticsTestMessage.value = {
+    disabled: "振動設定がオフです。",
+    unavailable: "このブラウザでは振動APIが利用できません。",
+    accepted:
+      "振動要求が受け付けられました。実際に振動したか確認してください。",
+    rejected: "ブラウザが振動要求を受け付けませんでした。",
+    failed: "振動要求でエラーが発生しました。プレイは続けられます。",
+  }[result];
+}
 
 function saveCurrentGame(): void {
   if (!playId.value) return;
@@ -1231,10 +1250,34 @@ function formatElapsed(seconds: number): string {
       class="seed-panel"
       :inert="!!activeDialog"
     >
-      <label class="haptics-toggle">
-        <input v-model="hapticsEnabled" type="checkbox" />
-        操作時に振動する（対応端末のみ）
-      </label>
+      <div class="haptics-settings">
+        <label class="haptics-toggle">
+          <input
+            v-model="hapticsEnabled"
+            type="checkbox"
+            :disabled="!hapticsApiAvailable"
+            aria-describedby="haptics-help"
+          />
+          操作時に振動する（対応ブラウザ・端末のみ）
+        </label>
+        <p id="haptics-help">
+          <template v-if="!hapticsApiAvailable">
+            このブラウザでは振動APIが利用できません。操作結果は盤面の表示で確認できます。
+          </template>
+          <template v-else>
+            振動APIを利用できますが、実際に振動するとは限りません。振動しない場合は端末の振動設定やマナーモードを確認してください。Firefox
+            Androidではブラウザ側で振動が無効化されています。
+          </template>
+        </p>
+        <button
+          type="button"
+          :disabled="!hapticsApiAvailable || !hapticsEnabled"
+          @click="testHaptics"
+        >
+          振動を試す（100ms）
+        </button>
+        <p v-if="hapticsTestMessage" role="status">{{ hapticsTestMessage }}</p>
+      </div>
       <h3>シード表示・復元</h3>
       <div class="seed-panel-body" aria-label="シード">
         <div>

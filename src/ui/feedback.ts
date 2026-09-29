@@ -21,6 +21,33 @@ export interface VibrationDevice {
   vibrate(pattern: VibratePattern): boolean;
 }
 
+export type VibrationRequestResult =
+  "disabled" | "unavailable" | "accepted" | "rejected" | "failed";
+
+/** APIの存在だけを判定する。実際の振動や端末の設定はWebから検出できない。 */
+export function vibrationApiAvailable(
+  device: Partial<VibrationDevice>,
+): boolean {
+  return typeof device.vibrate === "function";
+}
+
+export function requestVibration(
+  device: Partial<VibrationDevice>,
+  pattern: number | readonly number[],
+  enabled: boolean,
+): VibrationRequestResult {
+  if (!enabled) return "disabled";
+  if (!vibrationApiAvailable(device)) return "unavailable";
+  try {
+    // Navigatorをreceiverに保ち、例外でプレイを妨げない。
+    return device.vibrate!(typeof pattern === "number" ? pattern : [...pattern])
+      ? "accepted"
+      : "rejected";
+  } catch {
+    return "failed";
+  }
+}
+
 const vibrationPatterns: Record<HapticFeedbackKind, readonly number[]> = {
   "excluded-add": [12],
   "excluded-remove": [8],
@@ -96,6 +123,7 @@ export function vibrateForFeedback(
   kind: HapticFeedbackKind,
   enabled: boolean,
 ): boolean {
-  if (!enabled || typeof device.vibrate !== "function") return false;
-  return device.vibrate([...vibrationPatterns[kind]]);
+  return (
+    requestVibration(device, vibrationPatterns[kind], enabled) === "accepted"
+  );
 }

@@ -188,6 +188,93 @@ afterEach(() => {
 });
 const puzzle = { seed: "first" } as Puzzle;
 
+describe("haptic settings", () => {
+  async function openSettings() {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = node();
+    roots.push(container);
+    renderer.render(h(App), container);
+    await nextTick();
+    for (const label of ["メニューを開く", "設定・シード・共有"]) {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.props["aria-label"] === label || n.text.trim() === label),
+      )!;
+      await (button.props.onClick as () => void)();
+      await nextTick();
+    }
+    return container;
+  }
+  const checkbox = (container: HostNode) =>
+    find(container, (n) => n.props["aria-describedby"] === "haptics-help")!;
+  const testButton = (container: HostNode) =>
+    find(
+      container,
+      (n) => n.tag === "button" && n.text.trim() === "振動を試す（100ms）",
+    )!;
+
+  it("explains an absent API and disables controls without discarding the stored preference", async () => {
+    const container = await openSettings();
+    expect(checkbox(container).props.disabled).toBe(true);
+    expect(testButton(container).props.disabled).toBe(true);
+    const help = find(container, (n) => n.props.id === "haptics-help")!;
+    expect(
+      find(help, (n) => n.text.includes("振動APIが利用できません")),
+    ).toBeDefined();
+    expect(localStorage.getItem("tako-sen:haptics-enabled")).toBeNull();
+  });
+  it.each([
+    ["accepted", (): boolean => true, "実際に振動したか確認してください"],
+    ["rejected", (): boolean => false, "受け付けませんでした"],
+    [
+      "failed",
+      () => {
+        throw new Error("blocked");
+      },
+      "プレイは続けられます",
+    ],
+  ] as const)(
+    "tests a direct 100ms request and explains %s",
+    async (_kind, response, message) => {
+      const vibrate = vi.fn(response);
+      vi.stubGlobal("navigator", { onLine: true, vibrate });
+      const container = await openSettings();
+      expect(checkbox(container).props.disabled).toBe(false);
+      expect(testButton(container).props.disabled).toBe(false);
+      expect(vibrate).not.toHaveBeenCalled();
+      (testButton(container).props.onClick as () => void)();
+      expect(vibrate).toHaveBeenCalledWith(100); // nextTickやtimerの前に同期的に要求する。
+      await nextTick();
+      expect(
+        find(
+          container,
+          (n) => n.props.role === "status" && n.text.includes(message),
+        ),
+      ).toBeDefined();
+      (
+        checkbox(container).props["onUpdate:modelValue"] as (
+          value: boolean,
+        ) => void
+      )(false);
+      await nextTick();
+      expect(testButton(container).props.disabled).toBe(true);
+      expect(localStorage.getItem("tako-sen:haptics-enabled")).toBe("0");
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      expect(
+        find(
+          container,
+          (n) => n.props.role === "status" && n.text.includes(message),
+        ),
+      ).toBeUndefined();
+    },
+  );
+});
+
 describe("play screen navigation", () => {
   it("records actual disclosure, persists the maximum through reopening and reload, and finishes with it", async () => {
     vi.stubGlobal("HTMLElement", class {});
