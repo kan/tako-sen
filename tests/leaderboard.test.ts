@@ -52,28 +52,129 @@ beforeAll(async () => {
     remoteBindings: false,
   });
   const db = platform.env.DB;
-  await migrateTestDatabase(db, async () => {
-    await db
-      .prepare(
-        "INSERT INTO leaderboard_profiles (account_id, display_name) VALUES ('legacy', 'タコ-旧匿名名')",
-      )
-      .run();
-    await db
-      .prepare(
-        `INSERT INTO completed_plays
+  await migrateTestDatabase(
+    db,
+    async () => {
+      await db
+        .prepare(
+          "INSERT INTO leaderboard_profiles (account_id, display_name) VALUES ('legacy', 'タコ-旧匿名名')",
+        )
+        .run();
+      await db
+        .prepare(
+          `INSERT INTO completed_plays
       (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty, started_at,
        completed_at, elapsed_seconds, mistakes, hints_used, is_public)
       VALUES ('legacy', ?, ?, 'TAKO:g1:easy:ranking', 'g1', 'easy', 1000, 101000, 100, 0, 0, 1)`,
-      )
-      .bind(crypto.randomUUID(), puzzleId)
-      .run();
-  });
+        )
+        .bind(crypto.randomUUID(), puzzleId)
+        .run();
+    },
+    async () => {
+      for (const [account, hints] of [
+        ["migration-hinted", 2],
+        ["migration-unhinted", 0],
+      ] as const) {
+        await registerAccountProfile(db, account, account);
+        await db
+          .prepare(
+            `INSERT INTO completed_plays
+        (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty, started_at,
+         completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
+        VALUES (?, ?, ?, 'TAKO:g1:easy:ranking', 'g1', 'easy', 1000, 101000, 100, 0, ?, 1)`,
+          )
+          .bind(account, crypto.randomUUID(), `p1:${"d".repeat(64)}`, hints)
+          .run();
+      }
+    },
+  );
 });
 afterAll(async () => {
   await platform?.dispose();
 });
 
 describe("consented automatic first-clear ranking", () => {
+  it("migrates old first scores without deleting, replacing or republishing records", async () => {
+    const db = platform.env.DB;
+    const hinted = (await listCompletedPlays(db, "migration-hinted"))[0];
+    const unhinted = (await listCompletedPlays(db, "migration-unhinted"))[0];
+    expect(hinted.maxHintStage).toBeNull();
+    expect(unhinted.maxHintStage).toBe(0);
+    expect(hinted.isPublic).toBe(true);
+    expect(unhinted.isPublic).toBe(true);
+    expect(
+      await saveCompletedPlay(
+        db,
+        "migration-hinted",
+        { ...hinted, maxHintStage: undefined },
+        true,
+      ),
+    ).toBe("duplicate");
+    const ranked = await listLeaderboard(db, hinted.puzzleId);
+    expect(ranked.map((entry) => entry.maxHintStage)).toEqual([0, null]);
+    await deleteAccountHistory(db, "migration-hinted");
+    await deleteAccountHistory(db, "migration-unhinted");
+  });
+  it("prioritizes hint depth before speed, keeps score ties and detects changed-depth retries", async () => {
+    const db = platform.env.DB;
+    const id = `p1:${"e".repeat(64)}`;
+    const records = [
+      ["depth-none", 0, 0, 200],
+      ["depth-shallow", 1, 1, 90],
+      ["depth-tie-a", 1, 2, 10],
+      ["depth-tie-b", 1, 2, 10],
+      ["depth-deep", 1, 4, 1],
+      ["depth-unknown", 1, null, 0],
+    ] as const;
+    for (const [account, hintsUsed, maxHintStage, elapsedSeconds] of records) {
+      await registerAccountProfile(db, account, account);
+      const first = play({
+        puzzleId: id,
+        hintsUsed,
+        maxHintStage,
+        elapsedSeconds,
+      });
+      expect(await saveCompletedPlay(db, account, first, true)).toBe("created");
+      expect(await saveCompletedPlay(db, account, first, true)).toBe(
+        "duplicate",
+      );
+      if (maxHintStage === 2)
+        expect(
+          await saveCompletedPlay(
+            db,
+            account,
+            { ...first, maxHintStage: 3 },
+            true,
+          ),
+        ).toBe("conflict");
+      expect((await listCompletedPlays(db, account))[0].maxHintStage).toBe(
+        maxHintStage,
+      );
+    }
+    const leaderboard = await listLeaderboard(db, id);
+    expect(leaderboard.map((entry) => entry.rank)).toEqual([1, 2, 3, 3, 5, 6]);
+    expect(leaderboard.map((entry) => entry.maxHintStage)).toEqual([
+      0,
+      1,
+      2,
+      2,
+      4,
+      null,
+    ]);
+    // より浅い再挑戦も初回スコアの置換はしない。
+    await saveCompletedPlay(
+      db,
+      "depth-deep",
+      play({ puzzleId: id, elapsedSeconds: 0, maxHintStage: 0 }),
+      true,
+    );
+    expect(
+      (await listLeaderboard(db, id)).find(
+        (entry) => entry.displayName === "depth-deep",
+      )?.maxHintStage,
+    ).toBe(4);
+    for (const [account] of records) await deleteAccountHistory(db, account);
+  });
   it("withdraws legacy publications without deleting history or treating generated aliases as consent", async () => {
     const db = platform.env.DB;
     expect(await getAccountProfile(db, "legacy")).toBeNull();
@@ -117,6 +218,7 @@ describe("consented automatic first-clear ranking", () => {
         displayName: "初回タコ",
         elapsedSeconds: 150,
         hintsUsed: 0,
+        maxHintStage: 0,
         mistakes: 0,
       },
     ]);
@@ -314,6 +416,7 @@ describe("consented automatic first-clear ranking", () => {
       "displayName",
       "elapsedSeconds",
       "hintsUsed",
+      "maxHintStage",
       "mistakes",
       "rank",
     ]);

@@ -44,8 +44,10 @@ import {
   countHintUsed,
   placePiece,
   resetPlayerProgress,
+  recordHintStage,
   toggleExcluded,
 } from "./core/player";
+import { hintStageLabel, maximumHintStage } from "./core/hint-progress";
 import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
 import {
@@ -460,6 +462,7 @@ function finalizePlay(): void {
     state.value.mistakes,
     state.value.hintsUsed,
     clearSeconds,
+    maximumHintStage(state.value),
   );
   if (updated === resultHistory.value) return;
   resultHistory.value = updated;
@@ -815,6 +818,7 @@ function showHint(): void {
       hintStage.value = 1;
     }
     hint.value = { kind: "move", move: nextHint };
+    state.value = recordHintStage(state.value, hintStage.value);
     hintDialogOpen.value = true;
     return;
   }
@@ -841,6 +845,7 @@ function revealNextHintStage(): void {
     hintStage.value + 1,
     hintStageCount(hint.value.move),
   );
+  state.value = recordHintStage(state.value, hintStage.value);
   if (hintStage.value === hintStageCount(hint.value.move))
     void nextTick(() => hintDialogRef.value?.focus());
 }
@@ -1001,7 +1006,7 @@ function formatElapsed(seconds: number): string {
         <span
           role="img"
           :aria-label="`ヒント ${state.hintsUsed} 回`"
-          title="ヒント"
+          :title="`ヒント · ${hintStageLabel(state)}`"
           ><UiIcon name="hint" />{{ state.hintsUsed }}</span
         >
         <span
@@ -1270,7 +1275,8 @@ function formatElapsed(seconds: number): string {
         <ol v-if="currentRanking.length" class="ranking-list">
           <li v-for="result in currentRanking.slice(0, 10)" :key="result.id">
             {{ formatElapsed(result.elapsedSeconds ?? 0) }} · ヒント
-            {{ result.hintsUsed }} · ミス {{ result.mistakes }}
+            {{ result.hintsUsed }}回（{{ hintStageLabel(result) }}） · ミス
+            {{ result.mistakes }}
             <span v-if="result.id === playId">（今回）</span>
           </li>
         </ol>
@@ -1435,7 +1441,7 @@ function formatElapsed(seconds: number): string {
           </div>
           <div>
             <dt>ヒント</dt>
-            <dd>{{ state.hintsUsed }}</dd>
+            <dd>{{ state.hintsUsed }}回（{{ hintStageLabel(state) }}）</dd>
           </div>
           <div>
             <dt>シード</dt>

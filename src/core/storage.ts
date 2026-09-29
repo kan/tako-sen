@@ -7,9 +7,16 @@ import type { ResultHistory } from "./results";
 import type { SavedPlayTimer } from "./play-timer";
 import { BOARD_SIZE, CELL_COUNT } from "./model";
 import { validateSolution } from "./rules";
+import {
+  maximumHintStage,
+  validHintProgress,
+  type HintStage,
+} from "./hint-progress";
 
-const SAVE_KEY = "tako-sen.current-game.v1";
-const RESULTS_KEY = "tako-sen.results.v1";
+const SAVE_KEY = "tako-sen.current-game.v2";
+const RESULTS_KEY = "tako-sen.results.v2";
+const LEGACY_SAVE_KEY = "tako-sen.current-game.v1";
+const LEGACY_RESULTS_KEY = "tako-sen.results.v1";
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -28,6 +35,7 @@ interface SavedGame {
     readonly fixedErrors: readonly number[];
     readonly mistakes: number;
     readonly hintsUsed: number;
+    readonly maxHintStage?: HintStage | null;
     readonly startedAt: number;
   };
 }
@@ -51,6 +59,7 @@ export function saveGame(
       fixedErrors: [...state.fixedErrors],
       mistakes: state.mistakes,
       hintsUsed: state.hintsUsed,
+      maxHintStage: maximumHintStage(state),
       startedAt: state.startedAt,
     },
   };
@@ -70,8 +79,13 @@ export function loadGame(storage: KeyValueStorage = localStorage):
     }
   | undefined {
   let raw: string | null;
+  let key = SAVE_KEY;
   try {
     raw = storage.getItem(SAVE_KEY);
+    if (raw === null) {
+      key = LEGACY_SAVE_KEY;
+      raw = storage.getItem(key);
+    }
   } catch {
     return undefined;
   }
@@ -82,10 +96,10 @@ export function loadGame(storage: KeyValueStorage = localStorage):
     if (!isSavedGame(parsed)) throw new Error("Invalid saved game");
     saved = parsed;
   } catch {
-    backupCorruptValue(storage, SAVE_KEY, raw);
+    backupCorruptValue(storage, key, raw);
     return undefined;
   }
-  return {
+  const loaded = {
     playId: saved.playId,
     timer: {
       waitingToStart: saved.waitingToStart ?? false,
@@ -100,8 +114,12 @@ export function loadGame(storage: KeyValueStorage = localStorage):
       fixedErrors: new Set(saved.state.fixedErrors),
       mistakes: saved.state.mistakes,
       hintsUsed: saved.state.hintsUsed,
+      maxHintStage: maximumHintStage(saved.state),
     },
   };
+  if (key === LEGACY_SAVE_KEY)
+    saveGame(loaded.puzzle, loaded.state, storage, loaded.playId, loaded.timer);
+  return loaded;
 }
 
 export function loadResultHistory(
@@ -109,21 +127,37 @@ export function loadResultHistory(
   createId: () => string = () => crypto.randomUUID(),
 ): ResultHistory {
   let raw: string | null;
+  let key = RESULTS_KEY;
   try {
     raw = storage.getItem(RESULTS_KEY);
+    if (raw === null) {
+      key = LEGACY_RESULTS_KEY;
+      raw = storage.getItem(key);
+    }
   } catch {
     raw = null;
   }
   if (raw) {
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (isResultHistory(parsed)) return parsed;
+      if (isResultHistory(parsed)) {
+        const history: ResultHistory = {
+          ...parsed,
+          version: 2,
+          plays: parsed.plays.map((play) => ({
+            ...play,
+            maxHintStage: maximumHintStage(play),
+          })),
+        };
+        if (key === LEGACY_RESULTS_KEY) saveResultHistory(history, storage);
+        return history;
+      }
     } catch {
       // Broken local data must not prevent offline play.
     }
-    backupCorruptValue(storage, RESULTS_KEY, raw);
+    backupCorruptValue(storage, key, raw);
   }
-  const history: ResultHistory = { version: 1, userId: createId(), plays: [] };
+  const history: ResultHistory = { version: 2, userId: createId(), plays: [] };
   saveResultHistory(history, storage);
   return history;
 }
@@ -133,7 +167,17 @@ export function saveResultHistory(
   storage: KeyValueStorage = localStorage,
 ): void {
   try {
-    storage.setItem(RESULTS_KEY, JSON.stringify(history));
+    storage.setItem(
+      RESULTS_KEY,
+      JSON.stringify({
+        ...history,
+        version: 2,
+        plays: history.plays.map((play) => ({
+          ...play,
+          maxHintStage: maximumHintStage(play),
+        })),
+      }),
+    );
   } catch {
     // Storage may be unavailable or full; play must remain possible.
   }
@@ -198,6 +242,7 @@ function isSavedGame(value: unknown): value is SavedGame {
     !isCellArray(state.fixedErrors) ||
     !isNonnegativeInteger(state.mistakes) ||
     !isNonnegativeInteger(state.hintsUsed) ||
+    !validHintProgress(state.maxHintStage, Number(state.hintsUsed)) ||
     !isNonnegativeNumber(state.startedAt) ||
     (value.playId !== undefined && typeof value.playId !== "string") ||
     (value.waitingToStart !== undefined &&
@@ -212,7 +257,7 @@ function isSavedGame(value: unknown): value is SavedGame {
 export function isResultHistory(value: unknown): value is ResultHistory {
   if (
     !isRecord(value) ||
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     typeof value.userId !== "string" ||
     value.userId.length === 0 ||
     !Array.isArray(value.plays)
@@ -235,6 +280,8 @@ export function isResultHistory(value: unknown): value is ResultHistory {
       !isNonnegativeNumber(play.startedAt) ||
       (play.status !== "in-progress" && play.status !== "completed")
     )
+      return false;
+    if (!validHintProgress(play.maxHintStage, Number(play.hintsUsed ?? 0)))
       return false;
     if (
       play.status === "completed" &&

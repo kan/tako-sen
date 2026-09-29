@@ -1,7 +1,9 @@
 import type { PlayResult } from "./results";
 import { isResultHistory, type KeyValueStorage } from "./storage";
+import { maximumHintStage } from "./hint-progress";
 
-const KEY = "tako-sen.sync-outbox.v1";
+const KEY = "tako-sen.sync-outbox.v2";
+const LEGACY_KEY = "tako-sen.sync-outbox.v1";
 interface PendingPlay {
   readonly accountId: string;
   readonly play: PlayResult;
@@ -21,27 +23,36 @@ export class SyncOutbox {
     this.seen = new Set(
       plays.filter((p) => p.status === "completed").map((p) => p.id),
     );
+    let key = KEY;
     try {
-      const raw = storage.getItem(KEY);
+      let raw = storage.getItem(KEY);
+      if (raw === null) {
+        key = LEGACY_KEY;
+        raw = storage.getItem(key);
+      }
       if (!raw) return;
       const parsed: unknown = JSON.parse(raw);
       if (
         !parsed ||
         typeof parsed !== "object" ||
         !("version" in parsed) ||
-        parsed.version !== 1 ||
+        (parsed.version !== 1 && parsed.version !== 2) ||
         !("pending" in parsed) ||
         !Array.isArray(parsed.pending) ||
         !parsed.pending.every(isPending)
       ) {
         throw new Error("Invalid outbox.");
       }
-      this.pending = parsed.pending;
+      this.pending = parsed.pending.map((item) => ({
+        ...item,
+        play: { ...item.play, maxHintStage: maximumHintStage(item.play) },
+      }));
+      if (key === LEGACY_KEY) this.persist();
     } catch {
       // Corruption must not cause unsolicited uploads. Preserve the raw value for recovery.
       try {
-        const raw = storage.getItem(KEY);
-        if (raw) storage.setItem(`${KEY}.corrupt`, raw);
+        const raw = storage.getItem(key);
+        if (raw) storage.setItem(`${key}.corrupt`, raw);
       } catch {
         /* storage unavailable */
       }
@@ -100,7 +111,7 @@ export class SyncOutbox {
     try {
       this.storage.setItem(
         KEY,
-        JSON.stringify({ version: 1, pending: this.pending }),
+        JSON.stringify({ version: 2, pending: this.pending }),
       );
       this.persistenceFailed = false;
     } catch {

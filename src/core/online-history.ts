@@ -2,6 +2,11 @@ import { generatePuzzle } from "./generator";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { puzzleId } from "./puzzle-identity";
 import type { PlayResult } from "./results";
+import {
+  maximumHintStage,
+  validHintProgress,
+  type HintStage,
+} from "./hint-progress";
 
 export interface CompletedPlayUpload {
   readonly playId: string;
@@ -14,6 +19,7 @@ export interface CompletedPlayUpload {
   readonly elapsedSeconds: number;
   readonly mistakes: number;
   readonly hintsUsed: number;
+  readonly maxHintStage?: HintStage | null;
 }
 
 export interface OnlinePlay extends CompletedPlayUpload {
@@ -35,7 +41,8 @@ export async function createCompletedPlayUpload(
     play.completedAt < play.startedAt ||
     !isNonnegativeSafeInteger(play.elapsedSeconds) ||
     !isNonnegativeSafeInteger(play.mistakes) ||
-    !isNonnegativeSafeInteger(play.hintsUsed)
+    !isNonnegativeSafeInteger(play.hintsUsed) ||
+    !validHintProgress(play.maxHintStage, Number(play.hintsUsed))
   ) {
     throw new Error("Invalid completed play.");
   }
@@ -63,6 +70,7 @@ export async function createCompletedPlayUpload(
     elapsedSeconds: play.elapsedSeconds,
     mistakes: play.mistakes,
     hintsUsed: play.hintsUsed,
+    maxHintStage: maximumHintStage(play),
   };
 }
 
@@ -102,6 +110,7 @@ export async function verifyCompletedPlayUpload(
     elapsedSeconds: record.elapsedSeconds,
     mistakes: record.mistakes,
     hintsUsed: record.hintsUsed,
+    maxHintStage: record.maxHintStage as HintStage | null | undefined,
   });
   if (record.puzzleId !== verified.puzzleId) {
     throw new Error("Puzzle ID does not match the seed code.");

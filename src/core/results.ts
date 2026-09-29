@@ -1,4 +1,9 @@
 import type { PlayerState, Puzzle, PuzzleDifficulty } from "./model";
+import {
+  hintStageOrder,
+  maximumHintStage,
+  type HintStage,
+} from "./hint-progress";
 
 export interface PlayResult {
   readonly id: string;
@@ -12,10 +17,11 @@ export interface PlayResult {
   readonly elapsedSeconds?: number;
   readonly mistakes?: number;
   readonly hintsUsed?: number;
+  readonly maxHintStage?: HintStage | null;
 }
 
 export interface ResultHistory {
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly userId: string;
   readonly plays: readonly PlayResult[];
 }
@@ -73,7 +79,12 @@ export function startPlay(
     ...history,
     plays: [
       ...history.plays,
-      { ...play, userId: history.userId, status: "in-progress" },
+      {
+        ...play,
+        maxHintStage: play.maxHintStage ?? null,
+        userId: history.userId,
+        status: "in-progress",
+      },
     ],
   };
 }
@@ -85,6 +96,7 @@ export function finishPlay(
   mistakes: number,
   hintsUsed: number,
   elapsedSeconds: number,
+  maxHintStage?: HintStage | null,
 ): ResultHistory {
   if (
     !history.plays.some(
@@ -104,6 +116,7 @@ export function finishPlay(
             elapsedSeconds,
             mistakes,
             hintsUsed,
+            maxHintStage: maximumHintStage({ hintsUsed, maxHintStage }),
           }
         : play,
     ),
@@ -126,6 +139,7 @@ export function sameSeedRanking(
 
 function compareResults(a: PlayResult, b: PlayResult): number {
   return (
+    hintStageOrder(a) - hintStageOrder(b) ||
     (a.elapsedSeconds ?? Infinity) - (b.elapsedSeconds ?? Infinity) ||
     (a.hintsUsed ?? Infinity) - (b.hintsUsed ?? Infinity) ||
     (a.mistakes ?? Infinity) - (b.mistakes ?? Infinity) ||

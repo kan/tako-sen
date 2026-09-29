@@ -133,7 +133,7 @@ describe("account-owned synchronization outbox", () => {
     const restored = new SyncOutbox([completed], local);
     const send = vi.fn(async () => undefined);
     expect(await restored.drain("account-a", () => true, send)).toBe(1);
-    expect(send).toHaveBeenCalledWith(completed);
+    expect(send).toHaveBeenCalledWith({ ...completed, maxHintStage: 0 });
     expect(restored.count("account-a")).toBe(0);
     expect(new SyncOutbox([completed], local).count("account-a")).toBe(0);
   });

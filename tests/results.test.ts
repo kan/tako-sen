@@ -144,7 +144,7 @@ describe("local results", () => {
     });
     storage.setItem("tako-sen.results.v1", raw);
     expect(loadResultHistory(storage, () => "replacement")).toEqual({
-      version: 1,
+      version: 2,
       userId: "replacement",
       plays: [],
     });
@@ -206,7 +206,7 @@ describe("local results", () => {
     expect(finished.plays[0].elapsedSeconds).toBe(42);
   });
 
-  it("sorts by seconds, then hints, then mistakes and separates seed/version/difficulty", () => {
+  it("sorts legacy unhinted plays before unknown hint stages and separates seed/version/difficulty", () => {
     let history: ResultHistory = { version: 1, userId: "user", plays: [] };
     for (const [id, duration, mistakes, hints] of [
       ["slow", 64000, 0, 0],
@@ -233,7 +233,7 @@ describe("local results", () => {
     );
     expect(
       sameSeedRanking(history, "TAKO:g1:easy:one").map((play) => play.id),
-    ).toEqual(["best", "miss", "hint", "slow"]);
+    ).toEqual(["best", "miss", "slow", "hint"]);
   });
 
   it("summarizes plays, clears, averages, best updates and recent seeds", () => {

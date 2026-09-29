@@ -1,3 +1,5 @@
+import type { HintStage } from "./hint-progress";
+
 export const BOARD_SIZE = 8;
 export const CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
 export const REGION_COUNT = BOARD_SIZE;
@@ -26,6 +28,7 @@ export interface PlayerState {
   readonly fixedErrors: ReadonlySet<number>;
   readonly mistakes: number;
   readonly hintsUsed: number;
+  readonly maxHintStage?: HintStage | null;
   readonly startedAt: number;
 }
 
@@ -55,6 +58,7 @@ export function createInitialPlayerState(
     fixedErrors: new Set(),
     mistakes: 0,
     hintsUsed: 0,
+    maxHintStage: 0,
     startedAt: now,
   };
 }

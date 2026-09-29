@@ -1,4 +1,5 @@
 import type { CompletedPlayUpload, OnlinePlay } from "../core/online-history";
+import { maximumHintStage, type HintStage } from "../core/hint-progress";
 
 export type SaveOutcome =
   "created" | "duplicate" | "conflict" | "profile_required";
@@ -33,8 +34,8 @@ export async function saveCompletedPlay(
     .prepare(
       `INSERT INTO completed_plays
        (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
-        started_at, completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        started_at, completed_at, elapsed_seconds, mistakes, hints_used, max_hint_stage, ranking_eligible)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
          EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
        WHERE ? = 0 OR EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
        ON CONFLICT(account_id, play_id) DO NOTHING`,
@@ -51,6 +52,7 @@ export async function saveCompletedPlay(
       play.elapsedSeconds,
       play.mistakes,
       play.hintsUsed,
+      maximumHintStage(play),
       accountId,
       requireProfile ? 1 : 0,
       accountId,
@@ -61,7 +63,7 @@ export async function saveCompletedPlay(
   const existing = await db
     .prepare(
       `SELECT puzzle_id, seed_code, generator_version, difficulty, started_at,
-              completed_at, elapsed_seconds, mistakes, hints_used
+              completed_at, elapsed_seconds, mistakes, hints_used, max_hint_stage
        FROM completed_plays WHERE account_id = ? AND play_id = ?`,
     )
     .bind(accountId, play.playId)
@@ -80,7 +82,7 @@ export async function listCompletedPlays(
   const result = await db
     .prepare(
       `SELECT play_id, puzzle_id, seed_code, generator_version, difficulty,
-              started_at, completed_at, elapsed_seconds, mistakes, hints_used, is_public
+              started_at, completed_at, elapsed_seconds, mistakes, hints_used, max_hint_stage, is_public
        FROM completed_plays WHERE account_id = ?
        ORDER BY completed_at DESC, play_id DESC LIMIT 500`,
     )
@@ -97,6 +99,7 @@ export async function listCompletedPlays(
     elapsedSeconds: row.elapsed_seconds,
     mistakes: row.mistakes,
     hintsUsed: row.hints_used,
+    maxHintStage: row.max_hint_stage,
     isPublic: row.is_public === 1,
   }));
 }
@@ -112,6 +115,7 @@ interface StoredPlay {
   readonly elapsed_seconds: number;
   readonly mistakes: number;
   readonly hints_used: number;
+  readonly max_hint_stage: HintStage | null;
 }
 
 function samePlay(stored: StoredPlay, play: CompletedPlayUpload): boolean {
@@ -124,6 +128,7 @@ function samePlay(stored: StoredPlay, play: CompletedPlayUpload): boolean {
     stored.completed_at === play.completedAt &&
     stored.elapsed_seconds === play.elapsedSeconds &&
     stored.mistakes === play.mistakes &&
-    stored.hints_used === play.hintsUsed
+    stored.hints_used === play.hintsUsed &&
+    stored.max_hint_stage === maximumHintStage(play)
   );
 }

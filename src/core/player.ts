@@ -1,5 +1,6 @@
 import { type PlayerState, type Puzzle, assertCellIndex } from "./model";
 import { isCorrectPiece } from "./rules";
+import { maximumHintStage, type HintStage } from "./hint-progress";
 
 export function toggleExcluded(state: PlayerState, index: number): PlayerState {
   assertCellIndex(index);
@@ -53,7 +54,31 @@ export function addExcludedMarks(
 }
 
 export function countHintUsed(state: PlayerState): PlayerState {
-  return { ...state, hintsUsed: state.hintsUsed + 1 };
+  return {
+    ...state,
+    hintsUsed: state.hintsUsed + 1,
+    maxHintStage: state.hintsUsed === 0 ? 1 : maximumHintStage(state),
+  };
+}
+
+export function recordHintStage(
+  state: PlayerState,
+  stage: number,
+): PlayerState {
+  if (
+    !Number.isInteger(stage) ||
+    stage < 1 ||
+    stage > 4 ||
+    state.hintsUsed === 0
+  )
+    throw new Error("Invalid hint stage.");
+  // 新たな開示で最大値を下げず、旧記録の不明は維持する。
+  const previous = maximumHintStage(state);
+  return {
+    ...state,
+    maxHintStage:
+      previous === null ? null : (Math.max(previous, stage) as HintStage),
+  };
 }
 
 export function resetPlayerProgress(
@@ -68,6 +93,7 @@ export function resetPlayerProgress(
     fixedErrors: new Set(),
     mistakes: 0,
     hintsUsed: 0,
+    maxHintStage: 0,
     startedAt: now,
   };
 }

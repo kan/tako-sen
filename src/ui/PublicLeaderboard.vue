@@ -4,6 +4,7 @@ import type { Puzzle } from "../core/model";
 import type { LeaderboardEntry } from "../core/leaderboard";
 import { puzzleId } from "../core/puzzle-identity";
 import GameName from "./GameName.vue";
+import { hintStageLabel } from "../core/hint-progress";
 
 const props = defineProps<{
   puzzle: Puzzle;
@@ -99,14 +100,16 @@ onUnmounted(() => {
         ゲーム名の設定時に公開へ同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
       </p>
       <p>
-        時間・ヒント数・ミス数の順で比較し、同成績は同順位。各参加者の最初に登録されたクリアを最大100人表示します。
+        ヒントの深さが浅い順、時間・ヒント数・ミス数の順で比較し、同成績は同順位。深さは見たヒントの最も詳しいレベルを共通尺度の1/4〜4/4で表します。通常ヒントは3/4まで、矛盾調査は4/4までです。未使用が最優先、旧記録の深さ不明は深さの分かる記録より後ろに並びます。各参加者の初回成績を最大100人表示します。
       </p>
       <p v-if="busy" role="status">ランキングを取得しています。</p>
       <p v-if="message" aria-live="polite">{{ message }}</p>
       <ul v-if="entries.length" class="ranking-list">
         <li v-for="entry in entries" :key="entry.displayName">
           {{ entry.rank }} 位 · <GameName :name="entry.displayName" /> ·
-          {{ entry.elapsedSeconds }} 秒 · ヒント {{ entry.hintsUsed }} · ミス
+          {{ entry.elapsedSeconds }} 秒 · ヒント {{ entry.hintsUsed }}回（{{
+            hintStageLabel(entry)
+          }}） · ミス
           {{ entry.mistakes }}
         </li>
       </ul>

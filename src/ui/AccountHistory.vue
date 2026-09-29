@@ -2,6 +2,7 @@
 import { useAuth } from "@clerk/vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import GameName from "./GameName.vue";
+import { hintStageLabel } from "../core/hint-progress";
 import { trapDialogFocus } from "./dialog";
 import {
   createCompletedPlayUpload,
@@ -503,8 +504,8 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
               >
                 <code>{{ entry.seedCode }}</code> ·
                 {{ formatSeconds(entry.best.elapsedSeconds) }} · ヒント
-                {{ entry.best.hintsUsed }} · ミス {{ entry.best.mistakes }} ·
-                {{ entry.attempts }} 回挑戦
+                {{ entry.best.hintsUsed }}回（{{ hintStageLabel(entry.best) }}）
+                · ミス {{ entry.best.mistakes }} · {{ entry.attempts }} 回挑戦
               </li>
             </ol>
           </details>
@@ -535,7 +536,8 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
                 {{ formatDate(play.completedAt) }} ·
                 <code>{{ play.seedCode }}</code> ·
                 {{ formatSeconds(play.elapsedSeconds) }} · ヒント
-                {{ play.hintsUsed }} · ミス {{ play.mistakes }}
+                {{ play.hintsUsed }}回（{{ hintStageLabel(play) }}） · ミス
+                {{ play.mistakes }}
                 <span>{{
                   isRanked(play.playId) ? "ランキング反映済み" : "個人履歴"
                 }}</span>

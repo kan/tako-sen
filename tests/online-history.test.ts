@@ -25,6 +25,7 @@ const completed: PlayResult = {
 describe("online history contract", () => {
   it("builds a verified upload without the local anonymous user id", async () => {
     const upload = await createCompletedPlayUpload(completed);
+    expect(upload.maxHintStage).toBeNull();
     expect(upload.playId).toBe(completed.id);
     expect(upload.puzzleId).toMatch(/^p1:[0-9a-f]{64}$/);
     expect(upload).not.toHaveProperty("userId");
@@ -48,5 +49,29 @@ describe("online history contract", () => {
     await expect(
       verifyCompletedPlayUpload({ ...upload, elapsedSeconds: -1 }),
     ).rejects.toThrow("Invalid completed play");
+  });
+
+  it("validates stage range and its consistency with hint usage at the API boundary", async () => {
+    const upload = await createCompletedPlayUpload({
+      ...completed,
+      maxHintStage: 3,
+    });
+    expect((await verifyCompletedPlayUpload(upload)).maxHintStage).toBe(3);
+    for (const stage of [-1, 0, 1.5, 5, "2", false])
+      await expect(
+        verifyCompletedPlayUpload({ ...upload, maxHintStage: stage }),
+      ).rejects.toThrow("Invalid completed play");
+    await expect(
+      verifyCompletedPlayUpload({ ...upload, hintsUsed: 0 }),
+    ).rejects.toThrow("Invalid completed play");
+    const withoutHints = await createCompletedPlayUpload({
+      ...completed,
+      hintsUsed: 0,
+    });
+    expect(withoutHints.maxHintStage).toBe(0);
+    expect(
+      (await verifyCompletedPlayUpload({ ...upload, maxHintStage: undefined }))
+        .maxHintStage,
+    ).toBeNull();
   });
 });

@@ -189,6 +189,80 @@ afterEach(() => {
 const puzzle = { seed: "first" } as Puzzle;
 
 describe("play screen navigation", () => {
+  it("records actual disclosure, persists the maximum through reopening and reload, and finishes with it", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.props["aria-label"] === label || n.text.trim() === label),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => void | Promise<void>)();
+      await nextTick();
+    };
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    await click("OK");
+    await click("ヒント");
+    expect(game().state.maxHintStage).toBe(1);
+    await click("次のヒント");
+    expect(game().state.maxHintStage).toBe(2);
+    await click("次のヒント");
+    expect(game().state.maxHintStage).toBe(3);
+    await click("閉じる");
+    await click("ヒント");
+    expect(game().state.maxHintStage).toBe(3);
+    expect(game().state.hintsUsed).toBe(1);
+    await click("閉じる");
+    renderer.render(null, container);
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(game().state.maxHintStage).toBe(3);
+    await click("OK");
+    const saved = game();
+    const wrongExclusion = saved.puzzle.solution.find(
+      (cell: number) => !(saved.puzzle.givens ?? []).includes(cell),
+    );
+    const cell = find(
+      container,
+      (n) => n.props["data-cell-index"] === wrongExclusion,
+    )!;
+    (cell.props.onClick as () => void)();
+    await nextTick();
+    await click("ヒント");
+    await click("次のヒント");
+    await click("次のヒント");
+    await click("次のヒント");
+    expect(game().state.maxHintStage).toBe(4);
+    await click("閉じる");
+    const completeSave = game();
+    renderer.render(null, container);
+    completeSave.state.pieces = completeSave.puzzle.solution;
+    completeSave.state.excluded = [];
+    localStorage.setItem(
+      "tako-sen.current-game.v2",
+      JSON.stringify(completeSave),
+    );
+    renderer.render(h(App), container);
+    await nextTick();
+    const results = JSON.parse(localStorage.getItem("tako-sen.results.v2")!);
+    expect(
+      results.plays.find((play: PlayResult) => play.id === completeSave.playId)
+        .maxHintStage,
+    ).toBe(4);
+    expect(
+      find(container, (n) => n.props.class === "clear")?.parent?.props.class,
+    ).toBe("status-bar");
+  });
+
   it("resumes after menu dismissal but requires READY after blur or a hidden tab, including during the menu", async () => {
     let now = 10000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -215,7 +289,7 @@ describe("play screen navigation", () => {
     const menu = () =>
       find(container, (n) => n.props["aria-labelledby"] === "menu-title")!;
     const game = () =>
-      JSON.parse(localStorage.getItem("tako-sen.current-game.v1")!);
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
     // 元からREADYならメニューを閉じても計時を始めない。
     await click("メニューを開く");
     await click("メニューを閉じる");
@@ -323,7 +397,7 @@ describe("play screen navigation", () => {
       await nextTick();
     };
     const game = () =>
-      JSON.parse(localStorage.getItem("tako-sen.current-game.v1")!);
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
     await click("OK");
     const cell = find(container, (n) => n.props["data-cell-index"] === 0)!;
     (cell.props.onClick as () => void)();
