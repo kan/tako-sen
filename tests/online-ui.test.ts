@@ -8,6 +8,8 @@ import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
 import type { Puzzle } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
+import { audioDevice } from "./audio-device";
+import { LONG_PRESS_MS } from "../src/ui/pointer";
 
 const auth = vi.hoisted(() => ({
   user: undefined as Ref<string | null> | undefined,
@@ -273,6 +275,155 @@ describe("haptic settings", () => {
       ).toBeUndefined();
     },
   );
+});
+
+describe("sound effects", () => {
+  function setup() {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const device = audioDevice();
+    const constructor = vi.fn(function () {
+      return device.audio;
+    });
+    vi.stubGlobal("window", { ...window, AudioContext: constructor });
+    return { device, constructor };
+  }
+  async function click(container: HostNode, label: string) {
+    const button = find(
+      container,
+      (n) =>
+        n.tag === "button" &&
+        (n.props["aria-label"] === label || n.text.trim() === label),
+    )!;
+    expect(button).toBeDefined();
+    (button.props.onClick as () => void)();
+    await nextTick();
+  }
+  const game = () =>
+    JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+
+  it("starts silent, persists opt-in, previews the three cues and stops on opt-out", async () => {
+    const { device, constructor } = setup();
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    await click(container, "メニューを開く");
+    await click(container, "設定・シード・共有");
+    const checkbox = find(
+      container,
+      (n) => n.props["aria-describedby"] === "sound-help",
+    )!;
+    expect(checkbox.props.disabled).toBe(false);
+    expect(
+      find(container, (n) => n.text === "CLEARの音を試す")!.props.disabled,
+    ).toBe(true);
+    expect(constructor).not.toHaveBeenCalled();
+    expect(localStorage.getItem("tako-sen:sound-enabled")).toBeNull();
+    (checkbox.props["onUpdate:modelValue"] as (value: boolean) => void)(true);
+    (checkbox.props.onChange as () => void)();
+    await nextTick();
+    expect(localStorage.getItem("tako-sen:sound-enabled")).toBe("1");
+    for (const label of ["×の音を試す", "タコの音を試す", "CLEARの音を試す"])
+      await click(container, label);
+    expect(device.oscillators).toHaveLength(3);
+    expect(constructor).toHaveBeenCalledTimes(1);
+    (checkbox.props["onUpdate:modelValue"] as (value: boolean) => void)(false);
+    (checkbox.props.onChange as () => void)();
+    await nextTick();
+    expect(localStorage.getItem("tako-sen:sound-enabled")).toBe("0");
+    expect(device.oscillators.at(-1)!.disconnect).toHaveBeenCalledTimes(1);
+    renderer.render(null, container);
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(constructor).toHaveBeenCalledTimes(1);
+  });
+  it("plays added crosses but not deletions, and stops the sound on focus loss", async () => {
+    const { device } = setup();
+    localStorage.setItem("tako-sen:sound-enabled", "1");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(device.oscillators).toHaveLength(0);
+    await click(container, "OK");
+    const index = game().puzzle.regions.findIndex(
+      (_region: number, cell: number) => !game().puzzle.solution.includes(cell),
+    );
+    const cell = find(container, (n) => n.props["data-cell-index"] === index)!;
+    (cell.props.onClick as () => void)();
+    await nextTick();
+    expect(device.oscillators).toHaveLength(1);
+    (cell.props.onClick as () => void)();
+    await nextTick();
+    expect(device.oscillators).toHaveLength(1);
+    const blur = (
+      vi.mocked(window.addEventListener).mock.calls as unknown as [
+        string,
+        () => void,
+      ][]
+    ).find(([name]) => name === "blur")![1];
+    (blur as () => void)();
+    expect(device.oscillators[0].disconnect).toHaveBeenCalledTimes(1);
+  });
+  it("plays only CLEAR on the last piece and never replays it on restoring the clear", async () => {
+    const { device, constructor } = setup();
+    localStorage.setItem("tako-sen:sound-enabled", "1");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const saved = game();
+    const target = saved.puzzle.solution.find(
+      (cell: number) => !(saved.puzzle.givens ?? []).includes(cell),
+    );
+    renderer.render(null, container);
+    saved.state.pieces = saved.puzzle.solution.filter(
+      (cell: number) => cell !== target,
+    );
+    saved.state.excluded = [];
+    localStorage.setItem("tako-sen.current-game.v2", JSON.stringify(saved));
+    renderer.render(h(App), container);
+    await nextTick();
+    await click(container, "OK");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let ready!: () => void;
+    vi.stubGlobal("window", {
+      ...window,
+      setTimeout: vi.fn((callback: () => void, delay?: number) => {
+        if (delay === LONG_PRESS_MS) ready = callback as () => void;
+        return 1;
+      }),
+    });
+    const cell = find(container, (n) => n.props["data-cell-index"] === target)!;
+    const event = {
+      isPrimary: true,
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+      currentTarget: { setPointerCapture: vi.fn() },
+      preventDefault: vi.fn(),
+    };
+    (cell.props.onPointerdown as (event: unknown) => void)(event);
+    ready();
+    now += LONG_PRESS_MS;
+    (
+      find(container, (n) => n.props.class === "board")!.props.onPointerup as (
+        event: unknown,
+      ) => void
+    )(event);
+    await nextTick();
+    expect(device.oscillators).toHaveLength(1);
+    expect(
+      device.oscillators[0].frequency.setValueAtTime,
+    ).toHaveBeenCalledTimes(4);
+    expect(game().state.pieces).toHaveLength(8);
+    renderer.render(null, container);
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(constructor).toHaveBeenCalledTimes(1);
+    expect(device.oscillators).toHaveLength(1);
+  });
 });
 
 describe("play screen navigation", () => {

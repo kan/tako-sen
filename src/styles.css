@@ -118,12 +118,20 @@ input {
 
 .seed-panel > h3,
 .stats-panel > h3,
-.seed-panel > .haptics-settings {
+.seed-panel > .haptics-settings,
+.seed-panel > .sound-settings {
   margin: 12px;
 }
 
-.haptics-settings p {
+.haptics-settings p,
+.sound-settings p {
   line-height: 1.6;
+}
+
+.sound-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .account-controls {

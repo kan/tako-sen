@@ -79,6 +79,11 @@ import {
 } from "./ui/hint";
 import { LONG_PRESS_MS, pointerReleaseAction } from "./ui/pointer";
 import {
+  createSoundEffects,
+  soundEffectForFeedback,
+  type SoundEffectKind,
+} from "./ui/sound-effects";
+import {
   cellFeedbacksForStateChange,
   strongestHapticFeedback,
   vibrateForFeedback,
@@ -95,6 +100,7 @@ import {
 
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
+const soundStorageKey = "tako-sen:sound-enabled";
 const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineGameName = ref("");
 const rankingRevision = ref(0);
@@ -147,6 +153,20 @@ const showStats = ref(false);
 const hapticsEnabled = ref(true);
 const hapticsApiAvailable = ref(false);
 const hapticsTestMessage = ref("");
+const soundEnabled = ref(false);
+const soundApiAvailable = ref(false);
+const soundEffects = createSoundEffects(
+  () =>
+    typeof window.AudioContext === "function"
+      ? new window.AudioContext()
+      : undefined,
+  () => document.visibilityState !== "hidden",
+);
+const soundPreviews: readonly { kind: SoundEffectKind; label: string }[] = [
+  { kind: "excluded-add", label: "×の音を試す" },
+  { kind: "piece-place", label: "タコの音を試す" },
+  { kind: "clear", label: "CLEARの音を試す" },
+];
 type HintPanel =
   | { readonly kind: "move"; readonly move: LogicalMove }
   | {
@@ -240,6 +260,13 @@ onMounted(() => {
   document.addEventListener("visibilitychange", onVisibilityChange);
   hapticsEnabled.value = loadHapticsEnabled();
   hapticsApiAvailable.value = vibrationApiAvailable(navigator);
+  soundApiAvailable.value = typeof window.AudioContext === "function";
+  try {
+    soundEnabled.value = localStorage.getItem(soundStorageKey) === "1";
+  } catch {
+    /* 初期オフのままプレイを続ける。 */
+  }
+  soundEffects.setEnabled(soundEnabled.value);
   const saved = loadGame();
   resultHistory.value = loadResultHistory();
   if (saved) {
@@ -276,6 +303,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  soundEffects.dispose();
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   window.removeEventListener("pagehide", suspendGame);
   window.removeEventListener("blur", suspendGame);
@@ -308,6 +336,20 @@ watch(hapticsEnabled, (enabled) => {
   localStorage.setItem(hapticsStorageKey, enabled ? "1" : "0");
   hapticsTestMessage.value = "";
 });
+
+watch(soundEnabled, (enabled) => {
+  soundEffects.setEnabled(enabled);
+  try {
+    localStorage.setItem(soundStorageKey, enabled ? "1" : "0");
+  } catch {
+    /* 保存不可でも設定は現在のプレイに反映する。 */
+  }
+});
+
+function onSoundPreferenceChange(): void {
+  soundEffects.setEnabled(soundEnabled.value);
+  if (soundEnabled.value) void soundEffects.unlock();
+}
 
 function testHaptics(): void {
   // click内で同期的に要求し、短い通常パターンとの感じ方の差も切り分ける。
@@ -388,6 +430,7 @@ function closeMenu(): void {
 }
 
 function suspendGame(): void {
+  soundEffects.stop();
   // メニュー中のフォーカス喪失でも自動再開を取り消す。
   resumeAfterMenu = false;
   cancelLongPress();
@@ -420,6 +463,7 @@ function closeTutorial(): void {
 
 function confirmReady(): void {
   if (!waitingToStart.value) return;
+  void soundEffects.unlock();
   const startedAt = Date.now();
   if (!timer.value.hasStarted) state.value = { ...state.value, startedAt };
   timer.value = resumeTimer(timer.value, startedAt);
@@ -428,6 +472,7 @@ function confirmReady(): void {
 }
 
 function pauseGame(): void {
+  soundEffects.stop();
   if (complete.value || timer.value.status !== "running") return;
   const now = Date.now();
   timer.value = pauseTimer(timer.value, now);
@@ -460,10 +505,16 @@ function commitPlayerStateWithFeedback(
   source: FeedbackSource,
 ): void {
   const feedbacks = cellFeedbacksForStateChange(state.value, next, source);
+  const wasComplete = complete.value;
   commitPlayerState(next);
   triggerCellFeedbacks(feedbacks);
   const haptic = strongestHapticFeedback(feedbacks);
   if (haptic) vibrateForFeedback(navigator, haptic, hapticsEnabled.value);
+  const sound = soundEffectForFeedback(
+    feedbacks,
+    !wasComplete && complete.value,
+  );
+  if (sound) soundEffects.play(sound);
 }
 
 function finalizePlay(): void {
@@ -670,6 +721,7 @@ function onTap(index: number): void {
 
 function startPointerPress(index: number, event: PointerEvent): void {
   if (!event.isPrimary) return;
+  void soundEffects.unlock();
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   const pieceDisabled = state.value.excluded.has(index);
   activePointer = {
@@ -1277,6 +1329,36 @@ function formatElapsed(seconds: number): string {
           振動を試す（100ms）
         </button>
         <p v-if="hapticsTestMessage" role="status">{{ hapticsTestMessage }}</p>
+      </div>
+      <div class="sound-settings">
+        <label>
+          <input
+            v-model="soundEnabled"
+            type="checkbox"
+            :disabled="!soundApiAvailable"
+            aria-describedby="sound-help"
+            @change="onSoundPreferenceChange"
+          />
+          効果音（SE）を鳴らす
+        </label>
+        <p id="sound-help">
+          {{
+            soundApiAvailable
+              ? "初期設定はオフです。×・タコの配置とCLEAR時に鳴ります。音量は端末で調整してください。"
+              : "このブラウザでは音声APIが利用できません。音なしでもプレイできます。"
+          }}
+        </p>
+        <div class="sound-previews">
+          <button
+            v-for="preview in soundPreviews"
+            :key="preview.kind"
+            type="button"
+            :disabled="!soundApiAvailable || !soundEnabled"
+            @click="soundEffects.play(preview.kind)"
+          >
+            {{ preview.label }}
+          </button>
+        </div>
       </div>
       <h3>シード表示・復元</h3>
       <div class="seed-panel-body" aria-label="シード">
