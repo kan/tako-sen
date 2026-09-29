@@ -37,7 +37,95 @@ input {
 }
 
 .hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 44px;
+  margin-bottom: 8px;
+}
+
+.ui-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.icon-button,
+.actions .icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.icon-button .ui-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.menu-trigger {
+  margin-left: auto;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.menu-trigger:hover {
+  background: #ffe5cf;
+}
+
+.icon-button:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
+}
+
+.screen-menu .return-to-play {
+  margin-top: 12px;
   text-align: center;
+  background: #ff8a5b;
+}
+
+.screen-header {
+  margin-top: 20px;
+}
+
+.screen-header h2:focus {
+  outline: 2px solid #a44a2a;
+  outline-offset: 4px;
+}
+
+.screen-menu {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.screen-menu button,
+.screen-header button {
+  padding: 12px 16px;
+  border: 2px solid #2a1b14;
+  border-radius: 12px;
+  background: #fffdf8;
+  color: inherit;
+  text-align: left;
+}
+
+.seed-panel > h3,
+.stats-panel > h3,
+.seed-panel > .haptics-toggle {
+  margin: 12px;
+}
+
+.seed-panel > .haptics-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .account-controls {
@@ -115,7 +203,6 @@ h1 {
   letter-spacing: -0.06em;
 }
 
-.status-bar,
 .actions {
   display: flex;
   justify-content: center;
@@ -124,7 +211,6 @@ h1 {
   margin: 10px 0;
 }
 
-.status-bar span,
 .actions button,
 .difficulty-select,
 .haptics-toggle {
@@ -135,6 +221,25 @@ h1 {
   box-shadow: 0 2px 0 #2a1b14;
   font-size: 14px;
   font-weight: 800;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-bar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .clear {
@@ -151,8 +256,9 @@ h1 {
   display: grid;
   place-items: center;
   border: 0;
-  border-left: 1px solid rgb(42 27 20 / 35%);
-  padding: 0 0 0 6px;
+  padding: 8px;
+  min-height: 32px;
+  min-width: 32px;
   background: transparent;
   color: #2a1b14;
   cursor: pointer;
@@ -860,7 +966,6 @@ h1 {
     font-size: clamp(28px, 8vw, 44px);
   }
 
-  .status-bar,
   .actions {
     margin: 8px 0;
   }
@@ -871,11 +976,24 @@ h1 {
     padding-inline: 8px;
   }
 
-  .status-bar span,
   .actions button,
   .difficulty-select,
   .haptics-toggle {
     padding: 5px 8px;
     font-size: 13px;
+  }
+
+  .status-bar {
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .status-bar .ui-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .status-bar .time-status {
+    gap: 2px;
   }
 }

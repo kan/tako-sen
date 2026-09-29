@@ -9,6 +9,7 @@ const props = defineProps<{
   puzzle: Puzzle;
   revision?: number;
   complete?: boolean;
+  visible?: boolean;
 }>();
 const entries = ref<LeaderboardEntry[]>([]);
 const busy = ref(false);
@@ -16,6 +17,12 @@ const message = ref("");
 let generation = 0;
 let pendingRefresh = false;
 const panel = ref<HTMLDetailsElement>();
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) void refresh();
+  },
+);
 watch(
   () => [props.puzzle, props.revision, props.complete],
   () => {
@@ -83,7 +90,7 @@ onUnmounted(() => {
     ref="panel"
     id="public-leaderboard"
     class="stats-panel"
-    :open="props.complete"
+    :open="props.visible || props.complete"
     @toggle="onPanelToggle"
   >
     <summary>この問題の公開ランキング</summary>

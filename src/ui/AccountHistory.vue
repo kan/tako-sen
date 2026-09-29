@@ -19,7 +19,12 @@ import { SyncOutbox } from "../core/sync-outbox";
 import type { PuzzleDifficulty } from "../core/model";
 import type { PlayResult } from "../core/results";
 
-const props = defineProps<{ plays: readonly PlayResult[]; open: boolean }>();
+const props = defineProps<{
+  plays: readonly PlayResult[];
+  open: boolean;
+  historyOpen?: boolean;
+  historyInert?: boolean;
+}>();
 const emit = defineEmits<{ synced: []; profile: [name: string]; close: [] }>();
 const dialogRef = ref<HTMLElement>();
 const { getToken, isLoaded, isSignedIn, signOut, userId } = useAuth();
@@ -69,6 +74,12 @@ watch(
     await nextTick();
     dialogRef.value?.focus();
     void refresh();
+  },
+);
+watch(
+  () => props.historyOpen,
+  (open) => {
+    if (open) void refresh();
   },
 );
 
@@ -416,127 +427,123 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
         ログインしてゲーム名を設定すると、クリアの自動同期とランキング参加ができます。ログインなしでも遊べます。
       </p>
       <p v-if="message" aria-live="polite">{{ message }}</p>
-      <details class="stats-panel">
-        <summary>オンライン履歴</summary>
-        <div class="stats-panel-body">
-          <p v-if="!isLoaded">ログイン状態を確認しています。</p>
-          <p v-else-if="!isSignedIn">
-            ログインすると履歴を端末間で確認できます。
-          </p>
-          <template v-else>
-            <button type="button" :disabled="busy" @click="refresh">
-              履歴を再取得
-            </button>
-            <template v-if="onlinePlays.length">
-              <p>
-                取得した直近
-                {{ onlinePlays.length }} 件（最大500件）から集計します。
-              </p>
-              <div class="online-history-filters">
-                <label>
-                  期間
-                  <select v-model="selectedPeriod">
-                    <option value="all">すべて</option>
-                    <option value="7">過去7日</option>
-                    <option value="30">過去30日</option>
-                  </select>
-                </label>
-                <label>
-                  難易度
-                  <select v-model="selectedDifficulty">
-                    <option value="all">すべて</option>
-                    <option value="easy">初級</option>
-                    <option value="normal">中級</option>
-                    <option value="hard">上級</option>
-                  </select>
-                </label>
-                <label>
-                  シード・問題 ID
-                  <input
-                    v-model="searchQuery"
-                    type="search"
-                    autocomplete="off"
-                  />
-                </label>
-              </div>
-              <p aria-live="polite">
-                条件に合うクリア {{ historyView.count }} 件
-                <template v-if="historyView.averageSeconds !== undefined">
-                  · 平均 {{ formatSeconds(historyView.averageSeconds) }}
-                </template>
-              </p>
-              <ul v-if="historyView.count" class="stats-list">
-                <li
-                  v-for="group in historyView.byDifficulty"
-                  :key="group.difficulty"
-                >
-                  {{ difficultyLabel(group.difficulty) }}: {{ group.clears }} 件
-                  <template v-if="group.averageSeconds !== undefined">
-                    · 平均 {{ formatSeconds(group.averageSeconds) }} · 最速
-                    {{ formatSeconds(group.bestSeconds ?? 0) }}
-                  </template>
-                </li>
-              </ul>
-              <details v-if="historyView.puzzleBests.length">
-                <summary>
-                  問題別自己ベスト（{{ historyView.puzzleBests.length }} 問）
-                </summary>
-                <ol class="ranking-list">
-                  <li
-                    v-for="entry in historyView.puzzleBests"
-                    :key="entry.puzzleId"
-                  >
-                    <code>{{ entry.seedCode }}</code> ·
-                    {{ formatSeconds(entry.best.elapsedSeconds) }} · ヒント
-                    {{ entry.best.hintsUsed }} · ミス
-                    {{ entry.best.mistakes }} · {{ entry.attempts }} 回挑戦
-                  </li>
-                </ol>
-              </details>
-              <details v-if="historyView.recentTrend.length">
-                <summary>最近のクリア時間の推移</summary>
-                <ol class="online-history-trend">
-                  <li
-                    v-for="play in historyView.recentTrend"
-                    :key="play.playId"
-                  >
-                    <span>{{ formatDate(play.completedAt) }}</span>
-                    <span class="online-history-trend-track" aria-hidden="true">
-                      <span
-                        :style="{
-                          width: `${Math.max(4, (play.elapsedSeconds / trendMaxSeconds) * 100)}%`,
-                        }"
-                      ></span>
-                    </span>
-                    <span>{{ formatSeconds(play.elapsedSeconds) }}</span>
-                  </li>
-                </ol>
-                <p>棒が短いほどクリア時間が短いことを示します。</p>
-              </details>
-              <details v-if="historyView.plays.length">
-                <summary>該当する履歴（{{ historyView.count }} 件）</summary>
-                <p>
-                  時間は自己申告の参考記録です。ランキングには初回だけが反映されます。
-                </p>
-                <ol class="ranking-list">
-                  <li v-for="play in historyView.plays" :key="play.playId">
-                    {{ formatDate(play.completedAt) }} ·
-                    <code>{{ play.seedCode }}</code> ·
-                    {{ formatSeconds(play.elapsedSeconds) }} · ヒント
-                    {{ play.hintsUsed }} · ミス {{ play.mistakes }}
-                    <span>{{
-                      isRanked(play.playId) ? "ランキング反映済み" : "個人履歴"
-                    }}</span>
-                  </li>
-                </ol>
-              </details>
-            </template>
-            <button type="button" :disabled="busy" @click="deleteAccount">
-              退会してオンライン履歴を削除
-            </button>
-          </template>
-        </div>
-      </details>
+      <button
+        v-if="isSignedIn"
+        type="button"
+        :disabled="busy"
+        @click="deleteAccount"
+      >
+        退会してオンライン履歴を削除
+      </button>
     </section>
   </div>
+  <section v-if="historyOpen" class="stats-panel" :inert="historyInert">
+    <h3>オンライン履歴</h3>
+    <div class="stats-panel-body">
+      <p v-if="!isLoaded">ログイン状態を確認しています。</p>
+      <p v-else-if="!isSignedIn">ログインすると履歴を端末間で確認できます。</p>
+      <template v-else>
+        <button type="button" :disabled="busy" @click="refresh">
+          履歴を再取得
+        </button>
+        <template v-if="onlinePlays.length">
+          <p>
+            取得した直近
+            {{ onlinePlays.length }} 件（最大500件）から集計します。
+          </p>
+          <div class="online-history-filters">
+            <label>
+              期間
+              <select v-model="selectedPeriod">
+                <option value="all">すべて</option>
+                <option value="7">過去7日</option>
+                <option value="30">過去30日</option>
+              </select>
+            </label>
+            <label>
+              難易度
+              <select v-model="selectedDifficulty">
+                <option value="all">すべて</option>
+                <option value="easy">初級</option>
+                <option value="normal">中級</option>
+                <option value="hard">上級</option>
+              </select>
+            </label>
+            <label>
+              シード・問題 ID
+              <input v-model="searchQuery" type="search" autocomplete="off" />
+            </label>
+          </div>
+          <p aria-live="polite">
+            条件に合うクリア {{ historyView.count }} 件
+            <template v-if="historyView.averageSeconds !== undefined">
+              · 平均 {{ formatSeconds(historyView.averageSeconds) }}
+            </template>
+          </p>
+          <ul v-if="historyView.count" class="stats-list">
+            <li
+              v-for="group in historyView.byDifficulty"
+              :key="group.difficulty"
+            >
+              {{ difficultyLabel(group.difficulty) }}: {{ group.clears }} 件
+              <template v-if="group.averageSeconds !== undefined">
+                · 平均 {{ formatSeconds(group.averageSeconds) }} · 最速
+                {{ formatSeconds(group.bestSeconds ?? 0) }}
+              </template>
+            </li>
+          </ul>
+          <details v-if="historyView.puzzleBests.length">
+            <summary>
+              問題別自己ベスト（{{ historyView.puzzleBests.length }} 問）
+            </summary>
+            <ol class="ranking-list">
+              <li
+                v-for="entry in historyView.puzzleBests"
+                :key="entry.puzzleId"
+              >
+                <code>{{ entry.seedCode }}</code> ·
+                {{ formatSeconds(entry.best.elapsedSeconds) }} · ヒント
+                {{ entry.best.hintsUsed }} · ミス {{ entry.best.mistakes }} ·
+                {{ entry.attempts }} 回挑戦
+              </li>
+            </ol>
+          </details>
+          <details v-if="historyView.recentTrend.length">
+            <summary>最近のクリア時間の推移</summary>
+            <ol class="online-history-trend">
+              <li v-for="play in historyView.recentTrend" :key="play.playId">
+                <span>{{ formatDate(play.completedAt) }}</span>
+                <span class="online-history-trend-track" aria-hidden="true">
+                  <span
+                    :style="{
+                      width: `${Math.max(4, (play.elapsedSeconds / trendMaxSeconds) * 100)}%`,
+                    }"
+                  ></span>
+                </span>
+                <span>{{ formatSeconds(play.elapsedSeconds) }}</span>
+              </li>
+            </ol>
+            <p>棒が短いほどクリア時間が短いことを示します。</p>
+          </details>
+          <details v-if="historyView.plays.length">
+            <summary>該当する履歴（{{ historyView.count }} 件）</summary>
+            <p>
+              時間は自己申告の参考記録です。ランキングには初回だけが反映されます。
+            </p>
+            <ol class="ranking-list">
+              <li v-for="play in historyView.plays" :key="play.playId">
+                {{ formatDate(play.completedAt) }} ·
+                <code>{{ play.seedCode }}</code> ·
+                {{ formatSeconds(play.elapsedSeconds) }} · ヒント
+                {{ play.hintsUsed }} · ミス {{ play.mistakes }}
+                <span>{{
+                  isRanked(play.playId) ? "ランキング反映済み" : "個人履歴"
+                }}</span>
+              </li>
+            </ol>
+          </details>
+        </template>
+      </template>
+    </div>
+  </section>
 </template>

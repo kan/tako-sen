@@ -6,6 +6,7 @@ import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
 import Tutorial from "./ui/Tutorial.vue";
+import UiIcon from "./ui/UiIcon.vue";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
 import {
@@ -95,6 +96,23 @@ const onlineGameName = ref("");
 const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
 const tutorialOpen = ref(false);
+type Screen = "play" | "history" | "ranking" | "tools";
+const screen = ref<Screen>("play");
+const menuOpen = ref(false);
+let resumeAfterMenu = false;
+const menuDialogRef = ref<HTMLElement>();
+const screenHeading = ref<HTMLElement>();
+const menuButton = ref<HTMLButtonElement>();
+const accountMenuButton = ref<HTMLButtonElement>();
+const screenTitle = computed(
+  () =>
+    ({
+      play: "プレイ",
+      history: "履歴・成績",
+      ranking: "この問題のランキング",
+      tools: "設定・シード・共有",
+    })[screen.value],
+);
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -163,13 +181,14 @@ const cells = computed(() =>
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
 const activeDialog = computed<
-  "tutorial" | "hint" | "clear" | "account" | undefined
+  "tutorial" | "hint" | "clear" | "account" | "menu" | undefined
 >(() => {
   if (tutorialOpen.value) return "tutorial";
   if (complete.value && showClearDialog.value) return "clear";
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
     return "hint";
   if (accountDialogOpen.value) return "account";
+  if (menuOpen.value) return "menu";
   return undefined;
 });
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
@@ -210,7 +229,9 @@ onMounted(() => {
     currentTime.value = Date.now();
     if (timer.value.status === "running") saveCurrentGame();
   }, 1000);
-  window.addEventListener("pagehide", saveCurrentGame);
+  window.addEventListener("pagehide", suspendGame);
+  window.addEventListener("blur", suspendGame);
+  document.addEventListener("visibilitychange", onVisibilityChange);
   hapticsEnabled.value = loadHapticsEnabled();
   const saved = loadGame();
   resultHistory.value = loadResultHistory();
@@ -249,7 +270,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
-  window.removeEventListener("pagehide", saveCurrentGame);
+  window.removeEventListener("pagehide", suspendGame);
+  window.removeEventListener("blur", suspendGame);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
 watch([puzzle, state, timer], saveCurrentGame, { deep: true });
@@ -262,15 +285,15 @@ watch(activeDialog, async (dialog, previous) => {
   }
   await nextTick();
   if (dialog) {
-    if (dialog !== "account" && dialog !== "tutorial")
+    if (dialog === "menu") {
+      if (previous === "account") accountMenuButton.value?.focus();
+      else menuDialogRef.value?.focus();
+    } else if (dialog !== "account" && dialog !== "tutorial")
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
-    if (waitingToStart.value) focusReadyButton();
+    if (waitingToStart.value && screen.value === "play") focusReadyButton();
     else if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
-    else if (previous === "account")
-      document
-        .querySelector<HTMLButtonElement>(".account-controls button")
-        ?.focus();
+    else menuButton.value?.focus();
     focusBeforeDialog = null;
   }
 });
@@ -298,6 +321,7 @@ watch(complete, (isCompleteNow, wasComplete) => {
 
 function beginPlay(): void {
   if (!resultHistory.value) return;
+  resumeAfterMenu = false;
   playId.value = crypto.randomUUID();
   timer.value = createWaitingTimer();
   saveCurrentGame();
@@ -306,8 +330,61 @@ function beginPlay(): void {
 
 function focusReadyButton(): void {
   void nextTick(() => {
-    if (!activeDialog.value) readyButton.value?.focus();
+    if (!activeDialog.value && screen.value === "play")
+      readyButton.value?.focus();
   });
+}
+
+async function navigateTo(next: Screen): Promise<void> {
+  if (next === "play" && screen.value === "play" && menuOpen.value) {
+    closeMenu();
+    return;
+  }
+  cancelLongPress();
+  pauseGame();
+  resumeAfterMenu = false;
+  screen.value = next;
+  menuOpen.value = false;
+  showStats.value = next === "history";
+  await nextTick();
+  if (next !== "play") screenHeading.value?.focus();
+  else if (waitingToStart.value) focusReadyButton();
+  else menuButton.value?.focus();
+  window.scrollTo({ top: 0 });
+}
+
+function openMenu(): void {
+  cancelLongPress();
+  resumeAfterMenu = timer.value.status === "running";
+  menuOpen.value = true;
+  pauseGame();
+}
+
+function closeMenu(): void {
+  menuOpen.value = false;
+  if (resumeAfterMenu && screen.value === "play") confirmReady();
+  resumeAfterMenu = false;
+}
+
+function suspendGame(): void {
+  // メニュー中のフォーカス喪失でも自動再開を取り消す。
+  resumeAfterMenu = false;
+  cancelLongPress();
+  pauseGame();
+  saveCurrentGame();
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === "hidden") suspendGame();
+}
+
+function onMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMenu();
+    return;
+  }
+  trapDialogFocus(event, menuDialogRef.value);
 }
 
 function openTutorial(): void {
@@ -413,6 +490,7 @@ function newGame(): void {
   seedMessage.value = "新しい問題を生成しました。";
   statsMessage.value = "";
   beginPlay();
+  void navigateTo("play");
   centerBoardAfterPuzzleChange();
 }
 
@@ -475,6 +553,7 @@ function restoreSeed(code: string): boolean {
   clearDialogMessage.value = "";
   seedMessage.value = "シードから問題を復元しました。";
   beginPlay();
+  void navigateTo("play");
   centerBoardAfterPuzzleChange();
   return true;
 }
@@ -789,10 +868,7 @@ function closeClearDialog(): void {
 
 async function showLeaderboard(): Promise<void> {
   closeClearDialog();
-  await nextTick();
-  const ranking = document.getElementById("public-leaderboard");
-  ranking?.querySelector("summary")?.focus({ preventScroll: true });
-  ranking?.scrollIntoView({ block: "nearest" });
+  await navigateTo("ranking");
 }
 
 function onDialogKeydown(event: KeyboardEvent): void {
@@ -910,46 +986,31 @@ function formatElapsed(seconds: number): string {
 
 <template>
   <main class="app-shell">
-    <header class="hero" :inert="waitingToStart || !!activeDialog">
-      <h1>TAKO-SEN</h1>
-      <p class="eyebrow">PROTOTYPE</p>
-      <button
-        type="button"
-        class="tutorial-trigger"
-        aria-haspopup="dialog"
-        @click="openTutorial"
+    <header
+      class="hero"
+      :inert="(screen === 'play' && waitingToStart) || !!activeDialog"
+    >
+      <section
+        v-show="screen === 'play'"
+        class="status-bar"
+        aria-label="プレイ状況"
       >
-        遊び方
-      </button>
-      <nav
-        v-if="onlineAuthEnabled"
-        class="account-controls"
-        aria-label="アカウント"
-      >
-        <Show when="signed-out">
-          <SignInButton><button type="button">ログイン</button></SignInButton>
-          <SignUpButton
-            ><button type="button">アカウント作成</button></SignUpButton
-          >
-        </Show>
-        <Show when="signed-in"
-          ><button
-            type="button"
-            aria-haspopup="dialog"
-            :aria-expanded="accountDialogOpen"
-            @click="accountDialogOpen = true"
-          >
-            <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
-        ></Show>
-      </nav>
-    </header>
-
-    <section class="play-area" :inert="waitingToStart || !!activeDialog">
-      <section class="status-bar" aria-live="polite">
-        <span>ミス {{ state.mistakes }}</span>
-        <span>ヒント {{ state.hintsUsed }}</span>
-        <span class="time-status">
-          時間 {{ formatElapsed(displayedElapsedSeconds) }}
+        <span role="img" :aria-label="`ミス ${state.mistakes} 回`" title="ミス"
+          ><UiIcon name="mistake" />{{ state.mistakes }}</span
+        >
+        <span
+          role="img"
+          :aria-label="`ヒント ${state.hintsUsed} 回`"
+          title="ヒント"
+          ><UiIcon name="hint" />{{ state.hintsUsed }}</span
+        >
+        <span
+          class="time-status"
+          role="group"
+          :aria-label="`時間 ${formatElapsed(displayedElapsedSeconds)}`"
+          title="プレイ時間"
+        >
+          <UiIcon name="clock" />{{ formatElapsed(displayedElapsedSeconds) }}
           <button
             v-if="!complete && timer.status === 'running'"
             type="button"
@@ -964,11 +1025,113 @@ function formatElapsed(seconds: number): string {
             </svg>
           </button>
         </span>
-        <span v-if="complete" class="clear">CLEAR</span>
-        <span v-else>進行中</span>
-        <span>評価 {{ actualDifficultyLabel }}</span>
+        <span
+          role="img"
+          :aria-label="`評価 ${actualDifficultyLabel}`"
+          title="問題の評価"
+          ><UiIcon name="difficulty" />{{ actualDifficultyLabel }}</span
+        >
+        <span v-if="complete" class="clear" role="status">CLEAR</span>
       </section>
+      <button
+        ref="menuButton"
+        type="button"
+        class="icon-button menu-trigger"
+        aria-label="メニューを開く"
+        title="メニュー"
+        aria-haspopup="dialog"
+        :aria-expanded="menuOpen"
+        @click="openMenu"
+      >
+        <UiIcon name="settings" />
+      </button>
+    </header>
 
+    <div
+      v-if="activeDialog === 'menu'"
+      class="dialog-backdrop"
+      role="presentation"
+      @click.self="closeMenu"
+    >
+      <section
+        ref="menuDialogRef"
+        class="dialog-card menu-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="menu-title"
+        tabindex="-1"
+        @keydown="onMenuKeydown"
+      >
+        <div class="dialog-header">
+          <h2 id="menu-title">メニュー</h2>
+          <button
+            type="button"
+            class="dialog-close"
+            aria-label="メニューを閉じる"
+            @click="closeMenu"
+          >
+            閉じる
+          </button>
+        </div>
+        <nav
+          v-if="onlineAuthEnabled"
+          class="account-controls"
+          aria-label="アカウント"
+        >
+          <Show when="signed-out">
+            <SignInButton><button type="button">ログイン</button></SignInButton>
+            <SignUpButton
+              ><button type="button">アカウント作成</button></SignUpButton
+            >
+          </Show>
+          <Show when="signed-in"
+            ><button
+              ref="accountMenuButton"
+              type="button"
+              aria-haspopup="dialog"
+              :aria-expanded="accountDialogOpen"
+              @click="accountDialogOpen = true"
+            >
+              <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
+          ></Show>
+        </nav>
+        <nav class="screen-menu" aria-label="メニュー">
+          <button type="button" @click="navigateTo('history')">
+            履歴・成績
+          </button>
+          <button type="button" @click="navigateTo('ranking')">
+            この問題のランキング
+          </button>
+          <button type="button" @click="navigateTo('tools')">
+            設定・シード・共有
+          </button>
+          <button type="button" @click="openTutorial">遊び方</button>
+          <button
+            type="button"
+            class="return-to-play"
+            @click="navigateTo('play')"
+          >
+            プレイに戻る
+          </button>
+        </nav>
+      </section>
+    </div>
+
+    <section
+      v-if="screen !== 'play'"
+      class="screen-header"
+      :inert="!!activeDialog"
+    >
+      <button type="button" @click="navigateTo('play')">プレイに戻る</button>
+      <h2 ref="screenHeading" tabindex="-1">{{ screenTitle }}</h2>
+      <p v-if="!complete">プレイは一時停止中です。戻って OK で再開できます。</p>
+    </section>
+
+    <section
+      v-show="screen === 'play'"
+      class="play-area"
+      :inert="waitingToStart || !!activeDialog"
+    >
       <section ref="boardWrap" class="board-wrap">
         <div
           class="board"
@@ -1014,7 +1177,11 @@ function formatElapsed(seconds: number): string {
       </section>
     </section>
 
-    <section class="actions" :inert="waitingToStart || !!activeDialog">
+    <section
+      v-show="screen === 'play'"
+      class="actions"
+      :inert="waitingToStart || !!activeDialog"
+    >
       <label class="difficulty-select">
         難易度
         <select v-model="selectedDifficulty">
@@ -1023,19 +1190,46 @@ function formatElapsed(seconds: number): string {
           <option value="hard">上級</option>
         </select>
       </label>
-      <button v-if="canShowHint(complete)" type="button" @click="showHint">
-        ヒント
+      <button
+        v-if="canShowHint(complete)"
+        type="button"
+        class="icon-button"
+        aria-label="ヒント"
+        title="ヒント"
+        @click="showHint"
+      >
+        <UiIcon name="hint" />
       </button>
-      <button type="button" @click="resetProgress">リセット</button>
-      <button type="button" @click="newGame">新しい問題</button>
-      <label class="haptics-toggle">
-        <input v-model="hapticsEnabled" type="checkbox" />
-        振動
-      </label>
+      <button
+        type="button"
+        class="icon-button"
+        aria-label="リセット"
+        title="リセット"
+        @click="resetProgress"
+      >
+        <UiIcon name="reset" />
+      </button>
+      <button
+        type="button"
+        class="icon-button"
+        aria-label="新しい問題"
+        title="新しい問題"
+        @click="newGame"
+      >
+        <UiIcon name="next" />
+      </button>
     </section>
 
-    <details class="seed-panel" :inert="waitingToStart || !!activeDialog">
-      <summary>シード表示・復元</summary>
+    <section
+      v-show="screen === 'tools'"
+      class="seed-panel"
+      :inert="!!activeDialog"
+    >
+      <label class="haptics-toggle">
+        <input v-model="hapticsEnabled" type="checkbox" />
+        操作時に振動する（対応端末のみ）
+      </label>
+      <h3>シード表示・復元</h3>
       <div class="seed-panel-body" aria-label="シード">
         <div>
           <span class="seed-label">現在のシード</span>
@@ -1058,14 +1252,14 @@ function formatElapsed(seconds: number): string {
           {{ seedMessage }}
         </p>
       </div>
-    </details>
+    </section>
 
-    <details
+    <section
+      v-show="screen === 'history'"
       class="stats-panel"
-      :inert="waitingToStart || !!activeDialog"
-      @toggle="showStats = ($event.target as HTMLDetailsElement).open"
+      :inert="!!activeDialog"
     >
-      <summary>ローカル成績</summary>
+      <h3>この端末の成績</h3>
       <div v-if="showStats && userSummary" class="stats-panel-body">
         <p>
           総プレイ {{ userSummary.plays }} 回 · クリア
@@ -1111,19 +1305,23 @@ function formatElapsed(seconds: number): string {
           {{ statsMessage }}
         </p>
       </div>
-    </details>
+    </section>
 
     <PublicLeaderboard
+      v-show="screen === 'ranking'"
+      :visible="screen === 'ranking'"
       :puzzle="puzzle"
       :revision="rankingRevision"
       :complete="complete"
-      :inert="waitingToStart || !!activeDialog"
+      :inert="!!activeDialog"
     />
 
     <AccountHistory
       v-if="onlineAuthEnabled && resultHistory"
       :plays="resultHistory.plays"
       :open="activeDialog === 'account'"
+      :history-open="screen === 'history'"
+      :history-inert="!!activeDialog"
       @close="accountDialogOpen = false"
       @profile="onlineGameName = $event"
       @synced="rankingRevision += 1"
@@ -1280,7 +1478,7 @@ function formatElapsed(seconds: number): string {
       @close="closeTutorial"
     />
     <div
-      v-if="waitingToStart && !tutorialOpen"
+      v-if="screen === 'play' && waitingToStart && !activeDialog"
       class="ready-overlay"
       role="presentation"
     >
@@ -1295,6 +1493,15 @@ function formatElapsed(seconds: number): string {
           OK
         </button>
         <button type="button" @click="openTutorial">遊び方</button>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="メニューを開く"
+          title="メニュー"
+          @click="openMenu"
+        >
+          <UiIcon name="settings" />
+        </button>
       </section>
     </div>
   </main>

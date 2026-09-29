@@ -3,6 +3,8 @@ import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import Tutorial from "../src/ui/Tutorial.vue";
+import App from "../src/App.vue";
+import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
 import type { Puzzle } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
@@ -25,6 +27,12 @@ vi.mock("@clerk/vue", async () => {
             : [],
     }),
     SignInButton: defineComponent({
+      setup:
+        (_, { slots }) =>
+        () =>
+          h("div", slots.default?.()),
+    }),
+    SignUpButton: defineComponent({
       setup:
         (_, { slots }) =>
         () =>
@@ -56,6 +64,12 @@ interface HostNode {
   parent: HostNode | null;
   props: Record<string, unknown>;
   open: boolean;
+  style: Record<string, string>;
+  addEventListener: () => void;
+  getRootNode: () => typeof document;
+  scrollIntoView: () => void;
+  tagName: string;
+  options: { selected: boolean; value: string }[];
   focus: () => void;
 }
 function node(tag = "root", text = ""): HostNode {
@@ -66,6 +80,12 @@ function node(tag = "root", text = ""): HostNode {
     parent: null,
     props: {},
     open: false,
+    style: {},
+    addEventListener: () => {},
+    getRootNode: () => document,
+    scrollIntoView: () => {},
+    tagName: tag.toUpperCase(),
+    options: [],
     focus: vi.fn(),
   };
 }
@@ -137,6 +157,13 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     confirm: () => true,
+    setInterval,
+    clearInterval,
+    setTimeout,
+    clearTimeout,
+    location: { href: "https://example.test/" },
+    scrollTo: vi.fn(),
+    matchMedia: () => ({ matches: true }),
   });
   vi.stubGlobal("document", {
     activeElement: null,
@@ -156,9 +183,226 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const container of roots.splice(0)) renderer.render(null, container);
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 const puzzle = { seed: "first" } as Puzzle;
+
+describe("play screen navigation", () => {
+  it("resumes after menu dismissal but requires READY after blur or a hidden tab, including during the menu", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.props["aria-label"] === label || n.text.trim() === label),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => void | Promise<void>)();
+      await nextTick();
+    };
+    const ready = () =>
+      find(container, (n) => n.props.class === "ready-overlay");
+    const menu = () =>
+      find(container, (n) => n.props["aria-labelledby"] === "menu-title")!;
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v1")!);
+    // 元からREADYならメニューを閉じても計時を始めない。
+    await click("メニューを開く");
+    await click("メニューを閉じる");
+    expect(ready()).toBeDefined();
+    expect(game().hasStarted).toBe(false);
+    await click("OK");
+    let expectedElapsed = 0;
+    for (const method of ["button", "backdrop", "escape", "return"]) {
+      now += 1000;
+      expectedElapsed += 1000;
+      await click("メニューを開く");
+      now += 60000;
+      if (method === "button") await click("メニューを閉じる");
+      else if (method === "return") await click("プレイに戻る");
+      else if (method === "escape") {
+        (menu().props.onKeydown as (e: unknown) => void)({
+          key: "Escape",
+          preventDefault: vi.fn(),
+        });
+      } else {
+        const backdrop = menu().parent!;
+        (backdrop.props.onClick as (e: unknown) => void)({
+          target: backdrop,
+          currentTarget: backdrop,
+        });
+      }
+      await nextTick();
+      expect(ready()).toBeUndefined();
+      expect(game().waitingToStart).toBe(false);
+      expect(game().elapsedMs).toBe(expectedElapsed);
+    }
+    const blur = vi
+      .mocked(window.addEventListener)
+      .mock.calls.find(
+        ([event]) => String(event) === "blur",
+      )![1] as EventListener;
+    now += 2000;
+    blur(new Event("blur"));
+    await nextTick();
+    expectedElapsed += 2000;
+    expect(ready()).toBeDefined();
+    expect(game().elapsedMs).toBe(expectedElapsed);
+    now += 60000;
+    expect(game().waitingToStart).toBe(true);
+    await click("OK");
+    now += 3000;
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      configurable: true,
+    });
+    const visibilityListeners = vi
+      .mocked(document.addEventListener)
+      .mock.calls.filter(([event]) => event === "visibilitychange");
+    for (const [, handler] of visibilityListeners)
+      (handler as EventListener)(new Event("visibilitychange"));
+    await nextTick();
+    expectedElapsed += 3000;
+    expect(ready()).toBeDefined();
+    expect(game().elapsedMs).toBe(expectedElapsed);
+    now += 60000;
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    for (const [, handler] of visibilityListeners)
+      (handler as EventListener)(new Event("visibilitychange"));
+    await nextTick();
+    expect(ready()).toBeDefined();
+    await click("OK");
+    now += 1000;
+    await click("メニューを開く");
+    blur(new Event("blur"));
+    now += 60000;
+    await click("メニューを閉じる");
+    expect(ready()).toBeDefined();
+    expect(game().elapsedMs).toBe(expectedElapsed + 1000);
+    renderer.render(null, container);
+    expect(window.removeEventListener).toHaveBeenCalledWith("blur", blur);
+    for (const [, handler] of visibilityListeners)
+      expect(document.removeEventListener).toHaveBeenCalledWith(
+        "visibilitychange",
+        handler,
+      );
+  });
+
+  it("pauses while browsing other screens, retains marks and resumes only with READY OK", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === label || n.props["aria-label"] === label),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => void | Promise<void>)();
+      await nextTick();
+    };
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v1")!);
+    await click("OK");
+    const cell = find(container, (n) => n.props["data-cell-index"] === 0)!;
+    (cell.props.onClick as () => void)();
+    await nextTick();
+    const markedState = game().state;
+    expect(markedState.excluded).toContain(0);
+    now += 3000;
+    await click("メニューを開く");
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeUndefined();
+    const menu = find(
+      container,
+      (n) => n.props["aria-labelledby"] === "menu-title",
+    )!;
+    expect(menu.props.role).toBe("dialog");
+    expect(menu.props["aria-modal"]).toBe("true");
+    expect(menu.focus).toHaveBeenCalled();
+    expect(find(container, (n) => n.tag === "h1")).toBeUndefined();
+    const menuItems = find(container, (n) => n.props.class === "screen-menu")!;
+    expect(menuItems.children.at(-1)?.text.trim()).toBe("プレイに戻る");
+    expect(game().elapsedMs).toBe(3000);
+    now += 60000;
+    await click("履歴・成績");
+    expect(game().elapsedMs).toBe(3000);
+    expect(game().state).toEqual(markedState);
+    await click("プレイに戻る");
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeDefined();
+    expect(game().elapsedMs).toBe(3000);
+    await click("OK");
+    now += 2000;
+    await click("メニューを開く");
+    expect(game().elapsedMs).toBe(5000);
+    expect(game().state).toEqual(markedState);
+    await click("設定・シード・共有");
+    const restoreInput = find(
+      container,
+      (n) => n.props.placeholder === "TAKO:g1:easy:...",
+    )!;
+    const updateCode = restoreInput.props["onUpdate:modelValue"] as (
+      value: string,
+    ) => void;
+    updateCode("invalid");
+    await click("復元");
+    expect(
+      find(container, (n) => n.tag === "h2" && n.text === "設定・シード・共有"),
+    ).toBeDefined();
+    expect(game().state).toEqual(markedState);
+    const oldPlayId = game().playId;
+    updateCode(encodePuzzleSeed(game().puzzle));
+    await click("復元");
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeDefined();
+    expect(game().state.excluded).toEqual([]);
+    expect(game().playId).not.toBe(oldPlayId);
+    expect(game().elapsedMs).toBe(0);
+    await click("メニューを開く");
+    const reopened = find(
+      container,
+      (n) => n.props["aria-labelledby"] === "menu-title",
+    )!;
+    const preventDefault = vi.fn();
+    (reopened.props.onKeydown as (e: unknown) => void)({
+      key: "Escape",
+      preventDefault,
+    });
+    await nextTick();
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(
+      find(container, (n) => n.props["aria-labelledby"] === "menu-title"),
+    ).toBeUndefined();
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeDefined();
+  });
+});
 
 describe("tutorial dialog", () => {
   it("offers login only when configured and closes before handing off to login", async () => {
@@ -306,6 +550,28 @@ describe("tutorial dialog", () => {
 });
 
 describe("automatic leaderboard refresh", () => {
+  it("refreshes when navigating to the ranking screen", async () => {
+    const container = root();
+    const visible = ref(false);
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(PublicLeaderboard, {
+            puzzle,
+            visible: visible.value,
+          }),
+      }),
+      container,
+    );
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    visible.value = true;
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(find(container, (n) => n.tag === "details")?.open).toBe(true);
+    visible.value = false;
+    await nextTick();
+    visible.value = true;
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+  });
   it("refreshes on initial display, completion, upload acknowledgement and panel reopening without a button", async () => {
     const container = root();
     const complete = ref(false);
@@ -378,6 +644,38 @@ describe("automatic leaderboard refresh", () => {
 });
 
 describe("account modal", () => {
+  it("shows online history separately without opening the account dialog", async () => {
+    const container = root();
+    const historyOpen = ref(false);
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(AccountHistory, {
+            plays: [],
+            open: false,
+            historyOpen: historyOpen.value,
+          }),
+      }),
+      container,
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/api/plays", expect.anything()),
+    );
+    request.mockClear();
+    historyOpen.value = true;
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/api/plays", expect.anything()),
+    );
+    expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
+    expect(
+      find(container, (n) => n.tag === "h3" && n.text === "オンライン履歴"),
+    ).toBeDefined();
+    historyOpen.value = false;
+    await nextTick();
+    expect(
+      find(container, (n) => n.tag === "h3" && n.text === "オンライン履歴"),
+    ).toBeUndefined();
+  });
   it("hides account controls when closed but continues syncing new clears", async () => {
     const container = root();
     const plays = ref<PlayResult[]>([]);
