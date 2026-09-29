@@ -437,7 +437,7 @@ describe("play screen navigation", () => {
     await click("設定・シード・共有");
     const restoreInput = find(
       container,
-      (n) => n.props.placeholder === "TAKO:g1:easy:...",
+      (n) => n.props.placeholder === "TAKO:g2:easy:...",
     )!;
     const updateCode = restoreInput.props["onUpdate:modelValue"] as (
       value: string,
@@ -449,8 +449,9 @@ describe("play screen navigation", () => {
     ).toBeDefined();
     expect(game().state).toEqual(markedState);
     const oldPlayId = game().playId;
-    updateCode(encodePuzzleSeed(game().puzzle));
+    updateCode(encodePuzzleSeed({ ...game().puzzle, generatorVersion: "g1" }));
     await click("復元");
+    expect(game().puzzle.generatorVersion).toBe("g1");
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeDefined();

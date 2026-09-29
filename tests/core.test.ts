@@ -492,7 +492,7 @@ describe("generator", () => {
       canonicalPuzzleDefinition(puzzle),
     );
     expect(await puzzleId(equivalent)).toBe(await puzzleId(puzzle));
-    expect(await puzzleId({ ...puzzle, generatorVersion: "g2" })).not.toBe(
+    expect(await puzzleId({ ...puzzle, generatorVersion: "g1" })).not.toBe(
       await puzzleId(puzzle),
     );
     const otherBoard = generatePuzzle({ seed: "other-identity" });
@@ -540,12 +540,13 @@ describe("generator", () => {
     const parsed = parsePuzzleSeedCode(encodePuzzleSeed(original));
 
     expect(parsed).toEqual({
-      version: "g1",
+      version: "g2",
       difficulty: "normal",
       seed: "restore-seed",
     });
 
     const restored = generatePuzzle({
+      version: parsed?.version,
       seed: parsed?.seed,
       difficulty: parsed?.difficulty,
     });
@@ -622,6 +623,7 @@ describe("generator", () => {
   it("uses difficulty analysis to select a normal puzzle when a matching candidate exists", () => {
     const generated = generatePuzzleWithAnalysis({
       seed: "scan-982",
+      version: "g1",
       difficulty: "normal",
       maxAttempts: 1,
     });

@@ -56,6 +56,7 @@ export async function createCompletedPlayUpload(
     throw new Error("Invalid puzzle seed code.");
   }
   const puzzle = generatePuzzle({
+    version: code.version,
     seed: code.seed,
     difficulty: code.difficulty,
   });

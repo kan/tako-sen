@@ -15,7 +15,7 @@ const seeds = [
   "0",
   "1",
   "タコ🐙",
-  ...Array.from({ length: 12 }, (_, i) => `generator-audit:${i}`),
+  ...Array.from({ length: 60 }, (_, i) => `generator-audit:${i}`),
 ];
 const difficulties: PuzzleDifficulty[] = ["easy", "normal", "hard"];
 
@@ -111,9 +111,22 @@ describe("generator fixed-seed audit", () => {
       const shapes = new Set<string>();
       let curatedMatches = 0;
       const ratings: Record<string, number> = {};
-      for (const seed of seeds) {
+      const samples =
+        difficulty === "easy"
+          ? [
+              ...seeds,
+              ...Array.from(
+                { length: 64 },
+                (_, i) => `generator-audit:easy:${i}`,
+              ),
+            ]
+          : seeds;
+      const durations: number[] = [];
+      for (const seed of samples) {
         const context = `${difficulty}, seed=${JSON.stringify(seed)}`;
+        const started = performance.now();
         const generated = generatePuzzleWithAnalysis({ seed, difficulty });
+        durations.push(performance.now() - started);
         const { puzzle, analysis } = generated;
         expect(puzzle.size, context).toBe(BOARD_SIZE);
         expect(puzzle.regions.length, context).toBe(BOARD_SIZE ** 2);
@@ -162,20 +175,32 @@ describe("generator fixed-seed audit", () => {
         );
       }
       // 別seedの完全非重複は契約にしないが、常に固定盤面を返す退行は検出する。
-      expect(geometries.size).toBeGreaterThan(1);
-      expect(solutions.size).toBeGreaterThan(1);
+      const minimumDiversity = Math.ceil(samples.length * 0.75);
+      expect(geometries.size).toBeGreaterThanOrEqual(minimumDiversity);
+      expect(shapes.size).toBeGreaterThanOrEqual(minimumDiversity);
+      expect(solutions.size).toBeGreaterThanOrEqual(samples.length / 2);
+      expect(curatedMatches).toBeLessThanOrEqual(samples.length / 8);
+      expect(ratings[difficulty] ?? 0).toBeGreaterThanOrEqual(
+        Math.ceil(samples.length * (difficulty === "easy" ? 0.95 : 0.75)),
+      );
+      durations.sort((a, b) => a - b);
       console.info("generator audit", {
         difficulty,
-        samples: seeds.length,
+        samples: samples.length,
         uniqueGeometries: geometries.size,
-        duplicateRate: (seeds.length - geometries.size) / seeds.length,
+        duplicateRate: (samples.length - geometries.size) / samples.length,
         uniqueSolutions: solutions.size,
         uniqueShapesIgnoringRotationAndReflection: shapes.size,
         curatedMatches,
         ratings,
+        generationMs: {
+          median: Math.round(durations[Math.floor(durations.length / 2)]),
+          p95: Math.round(durations[Math.floor(durations.length * 0.95)]),
+          max: Math.round(durations[durations.length - 1]),
+        },
       });
     },
-    120000,
+    300000,
   );
 
   it.each(difficulties)(

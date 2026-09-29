@@ -22,6 +22,7 @@ export async function createSharedPuzzleSnapshot(
   const parsed = parsePuzzleSeedCode(seedCode);
   if (!parsed) throw new Error("Invalid seed code.");
   const puzzle = generatePuzzle({
+    version: parsed.version,
     seed: parsed.seed,
     difficulty: parsed.difficulty,
   });

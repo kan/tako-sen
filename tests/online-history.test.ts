@@ -40,7 +40,7 @@ describe("online history contract", () => {
       createCompletedPlayUpload({ ...completed, completedAt: 999 }),
     ).rejects.toThrow("Invalid completed play");
     await expect(
-      createCompletedPlayUpload({ ...completed, generatorVersion: "g2" }),
+      createCompletedPlayUpload({ ...completed, generatorVersion: "g99" }),
     ).rejects.toThrow("Invalid puzzle seed code");
     const upload = await createCompletedPlayUpload(completed);
     await expect(

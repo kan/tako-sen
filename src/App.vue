@@ -424,7 +424,7 @@ function registerPlay(): void {
   resultHistory.value = startPlay(resultHistory.value, {
     id: playId.value,
     seedCode: puzzleSeedCode.value,
-    generatorVersion: puzzle.value.generatorVersion ?? GENERATOR_VERSION,
+    generatorVersion: puzzle.value.generatorVersion ?? "g1",
     difficulty: puzzle.value.difficulty ?? "easy",
     startedAt: state.value.startedAt,
   });
@@ -542,6 +542,7 @@ function restoreSeed(code: string): boolean {
 
   selectedDifficulty.value = parsed.difficulty;
   const generated = generatePuzzleWithAnalysis({
+    version: parsed.version,
     seed: parsed.seed,
     difficulty: parsed.difficulty,
   });
@@ -1248,7 +1249,7 @@ function formatElapsed(seconds: number): string {
             type="text"
             inputmode="text"
             autocomplete="off"
-            placeholder="TAKO:g1:easy:..."
+            :placeholder="`TAKO:${GENERATOR_VERSION}:easy:...`"
           />
         </label>
         <button type="button" @click="restoreFromSeed">復元</button>

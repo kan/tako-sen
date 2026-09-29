@@ -1,5 +1,5 @@
 import { type Puzzle, type PuzzleDifficulty } from "./model";
-import { GENERATOR_VERSION } from "./generator";
+import { isSupportedGeneratorVersion } from "./generator";
 
 export interface PuzzleSeedCode {
   readonly version: string;
@@ -12,7 +12,7 @@ const CODE_PREFIX = "TAKO";
 export function encodePuzzleSeed(
   puzzle: Pick<Puzzle, "seed" | "difficulty" | "generatorVersion">,
 ): string {
-  const version = puzzle.generatorVersion ?? GENERATOR_VERSION;
+  const version = puzzle.generatorVersion ?? "g1";
   const difficulty = puzzle.difficulty ?? "easy";
   return `${CODE_PREFIX}:${version}:${difficulty}:${encodeURIComponent(puzzle.seed)}`;
 }
@@ -23,7 +23,7 @@ export function parsePuzzleSeedCode(code: string): PuzzleSeedCode | undefined {
   if (parts.length !== 4 || parts[0] !== CODE_PREFIX) return undefined;
 
   const [, version, difficulty, encodedSeed] = parts;
-  if (version !== GENERATOR_VERSION) return undefined;
+  if (!isSupportedGeneratorVersion(version)) return undefined;
   if (!isPuzzleDifficulty(difficulty)) return undefined;
 
   try {

@@ -40,7 +40,7 @@ describe("shared puzzle snapshots", () => {
       restoreSharedPuzzleSnapshot({ ...snapshot, givens: [999] }),
     ).rejects.toThrow();
     await expect(
-      createSharedPuzzleSnapshot("TAKO:g2:easy:old"),
+      createSharedPuzzleSnapshot("TAKO:g99:easy:old"),
     ).rejects.toThrow();
   });
 });
