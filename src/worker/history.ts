@@ -10,6 +10,9 @@ export async function deleteAccountHistory(
 ): Promise<void> {
   await db.batch([
     db
+      .prepare("DELETE FROM daily_attempts WHERE account_id = ?")
+      .bind(accountId),
+    db
       .prepare("DELETE FROM first_ranked_plays WHERE account_id = ?")
       .bind(accountId),
     db

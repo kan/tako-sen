@@ -957,6 +957,54 @@ describe("automatic leaderboard refresh", () => {
 });
 
 describe("account modal", () => {
+  it("opens a non-dismissible name setup after a first login without account controls", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    auth.user!.value = null;
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    request.mockImplementation(async (path: string) =>
+      Response.json(
+        path === "/api/profile"
+          ? { profile: null }
+          : path === "/api/plays"
+            ? { plays: [] }
+            : { entries: [] },
+      ),
+    );
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    auth.user!.value = "new-account";
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props["aria-labelledby"] === "account-title"),
+      ).toBeDefined(),
+    );
+    const dialog = find(
+      container,
+      (n) => n.props["aria-labelledby"] === "account-title",
+    )!;
+    expect(find(dialog, (n) => n.tag === "h2")?.text).toBe("ゲーム名を設定");
+    expect(find(dialog, (n) => n.tag === "input")).toBeDefined();
+    expect(find(dialog, (n) => n.text === "ログアウト")).toBeUndefined();
+    expect(
+      find(dialog, (n) => n.text === "退会してオンライン履歴を削除"),
+    ).toBeUndefined();
+    expect(
+      find(dialog, (n) => n.props["aria-label"] === "アカウントを閉じる"),
+    ).toBeUndefined();
+    const preventDefault = vi.fn();
+    (dialog.props.onKeydown as (event: unknown) => void)({
+      key: "Escape",
+      preventDefault,
+    });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(
+      find(container, (n) => n.props["aria-labelledby"] === "account-title"),
+    ).toBeDefined();
+  });
+
   it("shows online history separately without opening the account dialog", async () => {
     const container = root();
     const historyOpen = ref(false);

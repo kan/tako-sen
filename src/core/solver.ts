@@ -1,6 +1,4 @@
 import {
-  BOARD_SIZE,
-  CELL_COUNT,
   cellCoord,
   cellIndex,
   isAdjacent,
@@ -16,12 +14,13 @@ export interface SolveResult {
 }
 
 export function solvePuzzle(
-  puzzle: Pick<Puzzle, "regions" | "givens">,
+  puzzle: Pick<Puzzle, "size" | "regions" | "givens">,
   options: {
     readonly state?: PlayerState;
     readonly maxSolutions?: number;
   } = {},
 ): SolveResult {
+  const size = puzzle.size;
   const maxSolutions = options.maxSolutions ?? 2;
   const blocked = new Set<number>(options.state?.excluded ?? []);
   for (const index of options.state?.fixedErrors ?? []) blocked.add(index);
@@ -33,7 +32,9 @@ export function solvePuzzle(
   const fixedRegions = new Set<number>();
 
   for (const piece of fixedPieces) {
-    const { row, col } = cellCoord(piece);
+    if (!Number.isInteger(piece) || piece < 0 || piece >= size * size)
+      return { status: "none", solutions: [] };
+    const { row, col } = cellCoord(piece, size);
     const region = puzzle.regions[piece];
     if (
       blocked.has(piece) ||
@@ -44,7 +45,7 @@ export function solvePuzzle(
       return { status: "none", solutions: [] };
     }
     for (const other of fixedPieces) {
-      if (piece !== other && isAdjacent(piece, other))
+      if (piece !== other && isAdjacent(piece, other, size))
         return { status: "none", solutions: [] };
     }
     rowFixed.set(row, piece);
@@ -52,12 +53,12 @@ export function solvePuzzle(
     fixedRegions.add(region);
   }
 
-  const candidatesByRow = Array.from({ length: BOARD_SIZE }, (_, row) => {
+  const candidatesByRow = Array.from({ length: size }, (_, row) => {
     const fixed = rowFixed.get(row);
     if (fixed !== undefined) return [fixed];
     const candidates: number[] = [];
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const index = cellIndex(row, col);
+    for (let col = 0; col < size; col += 1) {
+      const index = cellIndex(row, col, size);
       if (!blocked.has(index)) candidates.push(index);
     }
     return candidates;
@@ -84,22 +85,22 @@ export function solvePuzzle(
     partial: number[],
   ): void {
     if (solutions.length >= maxSolutions) return;
-    if (row === BOARD_SIZE) {
+    if (row === size) {
       solutions.push([...partial].sort((a, b) => a - b));
       return;
     }
 
     for (const index of candidatesByRow[row]) {
-      const { col } = cellCoord(index);
+      const { col } = cellCoord(index, size);
       const region = puzzle.regions[index];
       if (
         index < 0 ||
-        index >= CELL_COUNT ||
+        index >= size * size ||
         columns.has(col) ||
         regions.has(region)
       )
         continue;
-      if (partial.some((piece) => isAdjacent(piece, index))) continue;
+      if (partial.some((piece) => isAdjacent(piece, index, size))) continue;
 
       columns.add(col);
       regions.add(region);
@@ -113,7 +114,7 @@ export function solvePuzzle(
 }
 
 export function hasContradiction(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): boolean {
   return solvePuzzle(puzzle, { state, maxSolutions: 1 }).status === "none";

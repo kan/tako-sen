@@ -1,5 +1,5 @@
 import type { LogicalMove } from "../core/logical";
-import { BOARD_SIZE, cellIndex, regionCells, type Puzzle } from "../core/model";
+import { cellIndex, regionCells, type Puzzle } from "../core/model";
 
 export function canShowHint(isComplete: boolean): boolean {
   return !isComplete;
@@ -35,7 +35,7 @@ export function hintStageLines(
 }
 
 export function hintFocusCells(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   move: LogicalMove,
   stage: number,
   contradictionCells: readonly number[] = [],
@@ -50,12 +50,12 @@ export function hintFocusCells(
       const row = move.row;
       const col = move.col;
       if (row !== undefined)
-        return Array.from({ length: BOARD_SIZE }, (_, col) =>
-          cellIndex(row, col),
+        return Array.from({ length: puzzle.size }, (_, col) =>
+          cellIndex(row, col, puzzle.size),
         );
       if (col !== undefined)
-        return Array.from({ length: BOARD_SIZE }, (_, row) =>
-          cellIndex(row, col),
+        return Array.from({ length: puzzle.size }, (_, row) =>
+          cellIndex(row, col, puzzle.size),
         );
     }
     if (move.regionIds)

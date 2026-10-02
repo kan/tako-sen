@@ -1,6 +1,4 @@
 import {
-  BOARD_SIZE,
-  REGION_COUNT,
   cellCoord,
   cellIndex,
   isAdjacent,
@@ -37,7 +35,7 @@ export interface LogicalMove {
 }
 
 export function findLogicalMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   if (hasContradiction(puzzle, state)) {
@@ -68,7 +66,7 @@ export function findLogicalMoves(
 
 /** Removing one of these marks alone makes the current constraints solvable. */
 export function findContradictionExclusions(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): number[] {
   if (!hasContradiction(puzzle, state)) return [];
@@ -80,13 +78,13 @@ export function findContradictionExclusions(
 }
 
 function findSingleCandidates(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const moves: LogicalMove[] = [];
 
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    if (hasPieceInRow(state, row)) continue;
+  for (let row = 0; row < puzzle.size; row += 1) {
+    if (hasPieceInRow(state, row, puzzle.size)) continue;
     const candidates = rowCandidates(puzzle, row, state);
     if (candidates.length === 1 && !state.pieces.has(candidates[0])) {
       moves.push({
@@ -104,8 +102,8 @@ function findSingleCandidates(
     }
   }
 
-  for (let col = 0; col < BOARD_SIZE; col += 1) {
-    if (hasPieceInColumn(state, col)) continue;
+  for (let col = 0; col < puzzle.size; col += 1) {
+    if (hasPieceInColumn(state, col, puzzle.size)) continue;
     const candidates = columnCandidates(puzzle, col, state);
     if (candidates.length === 1 && !state.pieces.has(candidates[0])) {
       moves.push({
@@ -123,7 +121,7 @@ function findSingleCandidates(
     }
   }
 
-  for (let regionId = 0; regionId < REGION_COUNT; regionId += 1) {
+  for (let regionId = 0; regionId < puzzle.size; regionId += 1) {
     if (hasPieceInRegion(puzzle, state, regionId)) continue;
     const candidates = regionCells(puzzle, regionId).filter((index) =>
       isLegalCandidate(puzzle, state, index),
@@ -148,13 +146,13 @@ function findSingleCandidates(
 }
 
 function findLineRegionMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const moves: LogicalMove[] = [];
 
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    if (hasPieceInRow(state, row)) continue;
+  for (let row = 0; row < puzzle.size; row += 1) {
+    if (hasPieceInRow(state, row, puzzle.size)) continue;
     const candidates = rowCandidates(puzzle, row, state);
     const regionIds = new Set(candidates.map((index) => puzzle.regions[index]));
     if (candidates.length <= 1 || regionIds.size !== 1) continue;
@@ -162,7 +160,7 @@ function findLineRegionMoves(
     const regionId = candidates.length > 0 ? puzzle.regions[candidates[0]] : -1;
     const excludeCells = regionCells(puzzle, regionId).filter(
       (index) =>
-        cellCoord(index).row !== row &&
+        cellCoord(index, puzzle.size).row !== row &&
         !state.excluded.has(index) &&
         !state.fixedErrors.has(index) &&
         !state.pieces.has(index),
@@ -184,8 +182,8 @@ function findLineRegionMoves(
     });
   }
 
-  for (let col = 0; col < BOARD_SIZE; col += 1) {
-    if (hasPieceInColumn(state, col)) continue;
+  for (let col = 0; col < puzzle.size; col += 1) {
+    if (hasPieceInColumn(state, col, puzzle.size)) continue;
     const candidates = columnCandidates(puzzle, col, state);
     const regionIds = new Set(candidates.map((index) => puzzle.regions[index]));
     if (candidates.length <= 1 || regionIds.size !== 1) continue;
@@ -193,7 +191,7 @@ function findLineRegionMoves(
     const regionId = candidates.length > 0 ? puzzle.regions[candidates[0]] : -1;
     const excludeCells = regionCells(puzzle, regionId).filter(
       (index) =>
-        cellCoord(index).col !== col &&
+        cellCoord(index, puzzle.size).col !== col &&
         !state.excluded.has(index) &&
         !state.fixedErrors.has(index) &&
         !state.pieces.has(index),
@@ -219,7 +217,7 @@ function findLineRegionMoves(
 }
 
 function findRegionDepletionMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const moves: LogicalMove[] = [];
@@ -234,7 +232,7 @@ function findRegionDepletionMoves(
     const assumedRegionId = puzzle.regions[assumedCell];
     for (
       let affectedRegionId = 0;
-      affectedRegionId < REGION_COUNT;
+      affectedRegionId < puzzle.size;
       affectedRegionId += 1
     ) {
       if (affectedRegionId === assumedRegionId) continue;
@@ -272,18 +270,22 @@ function findRegionDepletionMoves(
 }
 
 function findRegionLineMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const moves: LogicalMove[] = [];
-  for (let regionId = 0; regionId < REGION_COUNT; regionId += 1) {
+  for (let regionId = 0; regionId < puzzle.size; regionId += 1) {
     const exclusions = regionLineExclusions(puzzle, state, regionId);
     if (exclusions.length === 0) continue;
     const candidates = regionCells(puzzle, regionId).filter((index) =>
       isLegalCandidate(puzzle, state, index),
     );
-    const rows = new Set(candidates.map((index) => cellCoord(index).row));
-    const columns = new Set(candidates.map((index) => cellCoord(index).col));
+    const rows = new Set(
+      candidates.map((index) => cellCoord(index, puzzle.size).row),
+    );
+    const columns = new Set(
+      candidates.map((index) => cellCoord(index, puzzle.size).col),
+    );
     moves.push({
       technique: "region-line",
       title: "Region-Line消去",
@@ -303,7 +305,7 @@ function findRegionLineMoves(
 }
 
 function findMissingExclusionMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const moves: LogicalMove[] = [];
@@ -331,11 +333,11 @@ function findMissingExclusionMoves(
 }
 
 function findMultiRegionLineMoves(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): LogicalMove[] {
   const regionCandidates = Array.from(
-    { length: REGION_COUNT },
+    { length: puzzle.size },
     (_, regionId) => ({
       regionId,
       candidates: hasPieceInRegion(puzzle, state, regionId)
@@ -353,7 +355,7 @@ function findMultiRegionLineMoves(
       const regionIds = uniqueSorted(group.map(({ regionId }) => regionId));
       const focusCells = group.flatMap(({ candidates }) => candidates);
       const rows = uniqueSorted(
-        focusCells.map((index) => cellCoord(index).row),
+        focusCells.map((index) => cellCoord(index, puzzle.size).row),
       );
       if (rows.length === size) {
         const excludeCells = lineSetExclusions(
@@ -383,7 +385,7 @@ function findMultiRegionLineMoves(
       }
 
       const cols = uniqueSorted(
-        focusCells.map((index) => cellCoord(index).col),
+        focusCells.map((index) => cellCoord(index, puzzle.size).col),
       );
       if (cols.length === size) {
         const excludeCells = lineSetExclusions(
@@ -418,22 +420,22 @@ function findMultiRegionLineMoves(
 }
 
 function rowCandidates(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   row: number,
   state: PlayerState,
 ): number[] {
-  return Array.from({ length: BOARD_SIZE }, (_, col) =>
-    cellIndex(row, col),
+  return Array.from({ length: puzzle.size }, (_, col) =>
+    cellIndex(row, col, puzzle.size),
   ).filter((index) => isLegalCandidate(puzzle, state, index));
 }
 
 function columnCandidates(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   col: number,
   state: PlayerState,
 ): number[] {
-  return Array.from({ length: BOARD_SIZE }, (_, row) =>
-    cellIndex(row, col),
+  return Array.from({ length: puzzle.size }, (_, row) =>
+    cellIndex(row, col, puzzle.size),
   ).filter((index) => isLegalCandidate(puzzle, state, index));
 }
 
@@ -446,35 +448,39 @@ function isBlocked(state: PlayerState, index: number): boolean {
 }
 
 function isLegalCandidate(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
   index: number,
 ): boolean {
   if (isBlocked(state, index)) return false;
-  const { row, col } = cellCoord(index);
+  const { row, col } = cellCoord(index, puzzle.size);
   const regionId = puzzle.regions[index];
 
   for (const piece of state.pieces) {
-    const pieceCoord = cellCoord(piece);
+    const pieceCoord = cellCoord(piece, puzzle.size);
     if (pieceCoord.row === row) return false;
     if (pieceCoord.col === col) return false;
     if (puzzle.regions[piece] === regionId) return false;
-    if (isAdjacent(piece, index)) return false;
+    if (isAdjacent(piece, index, puzzle.size)) return false;
   }
 
   return true;
 }
 
-function hasPieceInRow(state: PlayerState, row: number): boolean {
-  return [...state.pieces].some((index) => cellCoord(index).row === row);
+function hasPieceInRow(state: PlayerState, row: number, size: number): boolean {
+  return [...state.pieces].some((index) => cellCoord(index, size).row === row);
 }
 
-function hasPieceInColumn(state: PlayerState, col: number): boolean {
-  return [...state.pieces].some((index) => cellCoord(index).col === col);
+function hasPieceInColumn(
+  state: PlayerState,
+  col: number,
+  size: number,
+): boolean {
+  return [...state.pieces].some((index) => cellCoord(index, size).col === col);
 }
 
 function hasPieceInRegion(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
   regionId: number,
 ): boolean {
@@ -509,7 +515,7 @@ function uniqueSorted(values: readonly number[]): number[] {
 }
 
 function lineSetExclusions(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
   axis: "row" | "col",
   lines: readonly number[],
@@ -519,9 +525,11 @@ function lineSetExclusions(
   const exclusions = new Set<number>();
 
   for (const line of lines) {
-    for (let offset = 0; offset < BOARD_SIZE; offset += 1) {
+    for (let offset = 0; offset < puzzle.size; offset += 1) {
       const index =
-        axis === "row" ? cellIndex(line, offset) : cellIndex(offset, line);
+        axis === "row"
+          ? cellIndex(line, offset, puzzle.size)
+          : cellIndex(offset, line, puzzle.size);
       if (!sourceRegions.has(puzzle.regions[index])) exclusions.add(index);
     }
   }
@@ -530,16 +538,16 @@ function lineSetExclusions(
 }
 
 function assumedPieceBlocks(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   assumedPiece: number,
   target: number,
 ): boolean {
-  const assumedCoord = cellCoord(assumedPiece);
-  const targetCoord = cellCoord(target);
+  const assumedCoord = cellCoord(assumedPiece, puzzle.size);
+  const targetCoord = cellCoord(target, puzzle.size);
   return (
     assumedCoord.row === targetCoord.row ||
     assumedCoord.col === targetCoord.col ||
     puzzle.regions[assumedPiece] === puzzle.regions[target] ||
-    isAdjacent(assumedPiece, target)
+    isAdjacent(assumedPiece, target, puzzle.size)
   );
 }

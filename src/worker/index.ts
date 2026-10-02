@@ -11,6 +11,14 @@ import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 import { listLeaderboard } from "./leaderboard";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 import {
+  completeDailyAttempt,
+  getDailyStatus,
+  listDailyLeaderboard,
+  parseDailyCompletion,
+  startDailyAttempt,
+} from "./daily";
+import { isDailyDate } from "../core/daily-puzzle";
+import {
   RANKING_CONSENT_VERSION,
   validateGameName,
 } from "../core/account-profile";
@@ -107,7 +115,11 @@ export default {
       pathname !== "/api/plays" &&
       pathname !== "/api/account" &&
       pathname !== "/api/puzzles" &&
-      pathname !== "/api/profile"
+      pathname !== "/api/profile" &&
+      pathname !== "/api/daily" &&
+      pathname !== "/api/daily/start" &&
+      pathname !== "/api/daily/complete" &&
+      pathname !== "/api/daily/ranking"
     ) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
@@ -115,11 +127,17 @@ export default {
     }
     const isAccountDeletion = pathname === "/api/account";
     const isPuzzleCreation = pathname === "/api/puzzles";
+    const isDailyRead =
+      pathname === "/api/daily" || pathname === "/api/daily/ranking";
+    const isDailyWrite =
+      pathname === "/api/daily/start" || pathname === "/api/daily/complete";
     const allowedMethods = isAccountDeletion
       ? ["DELETE"]
-      : isPuzzleCreation
+      : isPuzzleCreation || isDailyWrite
         ? ["POST"]
-        : ["GET", "POST"];
+        : isDailyRead
+          ? ["GET"]
+          : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: allowedMethods.join(", "),
@@ -180,6 +198,75 @@ export default {
             return json({ error: "name_taken" }, 409);
           throw error;
         }
+      }
+
+      if (pathname === "/api/daily") {
+        return json(await getDailyStatus(env.DB, accountId, Date.now()));
+      }
+
+      if (pathname === "/api/daily/ranking") {
+        const date = new URL(request.url).searchParams.get("date");
+        if (!date || !isDailyDate(date))
+          return json({ error: "invalid_date" }, 400);
+        return json({
+          entries: await listDailyLeaderboard(env.DB, date, accountId),
+        });
+      }
+
+      if (isDailyWrite) {
+        if (!(await getAccountProfile(env.DB, accountId)))
+          return json({ error: "profile_required" }, 403);
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let body: unknown;
+        try {
+          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        if (pathname === "/api/daily/start") {
+          const value = body as Record<string, unknown> | null;
+          if (
+            !value ||
+            typeof value.date !== "string" ||
+            typeof value.playId !== "string"
+          )
+            return json({ error: "invalid_body" }, 400);
+          let outcome;
+          try {
+            outcome = await startDailyAttempt(
+              env.DB,
+              accountId,
+              value.date,
+              value.playId,
+              Date.now(),
+            );
+          } catch {
+            return json({ error: "invalid_body" }, 400);
+          }
+          return json(
+            { status: outcome },
+            outcome === "started" ? 201 : outcome === "duplicate" ? 200 : 409,
+          );
+        }
+        let completion;
+        try {
+          completion = parseDailyCompletion(body);
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        const outcome = await completeDailyAttempt(
+          env.DB,
+          accountId,
+          completion,
+          Date.now(),
+        );
+        return json(
+          { status: outcome },
+          outcome === "completed" || outcome === "duplicate" ? 200 : 409,
+        );
       }
 
       if (isPuzzleCreation) {

@@ -23,11 +23,18 @@ import type { PlayResult } from "../core/results";
 const props = defineProps<{
   plays: readonly PlayResult[];
   open: boolean;
+  setupOnly?: boolean;
   historyOpen?: boolean;
   historyInert?: boolean;
 }>();
-const emit = defineEmits<{ synced: []; profile: [name: string]; close: [] }>();
+const emit = defineEmits<{
+  synced: [];
+  profile: [name: string];
+  setupRequired: [required: boolean];
+  close: [];
+}>();
 const dialogRef = ref<HTMLElement>();
+const nameInputRef = ref<HTMLInputElement>();
 const { getToken, isLoaded, isSignedIn, signOut, userId } = useAuth();
 const cacheStorage = {
   getItem: (key) => localStorage.getItem(key),
@@ -73,7 +80,8 @@ watch(
   async (open) => {
     if (!open) return;
     await nextTick();
-    dialogRef.value?.focus();
+    if (props.setupOnly) nameInputRef.value?.focus();
+    else dialogRef.value?.focus();
     void refresh();
   },
 );
@@ -87,7 +95,7 @@ watch(
 function onAccountKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
-    emit("close");
+    if (!props.setupOnly) emit("close");
     return;
   }
   trapDialogFocus(event, dialogRef.value);
@@ -101,6 +109,7 @@ watch(
   userId,
   () => {
     epoch += 1;
+    emit("setupRequired", false);
     profileLoading.value = false;
     profile.value = userId.value
       ? loadCachedProfile(userId.value, cacheStorage)
@@ -157,8 +166,10 @@ async function loadProfile(): Promise<void> {
     const data: { profile: AccountProfile | null } = await response.json();
     if (current !== epoch || disposed) return;
     profile.value = data.profile;
+    profileLoading.value = false;
     saveCachedProfile(accountId, data.profile, cacheStorage);
     emit("profile", data.profile?.displayName ?? "");
+    emit("setupRequired", data.profile === null);
     await refresh();
     if (current === epoch) await synchronize();
   } catch {
@@ -197,6 +208,7 @@ async function registerProfile(): Promise<void> {
     profile.value = data.profile;
     saveCachedProfile(accountId, data.profile, cacheStorage);
     emit("profile", data.profile.displayName);
+    emit("setupRequired", false);
     message.value =
       "設定しました。これからのクリアを自動同期します。過去のローカル履歴は送信しません。";
     await synchronize();
@@ -356,7 +368,7 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
     v-if="open"
     class="dialog-backdrop"
     role="presentation"
-    @click.self="emit('close')"
+    @click.self="!setupOnly && emit('close')"
   >
     <section
       ref="dialogRef"
@@ -368,8 +380,11 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
       @keydown="onAccountKeydown"
     >
       <div class="dialog-header">
-        <h2 id="account-title">アカウント</h2>
+        <h2 id="account-title">
+          {{ setupOnly ? "ゲーム名を設定" : "アカウント" }}
+        </h2>
         <button
+          v-if="!setupOnly"
           type="button"
           class="dialog-close"
           aria-label="アカウントを閉じる"
@@ -381,9 +396,14 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
       <p v-if="!isLoaded || profileLoading">オンライン設定を確認しています。</p>
       <template v-else-if="isSignedIn">
         <form v-if="!profile" @submit.prevent="registerProfile">
-          <h2>ゲームで使う名前を決める</h2>
+          <h2 v-if="!setupOnly">ゲームで使う名前を決める</h2>
           <label
-            >ゲーム名 <input v-model="gameName" required autocomplete="off"
+            >ゲーム名
+            <input
+              ref="nameInputRef"
+              v-model="gameName"
+              required
+              autocomplete="off"
           /></label>
           <p>
             2〜20文字の文字・数字・絵文字・空白・ハイフン・下線を使えます。本名やメールアドレスは使わないでください。名前はランキングに表示されます。
@@ -405,7 +425,7 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
             名前を設定して参加する
           </button>
         </form>
-        <template v-else>
+        <template v-else-if="!setupOnly">
           <p>
             <GameName :name="profile.displayName" /> ·
             <span aria-live="polite">{{ syncMessage }}</span>
@@ -417,10 +437,20 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
             同期を再試行
           </button>
         </template>
-        <button type="button" :disabled="busy" @click="signOut()">
+        <button
+          v-if="!setupOnly"
+          type="button"
+          :disabled="busy"
+          @click="signOut()"
+        >
           ログアウト
         </button>
-        <button type="button" :disabled="profileLoading" @click="loadProfile">
+        <button
+          v-if="!setupOnly"
+          type="button"
+          :disabled="profileLoading"
+          @click="loadProfile"
+        >
           オンライン設定を再確認
         </button>
       </template>
@@ -429,7 +459,7 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
       </p>
       <p v-if="message" aria-live="polite">{{ message }}</p>
       <button
-        v-if="isSignedIn"
+        v-if="isSignedIn && !setupOnly"
         type="button"
         :disabled="busy"
         @click="deleteAccount"

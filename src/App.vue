@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Show, SignInButton, SignUpButton } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
+import DailyChallenge from "./ui/DailyChallenge.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
 import Tutorial from "./ui/Tutorial.vue";
@@ -10,7 +11,6 @@ import UiIcon from "./ui/UiIcon.vue";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
 import {
-  BOARD_SIZE,
   cellCoord,
   createInitialPlayerState,
   getCellViewState,
@@ -57,6 +57,7 @@ import {
 } from "./core/logical";
 import {
   loadGame,
+  saveDailyGame,
   loadResultHistory,
   saveGame,
   saveResultHistory,
@@ -105,6 +106,7 @@ const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineGameName = ref("");
 const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
+const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
 type Screen = "play" | "history" | "ranking" | "tools";
 const screen = ref<Screen>("play");
@@ -148,6 +150,16 @@ const showClearDialog = ref(false);
 const clearElapsedSeconds = ref<number | undefined>();
 const clearDialogMessage = ref("");
 const playId = ref<string>();
+const activeDailyDate = ref<string>();
+const activeDailyAccountId = ref<string>();
+const dailyClaimed = ref(false);
+const dailyClaiming = ref(false);
+const dailyReadyMessage = ref("");
+const dailyChallengeRef = ref<InstanceType<typeof DailyChallenge>>();
+const dailyRankingOpen = ref(false);
+const dailyPanelOpen = ref(false);
+const returnToClearAfterRanking = ref(false);
+const isDaily = computed(() => puzzle.value.generatorVersion === "daily-v1");
 const resultHistory = ref<ResultHistory>();
 const showStats = ref(false);
 const hapticsEnabled = ref(true);
@@ -203,12 +215,16 @@ let suppressClickUntil = 0;
 let clockTimer: number | undefined;
 
 const cells = computed(() =>
-  Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => index),
+  Array.from(
+    { length: puzzle.value.size * puzzle.value.size },
+    (_, index) => index,
+  ),
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
 const activeDialog = computed<
   "tutorial" | "hint" | "clear" | "account" | "menu" | undefined
 >(() => {
+  if (accountSetupRequired.value) return "account";
   if (tutorialOpen.value) return "tutorial";
   if (complete.value && showClearDialog.value) return "clear";
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
@@ -231,7 +247,7 @@ const displayedElapsedSeconds = computed(
   () => clearElapsedSeconds.value ?? elapsedSeconds.value,
 );
 const currentRanking = computed(() =>
-  resultHistory.value
+  resultHistory.value && !isDaily.value
     ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
     : [],
 );
@@ -366,11 +382,22 @@ function testHaptics(): void {
 
 function saveCurrentGame(): void {
   if (!playId.value) return;
-  saveGame(puzzle.value, state.value, localStorage, playId.value, {
+  const savedTimer = {
     waitingToStart: waitingToStart.value,
     elapsedMs: elapsedTimerMs(timer.value, Date.now()),
     hasStarted: timer.value.hasStarted,
-  });
+  };
+  if (isDaily.value && activeDailyDate.value && activeDailyAccountId.value)
+    saveDailyGame(
+      activeDailyAccountId.value,
+      activeDailyDate.value,
+      puzzle.value,
+      state.value,
+      playId.value,
+      savedTimer,
+    );
+  else if (!isDaily.value)
+    saveGame(puzzle.value, state.value, localStorage, playId.value, savedTimer);
 }
 
 watch(complete, (isCompleteNow, wasComplete) => {
@@ -461,8 +488,32 @@ function closeTutorial(): void {
   tutorialOpen.value = false;
 }
 
-function confirmReady(): void {
+async function confirmReady(): Promise<void> {
   if (!waitingToStart.value) return;
+  if (isDaily.value && !dailyClaimed.value) {
+    if (dailyClaiming.value || !activeDailyDate.value || !playId.value) return;
+    const expectedDate = activeDailyDate.value;
+    const expectedPlayId = playId.value;
+    dailyClaiming.value = true;
+    const claimed = await dailyChallengeRef.value?.claimStart(
+      expectedDate,
+      expectedPlayId,
+    );
+    dailyClaiming.value = false;
+    if (
+      !isDaily.value ||
+      activeDailyDate.value !== expectedDate ||
+      playId.value !== expectedPlayId
+    )
+      return;
+    if (!claimed) {
+      dailyReadyMessage.value =
+        "開始できません。通信状態を確認して再試行してください。";
+      return;
+    }
+    dailyClaimed.value = true;
+    dailyReadyMessage.value = "";
+  }
   void soundEffects.unlock();
   const startedAt = Date.now();
   if (!timer.value.hasStarted) state.value = { ...state.value, startedAt };
@@ -482,7 +533,7 @@ function pauseGame(): void {
 }
 
 function registerPlay(): void {
-  if (!resultHistory.value || !playId.value) return;
+  if (!resultHistory.value || !playId.value || isDaily.value) return;
   if (resultHistory.value.plays.some((play) => play.id === playId.value))
     return;
   resultHistory.value = startPlay(resultHistory.value, {
@@ -518,13 +569,19 @@ function commitPlayerStateWithFeedback(
 }
 
 function finalizePlay(): void {
-  if (!resultHistory.value || !playId.value) return;
+  if (!playId.value) return;
   const completedAt = Date.now();
   const clearSeconds = Math.floor(
     elapsedTimerMs(timer.value, completedAt) / 1000,
   );
   timer.value = finishTimer(timer.value, completedAt);
   currentTime.value = completedAt;
+  if (isDaily.value) {
+    clearElapsedSeconds.value = clearSeconds;
+    saveCurrentGame();
+    return;
+  }
+  if (!resultHistory.value) return;
   const updated = finishPlay(
     resultHistory.value,
     playId.value,
@@ -544,6 +601,10 @@ function finalizePlay(): void {
 }
 
 function newGame(): void {
+  activeDailyDate.value = undefined;
+  activeDailyAccountId.value = undefined;
+  dailyClaimed.value = false;
+  dailyReadyMessage.value = "";
   clearSharedPuzzleUrl();
   const seed = `game-${Date.now()}`;
   const generated = generatePuzzleWithAnalysis({
@@ -565,6 +626,77 @@ function newGame(): void {
   beginPlay();
   void navigateTo("play");
   centerBoardAfterPuzzleChange();
+}
+
+function startDaily(
+  dailyPuzzle: Puzzle,
+  date: string,
+  accountId: string,
+  dailyPlayId: string,
+  saved?: ReturnType<typeof loadGame>,
+): void {
+  if (!isDaily.value) pauseGame();
+  else saveCurrentGame();
+  clearSharedPuzzleUrl();
+  activeDailyDate.value = date;
+  activeDailyAccountId.value = accountId;
+  dailyClaimed.value = Boolean(saved);
+  dailyReadyMessage.value = "";
+  puzzle.value = dailyPuzzle;
+  difficultyAnalysis.value = analyzePuzzleDifficulty(dailyPuzzle);
+  selectedDifficulty.value = "hard";
+  state.value =
+    saved?.state ?? createInitialPlayerState(undefined, dailyPuzzle.givens);
+  playId.value = dailyPlayId;
+  timer.value = saved
+    ? restoreTimer(
+        saved.timer,
+        saved.state.startedAt,
+        Date.now(),
+        isComplete(dailyPuzzle, saved.state),
+      )
+    : createWaitingTimer();
+  hint.value = undefined;
+  hintDialogOpen.value = false;
+  showClearDialog.value = false;
+  clearElapsedSeconds.value =
+    saved && isComplete(dailyPuzzle, saved.state)
+      ? Math.floor(elapsedTimerMs(timer.value, Date.now()) / 1000)
+      : undefined;
+  void navigateTo("play");
+  saveCurrentGame();
+  focusReadyButton();
+  centerBoardAfterPuzzleChange();
+}
+
+function leaveDaily(): void {
+  pauseGame();
+  saveCurrentGame();
+  activeDailyDate.value = undefined;
+  activeDailyAccountId.value = undefined;
+  dailyClaimed.value = false;
+  dailyReadyMessage.value = "";
+  const saved = loadGame();
+  if (!saved) {
+    newGame();
+    return;
+  }
+  puzzle.value = saved.puzzle;
+  state.value = saved.state;
+  difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
+  selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
+  playId.value = saved.playId;
+  timer.value = restoreTimer(
+    saved.timer,
+    saved.state.startedAt,
+    Date.now(),
+    isComplete(saved.puzzle, saved.state),
+  );
+  clearElapsedSeconds.value = undefined;
+  hint.value = undefined;
+  showClearDialog.value = false;
+  saveCurrentGame();
+  focusReadyButton();
 }
 
 function centerBoardAfterPuzzleChange(): void {
@@ -705,7 +837,7 @@ function resetProgress(): void {
 }
 
 function cellLabel(index: number): string {
-  const { row, col } = cellCoord(index);
+  const { row, col } = cellCoord(index, puzzle.value.size);
   const viewState = getCellViewState(state.value, index);
   return `${row + 1}行${col + 1}列、Region ${puzzle.value.regions[index] + 1}、${viewState}`;
 }
@@ -715,7 +847,10 @@ function onTap(index: number): void {
     suppressNextClick = false;
     return;
   }
-  commitPlayerStateWithFeedback(toggleExcluded(state.value, index), "tap");
+  commitPlayerStateWithFeedback(
+    toggleExcluded(state.value, index, puzzle.value.size),
+    "tap",
+  );
   hint.value = undefined;
 }
 
@@ -820,7 +955,10 @@ function suppressUpcomingClick(): void {
 
 function addDraggedExcludedMark(index: number): void {
   const previousExcludedCount = state.value.excluded.size;
-  commitPlayerStateWithFeedback(addExcludedMarks(state.value, [index]), "drag");
+  commitPlayerStateWithFeedback(
+    addExcludedMarks(state.value, [index], puzzle.value.size),
+    "drag",
+  );
   if (state.value.excluded.size !== previousExcludedCount)
     hint.value = undefined;
 }
@@ -851,6 +989,7 @@ function onShortcut(index: number): void {
     addExcludedMarks(
       state.value,
       shortcutExclusionsForCell(puzzle.value, state.value, index),
+      puzzle.value.size,
     ),
     "shortcut",
   );
@@ -932,7 +1071,7 @@ function applyHintExclusions(): void {
   const exclusions = hintExcludeCells(hint.value.move, hintStage.value);
   if (exclusions.length === 0) return;
   commitPlayerStateWithFeedback(
-    addExcludedMarks(state.value, exclusions),
+    addExcludedMarks(state.value, exclusions, puzzle.value.size),
     "shortcut",
   );
   hint.value = undefined;
@@ -941,6 +1080,33 @@ function applyHintExclusions(): void {
 
 function closeClearDialog(): void {
   showClearDialog.value = false;
+}
+
+function showDailyRankingFromClear(): void {
+  if (!activeDailyDate.value) return;
+  returnToClearAfterRanking.value = true;
+  closeClearDialog();
+  void dailyChallengeRef.value?.openRanking(activeDailyDate.value);
+}
+
+function onDailyRankingClosed(): void {
+  dailyRankingOpen.value = false;
+  if (returnToClearAfterRanking.value && isDaily.value && complete.value)
+    showClearDialog.value = true;
+  returnToClearAfterRanking.value = false;
+}
+
+function onAccountSetupRequired(required: boolean): void {
+  accountSetupRequired.value = required;
+  if (required) accountDialogOpen.value = true;
+}
+
+function onAccountProfile(name: string): void {
+  onlineGameName.value = name;
+  if (name && accountSetupRequired.value) {
+    accountSetupRequired.value = false;
+    accountDialogOpen.value = false;
+  }
 }
 
 async function showLeaderboard(): Promise<void> {
@@ -1028,6 +1194,8 @@ function cellStyles(index: number): Record<string, string> {
   const borders = cellRegionBorders(puzzle.value, index);
   return {
     backgroundColor: color.background,
+    color: color.foreground ?? "#2a1b14",
+    "--error-color": color.foreground ? "#ff9b9b" : "#d11f1f",
     borderTopWidth: borders.top ? "2px" : "1px",
     borderRightWidth: borders.right ? "2px" : "1px",
     borderBottomWidth: borders.bottom ? "2px" : "1px",
@@ -1062,7 +1230,7 @@ function formatElapsed(seconds: number): string {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :inert="dailyRankingOpen || dailyPanelOpen">
     <header
       class="hero"
       :inert="(screen === 'play' && waitingToStart) || !!activeDialog"
@@ -1214,7 +1382,11 @@ function formatElapsed(seconds: number): string {
           class="board"
           id="board"
           role="grid"
-          aria-label="TAKO-SEN 8×8 board"
+          :aria-label="`TAKO-SEN ${puzzle.size}×${puzzle.size} board`"
+          :style="{
+            gridTemplateColumns: `repeat(${puzzle.size}, 1fr)`,
+            gridTemplateRows: `repeat(${puzzle.size}, 1fr)`,
+          }"
           @pointermove.prevent="onBoardPointerMove"
           @pointerup="endPointerPress"
           @pointercancel="cancelLongPress"
@@ -1259,7 +1431,7 @@ function formatElapsed(seconds: number): string {
       class="actions"
       :inert="waitingToStart || !!activeDialog"
     >
-      <label class="difficulty-select">
+      <label v-if="!isDaily" class="difficulty-select">
         難易度
         <select v-model="selectedDifficulty">
           <option value="easy">初級</option>
@@ -1278,6 +1450,7 @@ function formatElapsed(seconds: number): string {
         <UiIcon name="hint" />
       </button>
       <button
+        v-if="!isDaily"
         type="button"
         class="icon-button"
         aria-label="リセット"
@@ -1289,13 +1462,32 @@ function formatElapsed(seconds: number): string {
       <button
         type="button"
         class="icon-button"
-        aria-label="新しい問題"
-        title="新しい問題"
-        @click="newGame"
+        :aria-label="isDaily ? '通常のプレイに戻る' : '新しい問題'"
+        :title="isDaily ? '通常のプレイに戻る' : '新しい問題'"
+        @click="isDaily ? leaveDaily() : newGame()"
       >
         <UiIcon name="next" />
       </button>
     </section>
+
+    <DailyChallenge
+      v-if="onlineAuthEnabled && screen === 'play'"
+      ref="dailyChallengeRef"
+      :active-date="activeDailyDate"
+      :active-account-id="activeDailyAccountId"
+      :puzzle="puzzle"
+      :state="state"
+      :play-id="playId"
+      :elapsed-seconds="displayedElapsedSeconds"
+      :complete="complete"
+      :game-name="onlineGameName"
+      @start="startDaily"
+      @account="accountDialogOpen = true"
+      @panel-opened="dailyPanelOpen = true"
+      @panel-closed="dailyPanelOpen = false"
+      @ranking-opened="dailyRankingOpen = true"
+      @ranking-closed="onDailyRankingClosed"
+    />
 
     <section
       v-show="screen === 'tools'"
@@ -1360,8 +1552,12 @@ function formatElapsed(seconds: number): string {
           </button>
         </div>
       </div>
-      <h3>シード表示・復元</h3>
-      <div class="seed-panel-body" aria-label="シード">
+      <h3>{{ isDaily ? "今日の問題" : "シード表示・復元" }}</h3>
+      <p v-if="isDaily">
+        {{ activeDailyDate }}
+        のデイリーチャレンジです。通常のシード復元・共有には対応しません。
+      </p>
+      <div v-else class="seed-panel-body" aria-label="シード">
         <div>
           <span class="seed-label">現在のシード</span>
           <code>{{ puzzleSeedCode }}</code>
@@ -1378,7 +1574,10 @@ function formatElapsed(seconds: number): string {
           />
         </label>
         <button type="button" @click="restoreFromSeed">復元</button>
-        <SharePuzzle v-if="onlineAuthEnabled" :seed-code="puzzleSeedCode" />
+        <SharePuzzle
+          v-if="onlineAuthEnabled && !isDaily"
+          :seed-code="puzzleSeedCode"
+        />
         <p v-if="seedMessage" class="seed-message" aria-live="polite">
           {{ seedMessage }}
         </p>
@@ -1440,6 +1639,7 @@ function formatElapsed(seconds: number): string {
     </section>
 
     <PublicLeaderboard
+      v-if="!isDaily"
       v-show="screen === 'ranking'"
       :visible="screen === 'ranking'"
       :puzzle="puzzle"
@@ -1452,10 +1652,12 @@ function formatElapsed(seconds: number): string {
       v-if="onlineAuthEnabled && resultHistory"
       :plays="resultHistory.plays"
       :open="activeDialog === 'account'"
+      :setup-only="accountSetupRequired"
       :history-open="screen === 'history'"
       :history-inert="!!activeDialog"
       @close="accountDialogOpen = false"
-      @profile="onlineGameName = $event"
+      @profile="onAccountProfile"
+      @setup-required="onAccountSetupRequired"
       @synced="rankingRevision += 1"
     />
 
@@ -1570,10 +1772,17 @@ function formatElapsed(seconds: number): string {
             <dd>{{ state.hintsUsed }}回（{{ hintStageLabel(state) }}）</dd>
           </div>
           <div>
-            <dt>シード</dt>
+            <dt>{{ isDaily ? "日付" : "シード" }}</dt>
             <dd class="result-seed-row">
-              <span class="result-seed">{{ puzzleSeedCode }}</span>
-              <button type="button" class="inline-copy" @click="copyResultSeed">
+              <span class="result-seed">{{
+                isDaily ? activeDailyDate : puzzleSeedCode
+              }}</span>
+              <button
+                v-if="!isDaily"
+                type="button"
+                class="inline-copy"
+                @click="copyResultSeed"
+              >
                 コピー
               </button>
             </dd>
@@ -1582,11 +1791,11 @@ function formatElapsed(seconds: number): string {
         <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
           {{ clearDialogMessage }}
         </p>
-        <p v-if="currentRank > 0">
+        <p v-if="!isDaily && currentRank > 0">
           このシードのローカル順位：{{ currentRank }} 位 /
           {{ currentRanking.length }} 回
         </p>
-        <label class="clear-next-difficulty">
+        <label v-if="!isDaily" class="clear-next-difficulty">
           次の問題の難易度
           <select v-model="selectedDifficulty">
             <option value="easy">初級</option>
@@ -1595,10 +1804,21 @@ function formatElapsed(seconds: number): string {
           </select>
         </label>
         <div class="dialog-actions">
-          <button type="button" @click="newGame">次の問題へ</button>
-          <button type="button" @click="resetProgress">もう一度</button>
+          <button type="button" @click="isDaily ? leaveDaily() : newGame()">
+            {{ isDaily ? "通常プレイに戻る" : "次の問題へ" }}
+          </button>
+          <button v-if="!isDaily" type="button" @click="resetProgress">
+            もう一度
+          </button>
           <button type="button" @click="closeClearDialog">盤面を見る</button>
-          <button type="button" @click="showLeaderboard">
+          <button
+            v-if="isDaily"
+            type="button"
+            @click="showDailyRankingFromClear"
+          >
+            今日のランキング
+          </button>
+          <button v-if="!isDaily" type="button" @click="showLeaderboard">
             この問題のランキング
           </button>
         </div>
@@ -1621,8 +1841,25 @@ function formatElapsed(seconds: number): string {
         aria-labelledby="ready-title"
       >
         <h2 id="ready-title">READY?</h2>
-        <button ref="readyButton" type="button" @click="confirmReady">
+        <p v-if="isDaily && !dailyClaimed">
+          OK を押すと今日の挑戦権を使用します。
+        </p>
+        <p v-if="dailyReadyMessage" role="alert">{{ dailyReadyMessage }}</p>
+        <button
+          ref="readyButton"
+          type="button"
+          :disabled="dailyClaiming"
+          @click="confirmReady"
+        >
           OK
+        </button>
+        <button
+          v-if="isDaily && !dailyClaimed"
+          type="button"
+          :disabled="dailyClaiming"
+          @click="leaveDaily"
+        >
+          通常の問題に戻る
         </button>
         <button type="button" @click="openTutorial">遊び方</button>
         <button

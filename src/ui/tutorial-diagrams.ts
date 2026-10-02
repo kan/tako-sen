@@ -12,10 +12,14 @@ const visibleCells = Array.from({ length: 24 }, (_, index) =>
   cellIndex(Math.floor(index / 6), index % 6),
 );
 const piece = cellIndex(1, 3);
-const pieceExclusions = new Set(exclusionsFromPiece(piece, { regions }));
+const pieceExclusions = new Set(
+  exclusionsFromPiece(piece, { size: BOARD_SIZE, regions }),
+);
 const rulePieces = new Set([cellIndex(0, 1), piece]);
 const ruleExclusions = new Set(
-  [...rulePieces].flatMap((index) => exclusionsFromPiece(index, { regions })),
+  [...rulePieces].flatMap((index) =>
+    exclusionsFromPiece(index, { size: BOARD_SIZE, regions }),
+  ),
 );
 const lineState = {
   ...createInitialPlayerState(0),
@@ -25,7 +29,9 @@ const lineState = {
     ),
   ),
 };
-const lineExclusions = new Set(regionLineExclusions({ regions }, lineState, 1));
+const lineExclusions = new Set(
+  regionLineExclusions({ size: BOARD_SIZE, regions }, lineState, 1),
+);
 
 export interface TutorialDiagramCell {
   readonly index: number;

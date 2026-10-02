@@ -305,6 +305,129 @@ h1 {
   touch-action: none;
 }
 
+.daily-entry {
+  width: min(100%, 520px);
+  margin: 12px auto 20px;
+  text-align: center;
+}
+
+.daily-entry > button,
+.daily-entry > span > button {
+  width: 100%;
+  min-height: 48px;
+  border: 2px solid #513621;
+  border-radius: 14px;
+  background: #fff0c7;
+  color: #2a1b14;
+  font-weight: 800;
+}
+
+.dialog-backdrop.daily-panel-backdrop {
+  z-index: 30;
+  place-items: center;
+}
+
+.dialog-card.daily-panel {
+  width: min(100%, 520px);
+  padding: 16px;
+  border: 3px solid #50352a;
+  border-radius: 16px;
+  background: #fff9e9;
+  text-align: left;
+}
+
+.daily-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.daily-panel-header h2 {
+  margin: 0;
+}
+
+.dialog-backdrop.daily-ranking-backdrop {
+  z-index: 30;
+  place-items: center;
+}
+
+.daily-arcade {
+  padding: 14px;
+  border: 3px solid #e5b962;
+  border-radius: 12px;
+  background: #202735;
+  color: #f9df9c;
+  font-variant-numeric: tabular-nums;
+}
+
+.dialog-card.daily-ranking-dialog {
+  width: min(100%, 560px);
+  max-height: min(80dvh, 700px);
+  overflow: auto;
+  border: 3px solid #e5b962;
+  border-radius: 12px;
+  padding: 14px;
+  background: #202735;
+  color: #f9df9c;
+  box-shadow: 0 8px 0 #2a1b14;
+}
+
+.daily-ranking-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.daily-arcade h2 {
+  margin: 0 0 10px;
+  letter-spacing: 0.12em;
+  font-size: clamp(1.1rem, 5vw, 1.5rem);
+}
+
+.daily-arcade ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.daily-arcade li {
+  padding: 8px;
+  border-top: 1px solid #6e7480;
+}
+.daily-score-main {
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 8px;
+}
+.daily-score-main .game-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.daily-you {
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+}
+.daily-score-time {
+  grid-column: 4;
+  white-space: nowrap;
+  text-align: right;
+}
+.daily-score-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-left: calc(2em + 8px);
+  font-size: 0.8em;
+}
+.daily-arcade li.daily-self {
+  border: 2px solid #ffda68;
+  border-radius: 6px;
+  background: #354659;
+  color: #ffffff;
+}
+
 .cell {
   position: relative;
   display: grid;
@@ -342,7 +465,7 @@ h1 {
 }
 
 .fixed-error {
-  color: #d11f1f;
+  color: var(--error-color, #d11f1f);
   text-shadow: 0 1px 0 #fff;
 }
 

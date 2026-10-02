@@ -5,7 +5,7 @@ import {
 } from "./model";
 import type { ResultHistory } from "./results";
 import type { SavedPlayTimer } from "./play-timer";
-import { BOARD_SIZE, CELL_COUNT } from "./model";
+import { BOARD_SIZE, DAILY_BOARD_SIZE } from "./model";
 import { validateSolution } from "./rules";
 import {
   maximumHintStage,
@@ -17,6 +17,7 @@ const SAVE_KEY = "tako-sen.current-game.v2";
 const RESULTS_KEY = "tako-sen.results.v2";
 const LEGACY_SAVE_KEY = "tako-sen.current-game.v1";
 const LEGACY_RESULTS_KEY = "tako-sen.results.v1";
+const DAILY_SAVE_PREFIX = "tako-sen.daily-game.v1";
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -122,6 +123,48 @@ export function loadGame(storage: KeyValueStorage = localStorage):
   return loaded;
 }
 
+function dailyStorage(
+  accountId: string,
+  date: string,
+  storage: KeyValueStorage,
+): KeyValueStorage {
+  const key = `${DAILY_SAVE_PREFIX}:${accountId}:${date}`;
+  return {
+    getItem(requestedKey) {
+      return requestedKey === SAVE_KEY ? storage.getItem(key) : null;
+    },
+    setItem(requestedKey, value) {
+      if (requestedKey === SAVE_KEY) storage.setItem(key, value);
+    },
+  };
+}
+
+export function saveDailyGame(
+  accountId: string,
+  date: string,
+  puzzle: Puzzle,
+  state: PlayerState,
+  playId: string,
+  timer: SavedPlayTimer,
+  storage: KeyValueStorage = localStorage,
+): void {
+  saveGame(
+    puzzle,
+    state,
+    dailyStorage(accountId, date, storage),
+    playId,
+    timer,
+  );
+}
+
+export function loadDailyGame(
+  accountId: string,
+  date: string,
+  storage: KeyValueStorage = localStorage,
+): ReturnType<typeof loadGame> {
+  return loadGame(dailyStorage(accountId, date, storage));
+}
+
 export function loadResultHistory(
   storage: KeyValueStorage = localStorage,
   createId: () => string = () => crypto.randomUUID(),
@@ -199,11 +242,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isCellArray(value: unknown): value is number[] {
+function isCellArray(value: unknown, size = BOARD_SIZE): value is number[] {
   return (
     Array.isArray(value) &&
     value.every(
-      (cell) => Number.isInteger(cell) && cell >= 0 && cell < CELL_COUNT,
+      (cell) => Number.isInteger(cell) && cell >= 0 && cell < size * size,
     )
   );
 }
@@ -221,15 +264,16 @@ function isSavedGame(value: unknown): value is SavedGame {
     return false;
   const puzzle = value.puzzle;
   const state = value.state;
+  const size = puzzle.size;
+  if (size !== BOARD_SIZE && size !== DAILY_BOARD_SIZE) return false;
   if (
-    puzzle.size !== BOARD_SIZE ||
     !Array.isArray(puzzle.regions) ||
-    puzzle.regions.length !== CELL_COUNT ||
+    puzzle.regions.length !== size * size ||
     !puzzle.regions.every(
-      (id) => Number.isInteger(id) && id >= 0 && id < BOARD_SIZE,
+      (id) => Number.isInteger(id) && id >= 0 && id < size,
     ) ||
-    !isCellArray(puzzle.solution) ||
-    (puzzle.givens !== undefined && !isCellArray(puzzle.givens)) ||
+    !isCellArray(puzzle.solution, size) ||
+    (puzzle.givens !== undefined && !isCellArray(puzzle.givens, size)) ||
     typeof puzzle.seed !== "string" ||
     (puzzle.difficulty !== undefined &&
       puzzle.difficulty !== "easy" &&
@@ -237,9 +281,9 @@ function isSavedGame(value: unknown): value is SavedGame {
       puzzle.difficulty !== "hard") ||
     (puzzle.generatorVersion !== undefined &&
       typeof puzzle.generatorVersion !== "string") ||
-    !isCellArray(state.excluded) ||
-    !isCellArray(state.pieces) ||
-    !isCellArray(state.fixedErrors) ||
+    !isCellArray(state.excluded, size) ||
+    !isCellArray(state.pieces, size) ||
+    !isCellArray(state.fixedErrors, size) ||
     !isNonnegativeInteger(state.mistakes) ||
     !isNonnegativeInteger(state.hintsUsed) ||
     !validHintProgress(state.maxHintStage, Number(state.hintsUsed)) ||

@@ -67,7 +67,7 @@ export function analyzePuzzleDifficulty(
     const beforeExcluded = state.excluded.size;
     const beforePieces = state.pieces.size;
     if (move.excludeCells.length > 0) {
-      state = addExcludedMarks(state, move.excludeCells);
+      state = addExcludedMarks(state, move.excludeCells, puzzle.size);
     }
     if (move.placeCell !== undefined) {
       state = placePiece(puzzle, state, move.placeCell);

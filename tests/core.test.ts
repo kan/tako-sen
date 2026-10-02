@@ -648,6 +648,7 @@ describe("region visuals", () => {
     });
     const colorIndexes = assignRegionColorIndexes(puzzle);
     expect(new Set(colorIndexes).size).toBe(BOARD_SIZE);
+    expect(colorIndexes.every((index) => index < BOARD_SIZE)).toBe(true);
   });
 
   it("assigns different palette colors to adjacent regions", () => {

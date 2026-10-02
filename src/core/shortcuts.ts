@@ -1,5 +1,4 @@
 import {
-  BOARD_SIZE,
   allCells,
   cellCoord,
   cellIndex,
@@ -11,20 +10,22 @@ import {
 
 export function exclusionsFromPiece(
   index: number,
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
 ): number[] {
-  const { row, col } = cellCoord(index);
+  const { row, col } = cellCoord(index, puzzle.size);
   const result = new Set<number>();
 
-  for (let c = 0; c < BOARD_SIZE; c += 1) result.add(cellIndex(row, c));
-  for (let r = 0; r < BOARD_SIZE; r += 1) result.add(cellIndex(r, col));
+  for (let c = 0; c < puzzle.size; c += 1)
+    result.add(cellIndex(row, c, puzzle.size));
+  for (let r = 0; r < puzzle.size; r += 1)
+    result.add(cellIndex(r, col, puzzle.size));
 
   for (let dr = -1; dr <= 1; dr += 1) {
     for (let dc = -1; dc <= 1; dc += 1) {
       const nr = row + dr;
       const nc = col + dc;
-      if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
-        result.add(cellIndex(nr, nc));
+      if (nr >= 0 && nr < puzzle.size && nc >= 0 && nc < puzzle.size) {
+        result.add(cellIndex(nr, nc, puzzle.size));
       }
     }
   }
@@ -38,7 +39,7 @@ export function exclusionsFromPiece(
 }
 
 export function shortcutExclusionsForCell(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: Pick<PlayerState, "pieces">,
   index: number,
 ): number[] {
@@ -47,7 +48,7 @@ export function shortcutExclusionsForCell(
 }
 
 export function regionLineExclusions(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
   regionId: number,
 ): number[] {
@@ -56,22 +57,26 @@ export function regionLineExclusions(
   );
   if (candidates.length === 0) return [];
 
-  const rows = new Set(candidates.map((index) => cellCoord(index).row));
-  const columns = new Set(candidates.map((index) => cellCoord(index).col));
+  const rows = new Set(
+    candidates.map((index) => cellCoord(index, puzzle.size).row),
+  );
+  const columns = new Set(
+    candidates.map((index) => cellCoord(index, puzzle.size).col),
+  );
   const exclusions = new Set<number>();
 
   if (rows.size === 1) {
     const row = [...rows][0];
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const index = cellIndex(row, col);
+    for (let col = 0; col < puzzle.size; col += 1) {
+      const index = cellIndex(row, col, puzzle.size);
       if (puzzle.regions[index] !== regionId) exclusions.add(index);
     }
   }
 
   if (columns.size === 1) {
     const col = [...columns][0];
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      const index = cellIndex(row, col);
+    for (let row = 0; row < puzzle.size; row += 1) {
+      const index = cellIndex(row, col, puzzle.size);
       if (puzzle.regions[index] !== regionId) exclusions.add(index);
     }
   }
@@ -84,25 +89,25 @@ export function regionLineExclusions(
   );
 }
 
-export function candidateCells(state: PlayerState): number[] {
-  return allCells().filter((index) => !isBlocked(state, index));
+export function candidateCells(state: PlayerState, size = 8): number[] {
+  return allCells(size).filter((index) => !isBlocked(state, index));
 }
 
 function isCandidateAvailable(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
   index: number,
 ): boolean {
   if (isBlocked(state, index)) return false;
-  const { row, col } = cellCoord(index);
+  const { row, col } = cellCoord(index, puzzle.size);
   const regionId = puzzle.regions[index];
 
   for (const piece of state.pieces) {
-    const pieceCoord = cellCoord(piece);
+    const pieceCoord = cellCoord(piece, puzzle.size);
     if (pieceCoord.row === row) return false;
     if (pieceCoord.col === col) return false;
     if (puzzle.regions[piece] === regionId) return false;
-    if (isAdjacent(piece, index)) return false;
+    if (isAdjacent(piece, index, puzzle.size)) return false;
   }
 
   return true;

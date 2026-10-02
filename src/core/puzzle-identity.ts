@@ -1,4 +1,4 @@
-import { BOARD_SIZE, type Puzzle } from "./model";
+import { BOARD_SIZE, DAILY_BOARD_SIZE, type Puzzle } from "./model";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
 
@@ -17,7 +17,7 @@ export function canonicalPuzzleDefinition(
 
 export async function puzzleId(puzzle: Puzzle): Promise<string> {
   if (
-    puzzle.size !== BOARD_SIZE ||
+    (puzzle.size !== BOARD_SIZE && puzzle.size !== DAILY_BOARD_SIZE) ||
     !validateSolution(puzzle).valid ||
     new Set(puzzle.givens ?? []).size !== (puzzle.givens ?? []).length ||
     solvePuzzle(puzzle, { maxSolutions: 2 }).status !== "unique"

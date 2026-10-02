@@ -1,6 +1,7 @@
 import type { HintStage } from "./hint-progress";
 
 export const BOARD_SIZE = 8;
+export const DAILY_BOARD_SIZE = 10;
 export const CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
 export const REGION_COUNT = BOARD_SIZE;
 
@@ -13,7 +14,7 @@ export interface CellCoord {
 }
 
 export interface Puzzle {
-  readonly size: typeof BOARD_SIZE;
+  readonly size: 8 | 10;
   readonly regions: readonly RegionId[];
   readonly solution: readonly number[];
   readonly givens?: readonly number[];
@@ -34,16 +35,16 @@ export interface PlayerState {
 
 export type CellViewState = "empty" | "excluded" | "piece" | "fixed-error";
 
-export function cellIndex(row: number, col: number): number {
-  return row * BOARD_SIZE + col;
+export function cellIndex(row: number, col: number, size = BOARD_SIZE): number {
+  return row * size + col;
 }
 
-export function cellCoord(index: number): CellCoord {
-  return { row: Math.floor(index / BOARD_SIZE), col: index % BOARD_SIZE };
+export function cellCoord(index: number, size = BOARD_SIZE): CellCoord {
+  return { row: Math.floor(index / size), col: index % size };
 }
 
-export function assertCellIndex(index: number): void {
-  if (!Number.isInteger(index) || index < 0 || index >= CELL_COUNT) {
+export function assertCellIndex(index: number, size = BOARD_SIZE): void {
+  if (!Number.isInteger(index) || index < 0 || index >= size * size) {
     throw new Error(`Invalid cell index: ${index}`);
   }
 }
@@ -73,18 +74,18 @@ export function getCellViewState(
   return "empty";
 }
 
-export function isAdjacent(a: number, b: number): boolean {
-  const ac = cellCoord(a);
-  const bc = cellCoord(b);
+export function isAdjacent(a: number, b: number, size = BOARD_SIZE): boolean {
+  const ac = cellCoord(a, size);
+  const bc = cellCoord(b, size);
   return Math.max(Math.abs(ac.row - bc.row), Math.abs(ac.col - bc.col)) === 1;
 }
 
-export function sameRow(a: number, b: number): boolean {
-  return cellCoord(a).row === cellCoord(b).row;
+export function sameRow(a: number, b: number, size = BOARD_SIZE): boolean {
+  return cellCoord(a, size).row === cellCoord(b, size).row;
 }
 
-export function sameColumn(a: number, b: number): boolean {
-  return cellCoord(a).col === cellCoord(b).col;
+export function sameColumn(a: number, b: number, size = BOARD_SIZE): boolean {
+  return cellCoord(a, size).col === cellCoord(b, size).col;
 }
 
 export function regionCells(
@@ -98,6 +99,6 @@ export function regionCells(
   return cells;
 }
 
-export function allCells(): number[] {
-  return Array.from({ length: CELL_COUNT }, (_, index) => index);
+export function allCells(size = BOARD_SIZE): number[] {
+  return Array.from({ length: size * size }, (_, index) => index);
 }

@@ -1,5 +1,6 @@
 import { generatePuzzle } from "./generator";
-import { BOARD_SIZE, CELL_COUNT, type Puzzle } from "./model";
+import { BOARD_SIZE, DAILY_BOARD_SIZE, type Puzzle } from "./model";
+import { DAILY_GENERATOR_VERSION, isDailyDate } from "./daily-puzzle";
 import { puzzleId } from "./puzzle-identity";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { validateSolution } from "./rules";
@@ -43,19 +44,20 @@ export async function restoreSharedPuzzleSnapshot(
   if (!input || typeof input !== "object")
     throw new Error("Invalid shared puzzle.");
   const snapshot = input as Partial<SharedPuzzleSnapshot>;
+  const size = snapshot.size;
   if (
     typeof snapshot.id !== "string" ||
     !/^p1:[0-9a-f]{64}$/.test(snapshot.id) ||
-    snapshot.size !== BOARD_SIZE ||
+    (size !== BOARD_SIZE && size !== DAILY_BOARD_SIZE) ||
     !Array.isArray(snapshot.regions) ||
-    snapshot.regions.length !== CELL_COUNT ||
+    snapshot.regions.length !== size * size ||
     !snapshot.regions.every(
-      (id) => Number.isInteger(id) && id >= 0 && id < BOARD_SIZE,
+      (id) => Number.isInteger(id) && id >= 0 && id < size,
     ) ||
     !Array.isArray(snapshot.givens) ||
-    snapshot.givens.length > BOARD_SIZE ||
+    snapshot.givens.length > size ||
     !snapshot.givens.every(
-      (cell) => Number.isInteger(cell) && cell >= 0 && cell < CELL_COUNT,
+      (cell) => Number.isInteger(cell) && cell >= 0 && cell < size * size,
     ) ||
     typeof snapshot.seed !== "string" ||
     snapshot.seed.length === 0 ||
@@ -64,11 +66,16 @@ export async function restoreSharedPuzzleSnapshot(
       snapshot.difficulty !== "normal" &&
       snapshot.difficulty !== "hard") ||
     typeof snapshot.generatorVersion !== "string" ||
-    !/^[a-z0-9-]{1,32}$/.test(snapshot.generatorVersion)
+    !/^[a-z0-9-]{1,32}$/.test(snapshot.generatorVersion) ||
+    (size === DAILY_BOARD_SIZE &&
+      (snapshot.generatorVersion !== DAILY_GENERATOR_VERSION ||
+        snapshot.difficulty !== "hard" ||
+        !isDailyDate(snapshot.seed)))
   ) {
     throw new Error("Invalid shared puzzle.");
   }
   const definition = {
+    size: size as 8 | 10,
     regions: snapshot.regions,
     givens: snapshot.givens,
   };
@@ -76,7 +83,7 @@ export async function restoreSharedPuzzleSnapshot(
   if (solved.status !== "unique")
     throw new Error("Shared puzzle is not unique.");
   const puzzle: Puzzle = {
-    size: BOARD_SIZE,
+    size,
     regions: [...snapshot.regions],
     givens: [...snapshot.givens],
     solution: solved.solutions[0],

@@ -1,7 +1,5 @@
 import {
   BOARD_SIZE,
-  CELL_COUNT,
-  REGION_COUNT,
   type PlayerState,
   type Puzzle,
   cellCoord,
@@ -15,16 +13,20 @@ export interface ValidationResult {
 }
 
 export function validatePuzzleShape(
-  puzzle: Pick<Puzzle, "regions" | "solution" | "givens">,
+  puzzle: Pick<Puzzle, "size" | "regions" | "solution" | "givens">,
 ): ValidationResult {
   const errors: string[] = [];
+  const size = puzzle.size;
 
-  if (puzzle.regions.length !== CELL_COUNT) {
-    errors.push("Region grid must contain exactly 64 cells.");
+  if (size !== BOARD_SIZE && size !== 10)
+    return { valid: false, errors: ["Unsupported board size."] };
+
+  if (puzzle.regions.length !== size * size) {
+    errors.push(`Region grid must contain exactly ${size * size} cells.`);
   }
 
-  if (puzzle.solution.length !== REGION_COUNT) {
-    errors.push("Solution must contain exactly 8 cells.");
+  if (puzzle.solution.length !== size) {
+    errors.push(`Solution must contain exactly ${size} cells.`);
   }
 
   for (const given of puzzle.givens ?? []) {
@@ -35,14 +37,14 @@ export function validatePuzzleShape(
 
   const seenRegions = new Set(puzzle.regions);
   if (
-    seenRegions.size !== REGION_COUNT ||
-    [...seenRegions].some((id) => id < 0 || id >= REGION_COUNT)
+    seenRegions.size !== size ||
+    [...seenRegions].some((id) => !Number.isInteger(id) || id < 0 || id >= size)
   ) {
-    errors.push("Puzzle must contain region ids 0 through 7.");
+    errors.push(`Puzzle must contain region ids 0 through ${size - 1}.`);
   }
 
   for (const regionId of seenRegions) {
-    if (!isRegionConnected(puzzle.regions, regionId)) {
+    if (!isRegionConnected(puzzle.regions, regionId, size)) {
       errors.push(`Region ${regionId} is not connected.`);
     }
   }
@@ -51,7 +53,7 @@ export function validatePuzzleShape(
 }
 
 export function validateSolution(
-  puzzle: Pick<Puzzle, "regions" | "solution">,
+  puzzle: Pick<Puzzle, "size" | "regions" | "solution">,
 ): ValidationResult {
   const shape = validatePuzzleShape(puzzle);
   const errors = [...shape.errors];
@@ -61,28 +63,32 @@ export function validateSolution(
   const pieces = [...puzzle.solution];
 
   for (const index of pieces) {
-    if (index < 0 || index >= CELL_COUNT) {
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= puzzle.size * puzzle.size
+    ) {
       errors.push(`Solution contains invalid cell: ${index}.`);
       continue;
     }
-    const { row, col } = cellCoord(index);
+    const { row, col } = cellCoord(index, puzzle.size);
     rows.add(row);
     columns.add(col);
     regions.add(puzzle.regions[index]);
   }
 
-  if (new Set(pieces).size !== REGION_COUNT)
+  if (new Set(pieces).size !== puzzle.size)
     errors.push("Solution cells must be unique.");
-  if (rows.size !== REGION_COUNT)
+  if (rows.size !== puzzle.size)
     errors.push("Each row must contain exactly one piece.");
-  if (columns.size !== REGION_COUNT)
+  if (columns.size !== puzzle.size)
     errors.push("Each column must contain exactly one piece.");
-  if (regions.size !== REGION_COUNT)
+  if (regions.size !== puzzle.size)
     errors.push("Each region must contain exactly one piece.");
 
   for (let a = 0; a < pieces.length; a += 1) {
     for (let b = a + 1; b < pieces.length; b += 1) {
-      if (isAdjacent(pieces[a], pieces[b])) {
+      if (isAdjacent(pieces[a], pieces[b], puzzle.size)) {
         errors.push("Pieces must not touch, including diagonally.");
       }
     }
@@ -108,6 +114,7 @@ export function isComplete(
 function isRegionConnected(
   regions: readonly number[],
   regionId: number,
+  size: number,
 ): boolean {
   const first = regions.findIndex((id) => id === regionId);
   if (first === -1) return false;
@@ -119,12 +126,12 @@ function isRegionConnected(
   while (queue.length > 0) {
     const current = queue.shift();
     if (current === undefined) break;
-    const { row, col } = cellCoord(current);
+    const { row, col } = cellCoord(current, size);
     const neighbors = [
-      row > 0 ? cellIndex(row - 1, col) : undefined,
-      row < BOARD_SIZE - 1 ? cellIndex(row + 1, col) : undefined,
-      col > 0 ? cellIndex(row, col - 1) : undefined,
-      col < BOARD_SIZE - 1 ? cellIndex(row, col + 1) : undefined,
+      row > 0 ? cellIndex(row - 1, col, size) : undefined,
+      row < size - 1 ? cellIndex(row + 1, col, size) : undefined,
+      col > 0 ? cellIndex(row, col - 1, size) : undefined,
+      col < size - 1 ? cellIndex(row, col + 1, size) : undefined,
     ];
     for (const next of neighbors) {
       if (next === undefined || visited.has(next) || regions[next] !== regionId)

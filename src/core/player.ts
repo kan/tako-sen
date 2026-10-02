@@ -2,8 +2,12 @@ import { type PlayerState, type Puzzle, assertCellIndex } from "./model";
 import { isCorrectPiece } from "./rules";
 import { maximumHintStage, type HintStage } from "./hint-progress";
 
-export function toggleExcluded(state: PlayerState, index: number): PlayerState {
-  assertCellIndex(index);
+export function toggleExcluded(
+  state: PlayerState,
+  index: number,
+  size = 8,
+): PlayerState {
+  assertCellIndex(index, size);
   if (state.pieces.has(index) || state.fixedErrors.has(index)) return state;
 
   const excluded = new Set(state.excluded);
@@ -17,11 +21,11 @@ export function toggleExcluded(state: PlayerState, index: number): PlayerState {
 }
 
 export function placePiece(
-  puzzle: Pick<Puzzle, "solution">,
+  puzzle: Pick<Puzzle, "size" | "solution">,
   state: PlayerState,
   index: number,
 ): PlayerState {
-  assertCellIndex(index);
+  assertCellIndex(index, puzzle.size);
   if (
     state.pieces.has(index) ||
     state.fixedErrors.has(index) ||
@@ -43,10 +47,11 @@ export function placePiece(
 export function addExcludedMarks(
   state: PlayerState,
   indexes: Iterable<number>,
+  size = 8,
 ): PlayerState {
   const excluded = new Set(state.excluded);
   for (const index of indexes) {
-    assertCellIndex(index);
+    assertCellIndex(index, size);
     if (!state.pieces.has(index) && !state.fixedErrors.has(index))
       excluded.add(index);
   }

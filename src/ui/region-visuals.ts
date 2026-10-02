@@ -1,13 +1,8 @@
-import {
-  BOARD_SIZE,
-  REGION_COUNT,
-  cellCoord,
-  cellIndex,
-  type Puzzle,
-} from "../core/model";
+import { cellCoord, cellIndex, type Puzzle } from "../core/model";
 
 export interface RegionPaletteColor {
   readonly background: string;
+  readonly foreground?: string;
 }
 
 export interface CellRegionBorders {
@@ -26,30 +21,35 @@ export const REGION_PALETTE: readonly RegionPaletteColor[] = [
   { background: "#e99a70" },
   { background: "#e1a6cc" },
   { background: "#b8a1d9" },
+  { background: "#f1f2ee" },
+  { background: "#565d67", foreground: "#ffffff" },
 ] as const;
 
 const PALETTE_DISTANCES = [
-  [0, 5, 4, 2, 6, 1, 4, 3],
-  [5, 0, 2, 5, 1, 6, 3, 2],
-  [4, 2, 0, 4, 3, 5, 4, 2],
-  [2, 5, 4, 0, 6, 3, 5, 3],
-  [6, 1, 3, 6, 0, 5, 2, 2],
-  [1, 6, 5, 3, 5, 0, 3, 4],
-  [4, 3, 4, 5, 2, 3, 0, 2],
-  [3, 2, 2, 3, 2, 4, 2, 0],
+  [0, 5, 4, 2, 6, 1, 4, 3, 4, 5],
+  [5, 0, 2, 5, 1, 6, 3, 2, 4, 5],
+  [4, 2, 0, 4, 3, 5, 4, 2, 4, 5],
+  [2, 5, 4, 0, 6, 3, 5, 3, 4, 5],
+  [6, 1, 3, 6, 0, 5, 2, 2, 4, 5],
+  [1, 6, 5, 3, 5, 0, 3, 4, 4, 5],
+  [4, 3, 4, 5, 2, 3, 0, 2, 4, 5],
+  [3, 2, 2, 3, 2, 4, 2, 0, 4, 5],
+  [4, 4, 4, 4, 4, 4, 4, 4, 0, 7],
+  [5, 5, 5, 5, 5, 5, 5, 5, 7, 0],
 ] as const;
 
 export function assignRegionColorIndexes(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
 ): readonly number[] {
   const adjacency = regionAdjacency(puzzle);
-  const colorIndexes = Array<number>(REGION_COUNT).fill(-1);
+  const colorIndexes = Array<number>(puzzle.size).fill(-1);
 
-  for (let count = 0; count < REGION_COUNT; count += 1) {
+  for (let count = 0; count < puzzle.size; count += 1) {
     const regionId = nextRegionToColor(adjacency, colorIndexes);
     colorIndexes[regionId] = bestPaletteIndex(
       adjacency[regionId],
       colorIndexes,
+      puzzle.size,
     );
   }
 
@@ -57,7 +57,7 @@ export function assignRegionColorIndexes(
 }
 
 export function regionColorForCell(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   colorIndexes: readonly number[],
   index: number,
 ): RegionPaletteColor {
@@ -65,40 +65,45 @@ export function regionColorForCell(
 }
 
 export function cellRegionBorders(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
   index: number,
 ): CellRegionBorders {
-  const { row, col } = cellCoord(index);
+  const { row, col } = cellCoord(index, puzzle.size);
   const regionId = puzzle.regions[index];
   return {
-    top: row === 0 || puzzle.regions[cellIndex(row - 1, col)] !== regionId,
+    top:
+      row === 0 ||
+      puzzle.regions[cellIndex(row - 1, col, puzzle.size)] !== regionId,
     right:
-      col === BOARD_SIZE - 1 ||
-      puzzle.regions[cellIndex(row, col + 1)] !== regionId,
+      col === puzzle.size - 1 ||
+      puzzle.regions[cellIndex(row, col + 1, puzzle.size)] !== regionId,
     bottom:
-      row === BOARD_SIZE - 1 ||
-      puzzle.regions[cellIndex(row + 1, col)] !== regionId,
-    left: col === 0 || puzzle.regions[cellIndex(row, col - 1)] !== regionId,
+      row === puzzle.size - 1 ||
+      puzzle.regions[cellIndex(row + 1, col, puzzle.size)] !== regionId,
+    left:
+      col === 0 ||
+      puzzle.regions[cellIndex(row, col - 1, puzzle.size)] !== regionId,
   };
 }
 
 export function regionAdjacency(
-  puzzle: Pick<Puzzle, "regions">,
+  puzzle: Pick<Puzzle, "size" | "regions">,
 ): readonly ReadonlySet<number>[] {
   const adjacency = Array.from(
-    { length: REGION_COUNT },
+    { length: puzzle.size },
     () => new Set<number>(),
   );
 
   for (let index = 0; index < puzzle.regions.length; index += 1) {
-    const { row, col } = cellCoord(index);
+    const { row, col } = cellCoord(index, puzzle.size);
     addNeighbor(row, col + 1);
     addNeighbor(row + 1, col);
 
     function addNeighbor(neighborRow: number, neighborCol: number): void {
-      if (neighborRow >= BOARD_SIZE || neighborCol >= BOARD_SIZE) return;
+      if (neighborRow >= puzzle.size || neighborCol >= puzzle.size) return;
       const a = puzzle.regions[index];
-      const b = puzzle.regions[cellIndex(neighborRow, neighborCol)];
+      const b =
+        puzzle.regions[cellIndex(neighborRow, neighborCol, puzzle.size)];
       if (a === b) return;
       adjacency[a].add(b);
       adjacency[b].add(a);
@@ -116,7 +121,7 @@ function nextRegionToColor(
   let bestColoredNeighborCount = -1;
   let bestDegree = -1;
 
-  for (let regionId = 0; regionId < REGION_COUNT; regionId += 1) {
+  for (let regionId = 0; regionId < colorIndexes.length; regionId += 1) {
     if (colorIndexes[regionId] !== -1) continue;
     const coloredNeighborCount = [...adjacency[regionId]].filter(
       (neighbor) => colorIndexes[neighbor] !== -1,
@@ -138,6 +143,7 @@ function nextRegionToColor(
 function bestPaletteIndex(
   adjacentRegions: ReadonlySet<number>,
   colorIndexes: readonly number[],
+  paletteSize: number,
 ): number {
   let bestColorIndex = 0;
   let bestScore = -1;
@@ -145,11 +151,7 @@ function bestPaletteIndex(
     colorIndexes.filter((colorIndex) => colorIndex !== -1),
   );
 
-  for (
-    let colorIndex = 0;
-    colorIndex < REGION_PALETTE.length;
-    colorIndex += 1
-  ) {
+  for (let colorIndex = 0; colorIndex < paletteSize; colorIndex += 1) {
     if (usedColorIndexes.has(colorIndex)) continue;
 
     const neighborColorIndexes = [...adjacentRegions]
