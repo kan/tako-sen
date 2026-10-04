@@ -1,47 +1,46 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle } from "../core/model";
 import type { LeaderboardEntry } from "../core/leaderboard";
 import { puzzleId } from "../core/puzzle-identity";
 import GameName from "./GameName.vue";
 import { hintStageLabel } from "../core/hint-progress";
+import { trapDialogFocus } from "./dialog";
 
 const props = defineProps<{
   puzzle: Puzzle;
   revision?: number;
   complete?: boolean;
-  visible?: boolean;
+  open: boolean;
 }>();
+const emit = defineEmits<{ close: [] }>();
 const entries = ref<LeaderboardEntry[]>([]);
 const busy = ref(false);
 const message = ref("");
 let generation = 0;
-let pendingRefresh = false;
-const panel = ref<HTMLDetailsElement>();
+const dialog = ref<HTMLElement>();
 watch(
-  () => props.visible,
-  (visible) => {
-    if (visible) void refresh();
+  () => props.open,
+  (open) => {
+    if (open) {
+      void refresh();
+      void nextTick(() => dialog.value?.focus());
+    }
   },
 );
 watch(
   () => [props.puzzle, props.revision, props.complete],
   () => {
     generation += 1;
-    pendingRefresh = false;
     entries.value = [];
     message.value = "";
     busy.value = false;
-    void refresh();
+    if (props.open) void refresh();
   },
   { immediate: true },
 );
 
 async function refresh(): Promise<void> {
-  if (busy.value) {
-    pendingRefresh = true;
-    return;
-  }
   const current = ++generation;
   busy.value = true;
   message.value = "";
@@ -64,20 +63,19 @@ async function refresh(): Promise<void> {
   } finally {
     if (current === generation) {
       busy.value = false;
-      if (pendingRefresh) {
-        pendingRefresh = false;
-        void refresh();
-      }
     }
   }
 }
 
-function onPanelToggle(): void {
-  if (panel.value?.open) void refresh();
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    emit("close");
+  } else trapDialogFocus(event, dialog.value);
 }
 
 function onPageVisible(): void {
-  if (document.visibilityState === "visible") void refresh();
+  if (props.open && document.visibilityState === "visible") void refresh();
 }
 onMounted(() => document.addEventListener("visibilitychange", onPageVisible));
 onUnmounted(() => {
@@ -87,35 +85,59 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <details
-    ref="panel"
-    id="public-leaderboard"
-    class="stats-panel"
-    :open="props.visible || props.complete"
-    @toggle="onPanelToggle"
+  <div
+    v-if="props.open"
+    class="dialog-backdrop ranking-backdrop"
+    role="presentation"
+    @click.self="emit('close')"
   >
-    <summary>この問題の公開ランキング</summary>
-    <div class="stats-panel-body">
-      <p>
-        ゲーム名の設定時に公開へ同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
-      </p>
-      <p>
-        ヒントの深さが浅い順、時間・ヒント数・ミス数の順で比較し、同成績は同順位。深さは見たヒントの最も詳しいレベルを共通尺度の1/4〜4/4で表します。通常ヒントは3/4まで、矛盾調査は4/4までです。未使用が最優先、旧記録の深さ不明は深さの分かる記録より後ろに並びます。各参加者の初回成績を最大100人表示します。
+    <section
+      ref="dialog"
+      id="public-leaderboard"
+      class="dialog-card ranking-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="public-leaderboard-title"
+      tabindex="-1"
+      @keydown="onKeydown"
+    >
+      <div class="ranking-header">
+        <h2 id="public-leaderboard-title">この問題のランキング</h2>
+        <button type="button" class="dialog-close" @click="emit('close')">
+          閉じる
+        </button>
+      </div>
+      <p class="ranking-note">
+        公開に同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
       </p>
       <p v-if="busy" role="status">ランキングを取得しています。</p>
-      <p v-if="message" aria-live="polite">{{ message }}</p>
-      <ul v-if="entries.length" class="ranking-list">
+      <p v-else-if="message" aria-live="polite">{{ message }}</p>
+      <ol v-if="entries.length" class="public-ranking-entries">
         <li v-for="entry in entries" :key="entry.displayName">
-          {{ entry.rank }} 位 · <GameName :name="entry.displayName" /> ·
-          {{ entry.elapsedSeconds }} 秒 · ヒント {{ entry.hintsUsed }}回（{{
-            hintStageLabel(entry)
-          }}） · ミス
-          {{ entry.mistakes }}
+          <div class="ranking-score-main">
+            <strong class="ranking-place">{{ entry.rank }}位</strong>
+            <GameName :name="entry.displayName" />
+            <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
+          </div>
+          <div class="ranking-score-meta">
+            <span
+              >ヒント {{ entry.hintsUsed }}回（{{
+                hintStageLabel(entry)
+              }}）</span
+            >
+            <span>ミス {{ entry.mistakes }}</span>
+          </div>
         </li>
-      </ul>
-      <p>
-        ログインしてゲーム名を設定すると自動参加します。再挑戦でランキングの成績は更新されません。退会で公開記録を削除できます。
+      </ol>
+      <details class="ranking-guide">
+        <summary>順位の付け方</summary>
+        <p>
+          ヒントの深さが浅い順、時間・ヒント数・ミス数の順で比較し、同成績は同順位です。深さは見たヒントの最も詳しいレベルを1/4〜4/4で表します。通常ヒントは3/4まで、矛盾調査は4/4までです。未使用が最優先で、深さ不明の旧記録は最後に並びます。最大100人を表示します。
+        </p>
+      </details>
+      <p class="ranking-note">
+        ログインしてゲーム名を設定すると自動参加します。再挑戦では記録を更新しません。退会で公開記録を削除できます。
       </p>
-    </div>
-  </details>
+    </section>
+  </div>
 </template>

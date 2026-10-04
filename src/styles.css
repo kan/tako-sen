@@ -347,85 +347,98 @@ h1 {
   margin: 0;
 }
 
-.dialog-backdrop.daily-ranking-backdrop {
+.dialog-backdrop.daily-ranking-backdrop,
+.dialog-backdrop.ranking-backdrop {
   z-index: 30;
   place-items: center;
 }
 
-.daily-arcade {
-  padding: 14px;
-  border: 3px solid #e5b962;
-  border-radius: 12px;
-  background: #202735;
-  color: #f9df9c;
-  font-variant-numeric: tabular-nums;
-}
-
-.dialog-card.daily-ranking-dialog {
+.dialog-card.ranking-dialog {
   width: min(100%, 560px);
   max-height: min(80dvh, 700px);
   overflow: auto;
-  border: 3px solid #e5b962;
-  border-radius: 12px;
-  padding: 14px;
-  background: #202735;
-  color: #f9df9c;
-  box-shadow: 0 8px 0 #2a1b14;
+  font-variant-numeric: tabular-nums;
 }
 
-.daily-ranking-header {
+.ranking-header {
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.daily-arcade h2 {
-  margin: 0 0 10px;
-  letter-spacing: 0.12em;
+.ranking-header h2 {
+  margin: 0 0 8px;
   font-size: clamp(1.1rem, 5vw, 1.5rem);
 }
 
-.daily-arcade ol {
+.ranking-note {
+  margin: 8px 0 12px;
+  color: #674c3c;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ranking-guide {
+  margin-top: 12px;
+  color: #674c3c;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ranking-guide summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.ranking-entries,
+.public-ranking-entries {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.daily-arcade li {
-  padding: 8px;
-  border-top: 1px solid #6e7480;
+.ranking-entries li,
+.public-ranking-entries li {
+  padding: 10px 8px;
+  border-top: 1px solid #d7c4ae;
 }
-.daily-score-main {
+.ranking-score-main {
   display: grid;
-  grid-template-columns: 2em minmax(0, 1fr) auto auto;
-  align-items: baseline;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: 8px;
 }
-.daily-score-main .game-name {
+.ranking-score-main .game-name {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.daily-you {
-  font-size: 0.75em;
-  letter-spacing: 0.08em;
+.ranking-place {
+  min-width: 2.5em;
+  color: #a44a2a;
 }
-.daily-score-time {
-  grid-column: 4;
+.ranking-you {
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #ffcf70;
+  font-size: 0.75em;
+  white-space: nowrap;
+}
+.ranking-time {
   white-space: nowrap;
   text-align: right;
 }
-.daily-score-meta {
+.ranking-score-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 12px;
-  padding-left: calc(2em + 8px);
-  font-size: 0.8em;
+  padding-left: calc(2.5em + 8px);
+  color: #674c3c;
+  font-size: 0.85em;
 }
-.daily-arcade li.daily-self {
-  border: 2px solid #ffda68;
-  border-radius: 6px;
-  background: #354659;
-  color: #ffffff;
+.ranking-entries li.daily-self {
+  border: 2px solid #a44a2a;
+  border-radius: 12px;
+  background: #fff0c7;
 }
 
 .cell {

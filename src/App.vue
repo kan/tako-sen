@@ -108,7 +108,7 @@ const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
 const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
-type Screen = "play" | "history" | "ranking" | "tools";
+type Screen = "play" | "history" | "tools";
 const screen = ref<Screen>("play");
 const menuOpen = ref(false);
 let resumeAfterMenu = false;
@@ -121,7 +121,6 @@ const screenTitle = computed(
     ({
       play: "プレイ",
       history: "履歴・成績",
-      ranking: "この問題のランキング",
       tools: "設定・シード・共有",
     })[screen.value],
 );
@@ -159,6 +158,8 @@ const dailyChallengeRef = ref<InstanceType<typeof DailyChallenge>>();
 const dailyRankingOpen = ref(false);
 const dailyPanelOpen = ref(false);
 const returnToClearAfterRanking = ref(false);
+const publicRankingOpen = ref(false);
+const returnToClearAfterPublicRanking = ref(false);
 const isDaily = computed(() => puzzle.value.generatorVersion === "daily-v1");
 const resultHistory = ref<ResultHistory>();
 const showStats = ref(false);
@@ -222,7 +223,7 @@ const cells = computed(() =>
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
 const activeDialog = computed<
-  "tutorial" | "hint" | "clear" | "account" | "menu" | undefined
+  "tutorial" | "hint" | "clear" | "account" | "menu" | "ranking" | undefined
 >(() => {
   if (accountSetupRequired.value) return "account";
   if (tutorialOpen.value) return "tutorial";
@@ -230,6 +231,7 @@ const activeDialog = computed<
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
     return "hint";
   if (accountDialogOpen.value) return "account";
+  if (publicRankingOpen.value) return "ranking";
   if (menuOpen.value) return "menu";
   return undefined;
 });
@@ -339,7 +341,11 @@ watch(activeDialog, async (dialog, previous) => {
     if (dialog === "menu") {
       if (previous === "account") accountMenuButton.value?.focus();
       else menuDialogRef.value?.focus();
-    } else if (dialog !== "account" && dialog !== "tutorial")
+    } else if (
+      dialog !== "account" &&
+      dialog !== "tutorial" &&
+      dialog !== "ranking"
+    )
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
     if (waitingToStart.value && screen.value === "play") focusReadyButton();
@@ -1094,6 +1100,8 @@ function onDailyRankingClosed(): void {
   if (returnToClearAfterRanking.value && isDaily.value && complete.value)
     showClearDialog.value = true;
   returnToClearAfterRanking.value = false;
+  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  resumeAfterMenu = false;
 }
 
 function onAccountSetupRequired(required: boolean): void {
@@ -1109,9 +1117,38 @@ function onAccountProfile(name: string): void {
   }
 }
 
-async function showLeaderboard(): Promise<void> {
+function showLeaderboard(): void {
+  returnToClearAfterPublicRanking.value = showClearDialog.value;
   closeClearDialog();
-  await navigateTo("ranking");
+  if (!menuOpen.value) {
+    resumeAfterMenu = timer.value.status === "running";
+    pauseGame();
+  }
+  menuOpen.value = false;
+  publicRankingOpen.value = true;
+}
+
+function showCurrentRanking(): void {
+  if (!isDaily.value) {
+    showLeaderboard();
+    return;
+  }
+  if (!activeDailyDate.value) return;
+  if (!menuOpen.value) {
+    resumeAfterMenu = timer.value.status === "running";
+    pauseGame();
+  }
+  menuOpen.value = false;
+  void dailyChallengeRef.value?.openRanking(activeDailyDate.value);
+}
+
+function closeLeaderboard(): void {
+  publicRankingOpen.value = false;
+  if (returnToClearAfterPublicRanking.value && complete.value)
+    showClearDialog.value = true;
+  returnToClearAfterPublicRanking.value = false;
+  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  resumeAfterMenu = false;
 }
 
 function onDialogKeydown(event: KeyboardEvent): void {
@@ -1344,8 +1381,8 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="navigateTo('history')">
             履歴・成績
           </button>
-          <button type="button" @click="navigateTo('ranking')">
-            この問題のランキング
+          <button type="button" @click="showCurrentRanking">
+            {{ isDaily ? "今日のランキング" : "この問題のランキング" }}
           </button>
           <button type="button" @click="navigateTo('tools')">
             設定・シード・共有
@@ -1468,11 +1505,22 @@ function formatElapsed(seconds: number): string {
       >
         <UiIcon name="next" />
       </button>
+      <button
+        v-if="!isDaily || activeDailyDate"
+        type="button"
+        class="icon-button"
+        :aria-label="isDaily ? '今日のランキング' : 'この問題のランキング'"
+        :title="isDaily ? '今日のランキング' : 'この問題のランキング'"
+        @click="showCurrentRanking"
+      >
+        <UiIcon name="ranking" />
+      </button>
     </section>
 
     <DailyChallenge
       v-if="onlineAuthEnabled && screen === 'play'"
       ref="dailyChallengeRef"
+      :inert="!!activeDialog"
       :active-date="activeDailyDate"
       :active-account-id="activeDailyAccountId"
       :puzzle="puzzle"
@@ -1640,12 +1688,11 @@ function formatElapsed(seconds: number): string {
 
     <PublicLeaderboard
       v-if="!isDaily"
-      v-show="screen === 'ranking'"
-      :visible="screen === 'ranking'"
+      :open="publicRankingOpen"
       :puzzle="puzzle"
       :revision="rankingRevision"
       :complete="complete"
-      :inert="!!activeDialog"
+      @close="closeLeaderboard"
     />
 
     <AccountHistory

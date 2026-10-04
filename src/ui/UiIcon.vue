@@ -1,7 +1,14 @@
 <script setup lang="ts">
 defineProps<{
   name:
-    "settings" | "mistake" | "hint" | "clock" | "difficulty" | "reset" | "next";
+    | "settings"
+    | "mistake"
+    | "hint"
+    | "clock"
+    | "difficulty"
+    | "reset"
+    | "next"
+    | "ranking";
 }>();
 </script>
 
@@ -37,5 +44,11 @@ defineProps<{
     </template>
     <path v-else-if="name === 'reset'" d="M4 11a8 8 0 1 1 2 7M4 4v7h7" />
     <path v-else-if="name === 'next'" d="m3 5 8 7-8 7Zm9 0 8 7-8 7ZM21 5v14" />
+    <template v-else-if="name === 'ranking'">
+      <path d="M3 20h18M4 20v-5h5v5M9 20V8h6v12M15 20v-7h5v7" />
+      <path
+        d="m12 3 .5 1.2L14 4.5l-1 1 .2 1.5L12 6.3l-1.2.7L11 5.5l-1-1 1.5-.3Z"
+      />
+    </template>
   </svg>
 </template>

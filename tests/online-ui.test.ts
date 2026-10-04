@@ -862,52 +862,153 @@ describe("tutorial dialog", () => {
   });
 });
 
-describe("automatic leaderboard refresh", () => {
-  it("refreshes when navigating to the ranking screen", async () => {
+describe("public leaderboard dialog", () => {
+  it("places the ranking button after Next and pauses only while its dialog is open", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
     const container = root();
-    const visible = ref(false);
+    renderer.render(h(App), container);
+    await nextTick();
+    const actions = find(container, (n) => n.props.class === "actions")!;
+    const labels = actions.children.map((child) => child.props["aria-label"]);
+    expect(labels.indexOf("この問題のランキング")).toBe(
+      labels.indexOf("新しい問題") + 1,
+    );
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === label || n.props["aria-label"] === label),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => void | Promise<void>)();
+      await nextTick();
+    };
+    await click("OK");
+    now += 3000;
+    await click("この問題のランキング");
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    expect(game().elapsedMs).toBe(3000);
+    now += 60000;
+    await click("閉じる");
+    expect(game().elapsedMs).toBe(3000);
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeUndefined();
+  });
+
+  it("opens from the menu without leaving play and resumes timing after closing", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === label || n.props["aria-label"] === label),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => void | Promise<void>)();
+      await nextTick();
+    };
+    await click("OK");
+    now += 3000;
+    await click("メニューを開く");
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    expect(game().elapsedMs).toBe(3000);
+    await click("この問題のランキング");
+    expect(
+      find(container, (n) => n.props.id === "public-leaderboard"),
+    ).toBeDefined();
+    expect(
+      find(container, (n) => n.props["aria-labelledby"] === "menu-title"),
+    ).toBeUndefined();
+    expect(
+      find(container, (n) => n.props.class === "screen-header"),
+    ).toBeUndefined();
+    now += 60000;
+    await click("閉じる");
+    expect(
+      find(container, (n) => n.props.id === "public-leaderboard"),
+    ).toBeUndefined();
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeUndefined();
+    expect(game().elapsedMs).toBe(3000);
+  });
+
+  it("loads on opening and closes with Escape", async () => {
+    const container = root();
+    const open = ref(false);
+    const close = vi.fn(() => {
+      open.value = false;
+    });
     renderer.render(
       h({
         setup: () => () =>
           h(PublicLeaderboard, {
             puzzle,
-            visible: visible.value,
+            open: open.value,
+            onClose: close,
           }),
       }),
       container,
     );
+    expect(request).not.toHaveBeenCalled();
+    open.value = true;
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    visible.value = true;
-    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-    expect(find(container, (n) => n.tag === "details")?.open).toBe(true);
-    visible.value = false;
+    const dialog = find(container, (n) => n.props.id === "public-leaderboard")!;
+    expect(dialog.props.role).toBe("dialog");
+    expect(dialog.props["aria-modal"]).toBe("true");
+    expect(dialog.focus).toHaveBeenCalled();
+    const preventDefault = vi.fn();
+    (dialog.props.onKeydown as (event: unknown) => void)({
+      key: "Escape",
+      preventDefault,
+    });
     await nextTick();
-    visible.value = true;
-    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    open.value = true;
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   });
-  it("refreshes on initial display, completion, upload acknowledgement and panel reopening without a button", async () => {
+  it("refreshes on completion, upload acknowledgement and visibility only while open", async () => {
     const container = root();
     const complete = ref(false);
     const revision = ref(0);
+    const open = ref(true);
     const app = renderer.createApp({
       setup: () => () =>
         h(PublicLeaderboard, {
           puzzle,
+          open: open.value,
           complete: complete.value,
           revision: revision.value,
         }),
     });
     app.mount(container);
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    expect(find(container, (n) => n.tag === "button")).toBeUndefined();
+    expect(
+      find(container, (n) => n.props.id === "public-leaderboard"),
+    ).toBeDefined();
     complete.value = true;
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     revision.value += 1;
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
-    const panel = find(container, (n) => n.tag === "details")!;
-    panel.open = true;
-    (panel.props.onToggle as () => void)();
-    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(4));
     Object.defineProperty(document, "visibilityState", { value: "visible" });
     const visible = vi
       .mocked(document.addEventListener)
@@ -915,7 +1016,11 @@ describe("automatic leaderboard refresh", () => {
         ([event]) => event === "visibilitychange",
       )![1] as EventListener;
     visible(new Event("visibilitychange"));
-    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(5));
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(4));
+    open.value = false;
+    await nextTick();
+    visible(new Event("visibilitychange"));
+    expect(request).toHaveBeenCalledTimes(4);
     app.unmount();
   });
 
@@ -930,7 +1035,8 @@ describe("automatic leaderboard refresh", () => {
     const selected = ref(puzzle);
     const container = root();
     const app = renderer.createApp({
-      setup: () => () => h(PublicLeaderboard, { puzzle: selected.value }),
+      setup: () => () =>
+        h(PublicLeaderboard, { puzzle: selected.value, open: true }),
     });
     app.mount(container);
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));

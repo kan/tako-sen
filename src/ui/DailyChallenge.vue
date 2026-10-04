@@ -386,38 +386,38 @@ onUnmounted(() => {
       >
         <section
           ref="rankingDialogRef"
-          class="dialog-card daily-arcade daily-ranking-dialog"
+          class="dialog-card ranking-dialog daily-ranking-dialog"
           role="dialog"
           aria-modal="true"
           aria-labelledby="daily-ranking-title"
           tabindex="-1"
           @keydown="onRankingKeydown"
         >
-          <div class="daily-ranking-header">
-            <h2 id="daily-ranking-title">DAILY TOP SCORES</h2>
+          <div class="ranking-header">
+            <h2 id="daily-ranking-title">今日のランキング</h2>
             <button type="button" class="dialog-close" @click="closeRanking">
               閉じる
             </button>
           </div>
-          <p>時間・ヒント・ミスは参考記録です。同成績は同順位です。</p>
+          <p class="ranking-note">
+            時間・ヒント・ミスは参考記録です。同成績は同順位です。
+          </p>
           <p v-if="rankingLoading" role="status">読み込み中…</p>
           <p v-else-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
           <p v-else-if="!entries.length">まだ記録がありません。</p>
-          <ol v-else>
+          <ol v-else class="ranking-entries">
             <li
               v-for="entry in entries"
               :key="entry.displayName"
               :class="{ 'daily-self': entry.isSelf }"
             >
-              <div class="daily-score-main">
-                <strong>{{ entry.rank }}</strong>
+              <div class="ranking-score-main">
+                <strong class="ranking-place">{{ entry.rank }}位</strong>
                 <GameName :name="entry.displayName" />
-                <strong v-if="entry.isSelf" class="daily-you">YOU</strong>
-                <span class="daily-score-time"
-                  >{{ entry.elapsedSeconds }}秒</span
-                >
+                <strong v-if="entry.isSelf" class="ranking-you">あなた</strong>
+                <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
               </div>
-              <div class="daily-score-meta">
+              <div class="ranking-score-meta">
                 <span
                   >ヒント {{ entry.hintsUsed }}回（{{
                     hintStageLabel(entry)
