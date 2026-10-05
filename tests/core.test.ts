@@ -12,6 +12,7 @@ import {
 } from "../src/core/generator";
 import {
   addExcludedMarks,
+  removeExcludedMarks,
   placePiece,
   resetPlayerProgress,
   toggleExcluded,
@@ -111,6 +112,39 @@ describe("complete solver", () => {
 });
 
 describe("player operations", () => {
+  it("removes only requested marks without mutating the input or toggling revisited cells", () => {
+    const state = addExcludedMarks(createInitialPlayerState(0), [0, 1, 2]);
+    const next = removeExcludedMarks(state, [0, 0, 1, 3]);
+    expect([...next.excluded]).toEqual([2]);
+    expect([...state.excluded]).toEqual([0, 1, 2]);
+    expect(removeExcludedMarks(next, [0, 1, 3]).excluded).toEqual(
+      next.excluded,
+    );
+  });
+
+  it("preserves pieces, fixed errors and statistics when clearing marks", () => {
+    const state = {
+      ...createInitialPlayerState(0),
+      excluded: new Set([2]),
+      pieces: new Set([0]),
+      fixedErrors: new Set([1]),
+      mistakes: 1,
+      hintsUsed: 2,
+    };
+    const next = removeExcludedMarks(state, [0, 1, 2, 3]);
+    expect(next).toEqual({ ...state, excluded: new Set() });
+    expect(next.pieces).toBe(state.pieces);
+    expect(next.fixedErrors).toBe(state.fixedErrors);
+  });
+
+  it("validates removed mark indexes and supports the daily board size", () => {
+    const state = addExcludedMarks(createInitialPlayerState(0), [99], 10);
+    expect(removeExcludedMarks(state, [99], 10).excluded.size).toBe(0);
+    expect(() => removeExcludedMarks(state, [99])).toThrow();
+    expect(() => removeExcludedMarks(state, [-1], 10)).toThrow();
+    expect([...state.excluded]).toEqual([99]);
+  });
+
   it("toggles excluded marks without checking correctness", () => {
     const state = toggleExcluded(createInitialPlayerState(0), cellIndex(0, 0));
     expect(state.excluded.has(cellIndex(0, 0))).toBe(true);

@@ -72,6 +72,16 @@ interface HostNode {
   scrollIntoView: () => void;
   tagName: string;
   options: { selected: boolean; value: string }[];
+  clientLeft: number;
+  clientTop: number;
+  clientWidth: number;
+  clientHeight: number;
+  getBoundingClientRect: () => {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
   focus: () => void;
 }
 function node(tag = "root", text = ""): HostNode {
@@ -88,6 +98,16 @@ function node(tag = "root", text = ""): HostNode {
     scrollIntoView: () => {},
     tagName: tag.toUpperCase(),
     options: [],
+    clientLeft: 4,
+    clientTop: 4,
+    clientWidth: 320,
+    clientHeight: 320,
+    getBoundingClientRect: () => ({
+      left: 10,
+      top: 100,
+      width: 328,
+      height: 328,
+    }),
     focus: vi.fn(),
   };
 }
@@ -277,6 +297,203 @@ describe("haptic settings", () => {
   );
 });
 
+describe("board pointer input", () => {
+  async function setup() {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    (
+      find(container, (n) => n.tag === "button" && n.text.trim() === "OK")!
+        .props.onClick as () => void
+    )();
+    await nextTick();
+    const board = find(container, (n) => n.props.class === "board")!;
+    const saved = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    const cell = (index: number) =>
+      find(container, (n) => n.props["data-cell-index"] === index)!;
+    const event = (index: number) => ({
+      isPrimary: true,
+      button: 0,
+      pointerId: 1,
+      clientX: 34 + (index % 8) * 40,
+      clientY: 124 + Math.floor(index / 8) * 40,
+      currentTarget: { setPointerCapture: vi.fn() },
+      preventDefault: vi.fn(),
+    });
+    const send = (name: string, index: number) =>
+      (board.props[name] as (e: unknown) => void)(event(index));
+    const tap = (index: number) => {
+      send("onPointerdown", index);
+      send("onPointerup", index);
+      send("onLostpointercapture", index);
+    };
+    return { saved, cell, send, tap };
+  }
+
+  it("commits short taps without click, ignores retargeted clicks, and preserves keyboard activation", async () => {
+    const { saved, cell, tap } = await setup();
+    tap(17);
+    await nextTick();
+    expect(saved().state.excluded).toContain(17);
+    expect(saved().state.excluded).not.toContain(9);
+    // Safari may synthesize a click on a different target; it must not change the board.
+    (cell(9).props.onClick as (e: unknown) => void)({ detail: 1 });
+    (cell(17).props.onClick as (e: unknown) => void)({ detail: 1 });
+    await nextTick();
+    expect(saved().state.excluded).toContain(17);
+    expect(saved().state.excluded).not.toContain(9);
+    (cell(9).props.onClick as (e: unknown) => void)({ detail: 0 });
+    await nextTick();
+    expect(saved().state.excluded).toContain(9);
+  });
+
+  it("does not suppress the next short tap after a long press", async () => {
+    const { saved, send, tap } = await setup();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", 17);
+    now += LONG_PRESS_MS;
+    send("onPointerup", 17);
+    tap(18);
+    await nextTick();
+    expect(saved().state.excluded).toContain(18);
+    expect([...saved().state.pieces, ...saved().state.fixedErrors]).toContain(
+      17,
+    );
+  });
+
+  it("keeps drag input separate from taps and accepts the next tap immediately", async () => {
+    const { saved, send, tap } = await setup();
+    send("onPointerdown", 17);
+    send("onPointermove", 18);
+    send("onPointerup", 18);
+    send("onLostpointercapture", 18);
+    tap(19);
+    await nextTick();
+    expect(saved().state.excluded).toEqual(
+      expect.arrayContaining([17, 18, 19]),
+    );
+    expect(saved().state.fixedErrors).toEqual([]);
+  });
+
+  it("erases marks when dragging from a marked cell without toggling empty or revisited cells", async () => {
+    const { saved, send, tap } = await setup();
+    tap(17);
+    tap(18);
+    tap(20);
+    send("onPointerdown", 17);
+    send("onPointermove", 18);
+    send("onPointermove", 19);
+    send("onPointermove", 17);
+    send("onPointerup", 17);
+    send("onLostpointercapture", 17);
+    await nextTick();
+    expect(saved().state.excluded).toEqual([20]);
+    expect(saved().state.fixedErrors).toEqual([]);
+    // A new drag from the now-empty starting cell must add marks again.
+    send("onPointerdown", 17);
+    send("onPointermove", 18);
+    send("onPointerup", 18);
+    await nextTick();
+    expect(saved().state.excluded).toEqual(
+      expect.arrayContaining([17, 18, 20]),
+    );
+  });
+
+  it("keeps a marked-cell drag in erase mode after waiting beyond the long press threshold", async () => {
+    const { saved, send, tap } = await setup();
+    tap(17);
+    tap(18);
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", 17);
+    now += LONG_PRESS_MS * 2;
+    send("onPointermove", 18);
+    send("onPointerup", 18);
+    await nextTick();
+    expect(saved().state.excluded).toEqual([]);
+    expect(saved().state.fixedErrors).toEqual([]);
+    expect(saved().state.pieces).not.toContain(17);
+  });
+
+  it("does not treat a canceled gesture or a tap on a different cell as a double tap", async () => {
+    const { saved, send, tap } = await setup();
+    tap(17);
+    send("onPointerdown", 17);
+    send("onPointercancel", 17);
+    tap(18);
+    await nextTick();
+    expect(saved().state.excluded).toEqual(expect.arrayContaining([17, 18]));
+    expect(saved().state.excluded).toHaveLength(2);
+  });
+
+  it("cancels a ready long press by moving away even when returning before release", async () => {
+    const { saved, send } = await setup();
+    let ready!: () => void;
+    vi.stubGlobal("window", {
+      ...window,
+      setTimeout: vi.fn((callback: () => void, delay?: number) => {
+        if (delay === LONG_PRESS_MS) ready = callback;
+        return 1;
+      }),
+    });
+    send("onPointerdown", 17);
+    ready();
+    await nextTick();
+    expect(saved().state.pieces).not.toContain(17);
+    expect(saved().state.fixedErrors).not.toContain(17);
+    send("onPointermove", 18);
+    send("onPointermove", 17);
+    send("onPointerup", 17);
+    await nextTick();
+    expect(saved().state.pieces).not.toContain(17);
+    expect(saved().state.fixedErrors).not.toContain(17);
+    expect(saved().state.excluded).toEqual([]);
+  });
+
+  it("cancels confirmation when released outside the starting cell without a move event", async () => {
+    const { saved, send, tap } = await setup();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", 17);
+    now += LONG_PRESS_MS;
+    send("onPointerup", 9);
+    tap(18);
+    await nextTick();
+    expect([
+      ...saved().state.pieces,
+      ...saved().state.fixedErrors,
+    ]).not.toContain(17);
+    expect(saved().state.excluded).toContain(18);
+  });
+
+  it("supports double-tap shortcuts without a browser dblclick event", async () => {
+    const { saved, tap, send, cell } = await setup();
+    const index = saved().puzzle.solution[0];
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", index);
+    now += LONG_PRESS_MS;
+    send("onPointerup", index);
+    send("onLostpointercapture", index);
+    tap(index);
+    tap(index);
+    await nextTick();
+    expect(saved().state.excluded.length).toBeGreaterThan(0);
+    const excluded = saved().state.excluded;
+    (cell(index).props.onDblclick as (e: unknown) => void)({
+      preventDefault: vi.fn(),
+    });
+    await nextTick();
+    expect(saved().state.excluded).toEqual(excluded);
+  });
+});
+
 describe("sound effects", () => {
   function setup() {
     vi.stubGlobal("HTMLElement", class {});
@@ -395,16 +612,19 @@ describe("sound effects", () => {
         return 1;
       }),
     });
-    const cell = find(container, (n) => n.props["data-cell-index"] === target)!;
     const event = {
       isPrimary: true,
+      button: 0,
       pointerId: 1,
-      clientX: 0,
-      clientY: 0,
+      clientX: 14 + (target % 8) * 40 + 20,
+      clientY: 104 + Math.floor(target / 8) * 40 + 20,
       currentTarget: { setPointerCapture: vi.fn() },
       preventDefault: vi.fn(),
     };
-    (cell.props.onPointerdown as (event: unknown) => void)(event);
+    (
+      find(container, (n) => n.props.class === "board")!.props
+        .onPointerdown as (event: unknown) => void
+    )(event);
     ready();
     now += LONG_PRESS_MS;
     (

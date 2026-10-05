@@ -41,6 +41,7 @@ import {
 } from "./core/play-timer";
 import {
   addExcludedMarks,
+  removeExcludedMarks,
   countHintUsed,
   placePiece,
   resetPlayerProgress,
@@ -78,7 +79,12 @@ import {
   hintStageCount,
   hintStageLines,
 } from "./ui/hint";
-import { LONG_PRESS_MS, pointerReleaseAction } from "./ui/pointer";
+import {
+  LONG_PRESS_MS,
+  DOUBLE_TAP_MS,
+  pointerReleaseAction,
+  cellIndexAtPoint,
+} from "./ui/pointer";
 import {
   createSoundEffects,
   soundEffectForFeedback,
@@ -142,6 +148,7 @@ const timer = ref<PlayTimer>(createWaitingTimer());
 const waitingToStart = computed(() => timer.value.status === "ready");
 const readyButton = ref<HTMLButtonElement>();
 const boardWrap = ref<HTMLElement>();
+const boardElement = ref<HTMLElement>();
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
 const statsMessage = ref("");
@@ -198,6 +205,7 @@ const pressedCell = ref<number | undefined>();
 const cellFeedbacks = ref<Record<number, CellFeedback & { token: number }>>({});
 let longPressTimer: number | undefined;
 let feedbackToken = 0;
+let lastPointerTap: { cell: number; at: number } | undefined;
 let activePointer:
   | {
       readonly pointerId: number;
@@ -209,10 +217,9 @@ let activePointer:
       longPressReady: boolean;
       longPressCanceled: boolean;
       readonly pieceDisabled: boolean;
+      readonly dragMarkAction: "add" | "remove";
     }
   | undefined;
-let suppressNextClick = false;
-let suppressClickUntil = 0;
 let clockTimer: number | undefined;
 
 const cells = computed(() =>
@@ -417,6 +424,7 @@ watch(complete, (isCompleteNow, wasComplete) => {
 
 function beginPlay(): void {
   if (!resultHistory.value) return;
+  cancelLongPress();
   resumeAfterMenu = false;
   playId.value = crypto.randomUUID();
   timer.value = createWaitingTimer();
@@ -849,10 +857,6 @@ function cellLabel(index: number): string {
 }
 
 function onTap(index: number): void {
-  if (suppressNextClick || Date.now() < suppressClickUntil) {
-    suppressNextClick = false;
-    return;
-  }
   commitPlayerStateWithFeedback(
     toggleExcluded(state.value, index, puzzle.value.size),
     "tap",
@@ -860,8 +864,15 @@ function onTap(index: number): void {
   hint.value = undefined;
 }
 
-function startPointerPress(index: number, event: PointerEvent): void {
-  if (!event.isPrimary) return;
+function onCellClick(index: number, event?: MouseEvent): void {
+  // Pointer input is committed on release. Keep keyboard/assistive activation.
+  if (!event || event.detail === 0) onTap(index);
+}
+
+function startPointerPress(event: PointerEvent): void {
+  if (!event.isPrimary || event.button !== 0 || activePointer) return;
+  const index = cellIndexFromPointer(event);
+  if (index === undefined) return;
   void soundEffects.unlock();
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   const pieceDisabled = state.value.excluded.has(index);
@@ -875,6 +886,7 @@ function startPointerPress(index: number, event: PointerEvent): void {
     longPressReady: false,
     longPressCanceled: false,
     pieceDisabled,
+    dragMarkAction: pieceDisabled ? "remove" : "add",
   };
   if (!pieceDisabled) startLongPress(index);
 }
@@ -906,17 +918,23 @@ function onBoardPointerMove(event: PointerEvent): void {
   if (!activePointer.dragging && movedEnough) {
     activePointer.dragging = true;
     cancelLongPressTimer();
-    addDraggedExcludedMark(activePointer.startCell);
+    applyDraggedExcludedMark(activePointer.startCell);
   }
 
   if (activePointer.dragging) {
     const cell = cellIndexFromPointer(event);
-    if (cell !== undefined) addDraggedExcludedMark(cell);
+    if (cell !== undefined) applyDraggedExcludedMark(cell);
   }
 }
 
 function endPointerPress(event: PointerEvent): void {
   if (!activePointer || activePointer.pointerId !== event.pointerId) return;
+
+  if (
+    !activePointer.dragging &&
+    cellIndexFromPointer(event) !== activePointer.startCell
+  )
+    activePointer.longPressCanceled = true;
 
   const action = pointerReleaseAction({
     elapsedMs: Date.now() - activePointer.startedAt,
@@ -933,17 +951,32 @@ function endPointerPress(event: PointerEvent): void {
       "piece",
     );
     hint.value = undefined;
-    suppressUpcomingClick();
-  } else if (action === "suppress-click") {
-    suppressUpcomingClick();
+  } else if (action === "tap") {
+    onTap(activePointer.startCell);
+    const now = Date.now();
+    if (
+      lastPointerTap?.cell === activePointer.startCell &&
+      now - lastPointerTap.at < DOUBLE_TAP_MS
+    ) {
+      onShortcut(activePointer.startCell);
+      lastPointerTap = undefined;
+    } else {
+      lastPointerTap = { cell: activePointer.startCell, at: now };
+    }
   }
-  cancelLongPress();
+  if (action !== "tap") lastPointerTap = undefined;
+  cancelLongPress(false);
 }
 
-function cancelLongPress(): void {
+function cancelLongPress(clearTap = true): void {
   cancelLongPressTimer();
   activePointer = undefined;
   pressedCell.value = undefined;
+  if (clearTap) lastPointerTap = undefined;
+}
+
+function onPointerCanceled(event: PointerEvent): void {
+  if (activePointer?.pointerId === event.pointerId) cancelLongPress();
 }
 
 function cancelLongPressTimer(): void {
@@ -951,18 +984,16 @@ function cancelLongPressTimer(): void {
   longPressTimer = undefined;
 }
 
-function suppressUpcomingClick(): void {
-  suppressNextClick = true;
-  suppressClickUntil = Date.now() + 700;
-  window.setTimeout(() => {
-    suppressNextClick = false;
-  }, 700);
-}
-
-function addDraggedExcludedMark(index: number): void {
+function applyDraggedExcludedMark(index: number): void {
+  if (!activePointer) return;
   const previousExcludedCount = state.value.excluded.size;
+  // Keep the action chosen at pointerdown, even when revisiting cleared cells.
+  const updateMarks =
+    activePointer.dragMarkAction === "remove"
+      ? removeExcludedMarks
+      : addExcludedMarks;
   commitPlayerStateWithFeedback(
-    addExcludedMarks(state.value, [index], puzzle.value.size),
+    updateMarks(state.value, [index], puzzle.value.size),
     "drag",
   );
   if (state.value.excluded.size !== previousExcludedCount)
@@ -970,12 +1001,21 @@ function addDraggedExcludedMark(index: number): void {
 }
 
 function cellIndexFromPointer(event: PointerEvent): number | undefined {
-  const element = document.elementFromPoint(event.clientX, event.clientY);
-  const cellElement = element?.closest<HTMLElement>("[data-cell-index]");
-  const indexText = cellElement?.dataset.cellIndex;
-  if (indexText === undefined) return undefined;
-  const index = Number(indexText);
-  return Number.isInteger(index) ? index : undefined;
+  const board = boardElement.value;
+  if (!board) return undefined;
+  const bounds = board.getBoundingClientRect();
+  return cellIndexAtPoint(
+    event.clientX,
+    event.clientY,
+    {
+      left: bounds.left + board.clientLeft,
+      top: bounds.top + board.clientTop,
+      // clientWidth/clientHeight round to integers; retain fractional cell sizes.
+      width: bounds.width - 2 * board.clientLeft,
+      height: bounds.height - 2 * board.clientTop,
+    },
+    puzzle.value.size,
+  );
 }
 
 function onBoardPointerLeave(event: PointerEvent): void {
@@ -1416,6 +1456,7 @@ function formatElapsed(seconds: number): string {
     >
       <section ref="boardWrap" class="board-wrap">
         <div
+          ref="boardElement"
           class="board"
           id="board"
           role="grid"
@@ -1425,8 +1466,10 @@ function formatElapsed(seconds: number): string {
             gridTemplateRows: `repeat(${puzzle.size}, 1fr)`,
           }"
           @pointermove.prevent="onBoardPointerMove"
+          @pointerdown.prevent="startPointerPress"
           @pointerup="endPointerPress"
-          @pointercancel="cancelLongPress"
+          @pointercancel="onPointerCanceled"
+          @lostpointercapture="onPointerCanceled"
           @pointerleave="onBoardPointerLeave"
         >
           <button
@@ -1439,9 +1482,8 @@ function formatElapsed(seconds: number): string {
             :data-region="puzzle.regions[index]"
             :aria-label="cellLabel(index)"
             role="gridcell"
-            @click="onTap(index)"
-            @dblclick.prevent="onShortcut(index)"
-            @pointerdown.prevent="startPointerPress(index, $event)"
+            @click="onCellClick(index, $event)"
+            @dblclick.prevent
           >
             <span v-if="state.pieces.has(index)" aria-hidden="true" class="tako"
               >🐙</span

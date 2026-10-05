@@ -58,6 +58,20 @@ export function addExcludedMarks(
   return { ...state, excluded };
 }
 
+export function removeExcludedMarks(
+  state: PlayerState,
+  indexes: Iterable<number>,
+  size = 8,
+): PlayerState {
+  const excluded = new Set(state.excluded);
+  for (const index of indexes) {
+    assertCellIndex(index, size);
+    if (!state.pieces.has(index) && !state.fixedErrors.has(index))
+      excluded.delete(index);
+  }
+  return { ...state, excluded };
+}
+
 export function countHintUsed(state: PlayerState): PlayerState {
   return {
     ...state,
