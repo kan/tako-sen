@@ -125,6 +125,18 @@ npm run typecheck
 npm run build
 ```
 
+## タコアイコン
+
+`public/tako.svg` が盤面・遊び方・favicon共通の原本です。図案を変更したら、PNGも再生成します。現在の開発依存にはWrangler経由で `sharp` が含まれています。
+
+```bash
+node --input-type=module -e '
+import sharp from "sharp";
+await sharp("public/tako.svg").resize(32, 32).png().toFile("public/favicon-32.png");
+await sharp("public/tako.svg").resize(180, 180).flatten({ background: "#fff7ec" }).png().toFile("public/apple-touch-icon.png");
+'
+```
+
 ## 設計メモ
 
 パズルのコアロジックは Vue や DOM から独立した pure TypeScript として実装する方針です。

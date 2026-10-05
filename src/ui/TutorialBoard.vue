@@ -35,8 +35,19 @@ const colors = ["#ffdfa3", "#bde4f2", "#decaf4"];
           stroke="#8b3023"
           stroke-width="2"
         />
+        <image
+          v-if="cell.mark === 'piece'"
+          href="/tako.svg"
+          :x="cell.col * 40 + 4"
+          :y="cell.row * 40 + 4"
+          width="32"
+          height="32"
+          preserveAspectRatio="xMidYMid meet"
+          aria-hidden="true"
+          class="tutorial-tako"
+        />
         <text
-          v-if="cell.mark !== 'empty'"
+          v-else-if="cell.mark !== 'empty'"
           :x="cell.col * 40 + 20"
           :y="cell.row * 40 + 27"
           text-anchor="middle"
@@ -44,13 +55,10 @@ const colors = ["#ffdfa3", "#bde4f2", "#decaf4"];
             'tutorial-symbol',
             {
               'tutorial-added': cell.added,
-              'tutorial-octopus': cell.mark === 'piece',
             },
           ]"
         >
-          {{
-            cell.mark === "piece" ? "🐙" : cell.mark === "excluded" ? "×" : "○"
-          }}
+          {{ cell.mark === "excluded" ? "×" : "○" }}
         </text>
         <path
           v-if="cell.borderRight"
@@ -94,10 +102,5 @@ figcaption {
 .tutorial-added {
   fill: #8b3023;
   font-weight: 800;
-}
-.tutorial-octopus {
-  font-family:
-    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-variant-emoji: emoji;
 }
 </style>

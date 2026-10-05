@@ -3,6 +3,7 @@ import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import Tutorial from "../src/ui/Tutorial.vue";
+import TutorialBoard from "../src/ui/TutorialBoard.vue";
 import App from "../src/App.vue";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
@@ -332,8 +333,64 @@ describe("board pointer input", () => {
       send("onPointerup", index);
       send("onLostpointercapture", index);
     };
-    return { saved, cell, send, tap };
+    return { container, saved, cell, send, tap };
   }
+
+  it("renders placed pieces with the shared decorative SVG instead of emoji", async () => {
+    const { saved, send, cell } = await setup();
+    const index = saved().puzzle.solution[0];
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", index);
+    now += LONG_PRESS_MS;
+    send("onPointerup", index);
+    await nextTick();
+    const icon = find(cell(index), (n) => n.tag === "img")!;
+    expect(icon.props).toMatchObject({
+      src: "/tako.svg",
+      alt: "",
+      "aria-hidden": "true",
+      draggable: "false",
+      class: "tako",
+    });
+    expect(cell(index).props["aria-label"]).toContain("piece");
+  });
+
+  it("renders the same SVG at the center of each tutorial piece cell", () => {
+    const container = root();
+    renderer.render(
+      h(TutorialBoard, { kind: "piece", after: false, label: "タコの例" }),
+      container,
+    );
+    const icon = find(container, (n) => n.tag === "image")!;
+    expect(icon.props).toMatchObject({
+      href: "/tako.svg",
+      x: 124,
+      y: 44,
+      width: "32",
+      height: "32",
+      preserveAspectRatio: "xMidYMid meet",
+    });
+    expect(find(container, (n) => n.tag === "svg")!.props["aria-label"]).toBe(
+      "タコの例",
+    );
+  });
+
+  it("shows the decorative shared octopus to the left of the menu title", async () => {
+    const { container } = await setup();
+    (
+      find(container, (n) => n.props["aria-label"] === "メニューを開く")!.props
+        .onClick as () => void
+    )();
+    await nextTick();
+    const title = find(container, (n) => n.props.id === "menu-title")!;
+    expect(find(title, (n) => n.tag === "img")!.props).toMatchObject({
+      src: "/tako.svg",
+      alt: "",
+      "aria-hidden": "true",
+    });
+    expect(find(title, (n) => n.tag === "span")!.text).toBe("メニュー");
+  });
 
   it("commits short taps without click, ignores retargeted clicks, and preserves keyboard activation", async () => {
     const { saved, cell, tap } = await setup();
@@ -1083,6 +1140,29 @@ describe("tutorial dialog", () => {
 });
 
 describe("public leaderboard dialog", () => {
+  it("decorates the ranking title with the shared octopus without changing its accessible label", async () => {
+    const container = root();
+    renderer.render(h(PublicLeaderboard, { puzzle, open: true }), container);
+    await nextTick();
+    const title = find(
+      container,
+      (n) => n.props.id === "public-leaderboard-title",
+    )!;
+    expect(find(title, (n) => n.tag === "img")!.props).toMatchObject({
+      src: "/tako.svg",
+      alt: "",
+      "aria-hidden": "true",
+    });
+    expect(find(title, (n) => n.tag === "span")!.text).toBe(
+      "この問題のランキング",
+    );
+    expect(
+      find(container, (n) => n.props.id === "public-leaderboard")!.props[
+        "aria-labelledby"
+      ],
+    ).toBe("public-leaderboard-title");
+  });
+
   it("places the ranking button after Next and pauses only while its dialog is open", async () => {
     let now = 10000;
     vi.spyOn(Date, "now").mockImplementation(() => now);

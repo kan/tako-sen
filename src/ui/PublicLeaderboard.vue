@@ -102,7 +102,10 @@ onUnmounted(() => {
       @keydown="onKeydown"
     >
       <div class="ranking-header">
-        <h2 id="public-leaderboard-title">この問題のランキング</h2>
+        <h2 id="public-leaderboard-title" class="tako-title">
+          <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
+          <span>この問題のランキング</span>
+        </h2>
         <button type="button" class="dialog-close" @click="emit('close')">
           閉じる
         </button>

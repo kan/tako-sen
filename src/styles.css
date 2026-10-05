@@ -372,6 +372,20 @@ h1 {
   font-size: clamp(1.1rem, 5vw, 1.5rem);
 }
 
+.tako-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tako-title > img {
+  display: block;
+  flex: 0 0 auto;
+  width: 1.4em;
+  height: 1.4em;
+  pointer-events: none;
+}
+
 .ranking-note {
   margin: 8px 0 12px;
   color: #674c3c;
@@ -483,7 +497,12 @@ h1 {
 }
 
 .tako {
-  font-size: clamp(22px, 8vw, 40px);
+  display: block;
+  width: min(92%, 48px);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  pointer-events: none;
   filter: drop-shadow(0 2px 0 rgb(42 27 20 / 30%));
 }
 

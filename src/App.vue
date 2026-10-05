@@ -1385,7 +1385,10 @@ function formatElapsed(seconds: number): string {
         @keydown="onMenuKeydown"
       >
         <div class="dialog-header">
-          <h2 id="menu-title">メニュー</h2>
+          <h2 id="menu-title" class="tako-title">
+            <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
+            <span>メニュー</span>
+          </h2>
           <button
             type="button"
             class="dialog-close"
@@ -1485,9 +1488,14 @@ function formatElapsed(seconds: number): string {
             @click="onCellClick(index, $event)"
             @dblclick.prevent
           >
-            <span v-if="state.pieces.has(index)" aria-hidden="true" class="tako"
-              >🐙</span
-            >
+            <img
+              v-if="state.pieces.has(index)"
+              src="/tako.svg"
+              alt=""
+              aria-hidden="true"
+              draggable="false"
+              class="tako"
+            />
             <span
               v-else-if="state.fixedErrors.has(index)"
               aria-hidden="true"
