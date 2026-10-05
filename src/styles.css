@@ -118,11 +118,13 @@ input {
 
 .seed-panel > h3,
 .stats-panel > h3,
+.seed-panel > .auto-exclusions-settings,
 .seed-panel > .haptics-settings,
 .seed-panel > .sound-settings {
   margin: 12px;
 }
 
+.auto-exclusions-settings p,
 .haptics-settings p,
 .sound-settings p {
   line-height: 1.6;

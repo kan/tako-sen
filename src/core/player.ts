@@ -1,6 +1,7 @@
 import { type PlayerState, type Puzzle, assertCellIndex } from "./model";
 import { isCorrectPiece } from "./rules";
 import { maximumHintStage, type HintStage } from "./hint-progress";
+import { exclusionsFromPiece } from "./shortcuts";
 
 export function toggleExcluded(
   state: PlayerState,
@@ -70,6 +71,23 @@ export function removeExcludedMarks(
       excluded.delete(index);
   }
   return { ...state, excluded };
+}
+
+export function placePieceWithAutoExclusions(
+  puzzle: Pick<Puzzle, "size" | "solution" | "regions">,
+  state: PlayerState,
+  index: number,
+  autoExclusionsEnabled: boolean,
+): PlayerState {
+  const next = placePiece(puzzle, state, index);
+  // Only a newly confirmed correct piece triggers the optional shortcut.
+  if (!autoExclusionsEnabled || next === state || !next.pieces.has(index))
+    return next;
+  return addExcludedMarks(
+    next,
+    exclusionsFromPiece(index, puzzle),
+    puzzle.size,
+  );
 }
 
 export function countHintUsed(state: PlayerState): PlayerState {

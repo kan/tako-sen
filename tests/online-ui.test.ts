@@ -342,6 +342,36 @@ describe("board pointer input", () => {
     return { container, saved, cell, send, tap };
   }
 
+  it("persists auto exclusions and applies them only to new correct pieces", async () => {
+    const { container, saved, send } = await setup();
+    const checkbox = find(
+      container,
+      (n) => n.props["aria-describedby"] === "auto-exclusions-help",
+    )!;
+    const change = checkbox.props["onUpdate:modelValue"] as (
+      value: boolean,
+    ) => void;
+    expect(checkbox.props["onUpdate:modelValue"]).toBeTypeOf("function");
+    change(true);
+    await nextTick();
+    expect(saved().state.excluded).toEqual([]);
+    expect(localStorage.getItem("tako-sen:auto-exclusions-enabled")).toBe("1");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const index = saved().puzzle.solution[0];
+    send("onPointerdown", index);
+    now += LONG_PRESS_MS;
+    send("onPointerup", index);
+    await nextTick();
+    expect(saved().state.pieces).toContain(index);
+    expect(saved().state.excluded.length).toBeGreaterThan(0);
+    const marks = saved().state.excluded;
+    change(false);
+    await nextTick();
+    expect(saved().state.excluded).toEqual(marks);
+    expect(localStorage.getItem("tako-sen:auto-exclusions-enabled")).toBe("0");
+  });
+
   it("renders placed pieces with the shared decorative SVG instead of emoji", async () => {
     const { saved, send, cell } = await setup();
     const index = saved().puzzle.solution[0];

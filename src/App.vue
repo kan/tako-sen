@@ -43,11 +43,15 @@ import {
   addExcludedMarks,
   removeExcludedMarks,
   countHintUsed,
-  placePiece,
+  placePieceWithAutoExclusions,
   resetPlayerProgress,
   recordHintStage,
   toggleExcluded,
 } from "./core/player";
+import {
+  loadAutoExclusionsEnabled,
+  saveAutoExclusionsEnabled,
+} from "./core/settings";
 import { hintStageLabel, maximumHintStage } from "./core/hint-progress";
 import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
@@ -174,6 +178,8 @@ const hapticsEnabled = ref(true);
 const hapticsApiAvailable = ref(false);
 const hapticsTestMessage = ref("");
 const soundEnabled = ref(false);
+const autoExclusionsEnabled = ref(false);
+const autoExclusionsSaveFailed = ref(false);
 const soundApiAvailable = ref(false);
 const soundEffects = createSoundEffects(
   () =>
@@ -285,6 +291,7 @@ onMounted(() => {
   window.addEventListener("blur", suspendGame);
   document.addEventListener("visibilitychange", onVisibilityChange);
   hapticsEnabled.value = loadHapticsEnabled();
+  autoExclusionsEnabled.value = loadAutoExclusionsEnabled(localStorage);
   hapticsApiAvailable.value = vibrationApiAvailable(navigator);
   soundApiAvailable.value = typeof window.AudioContext === "function";
   try {
@@ -374,6 +381,13 @@ watch(soundEnabled, (enabled) => {
   } catch {
     /* 保存不可でも設定は現在のプレイに反映する。 */
   }
+});
+
+watch(autoExclusionsEnabled, (enabled) => {
+  autoExclusionsSaveFailed.value = !saveAutoExclusionsEnabled(
+    localStorage,
+    enabled,
+  );
 });
 
 function onSoundPreferenceChange(): void {
@@ -955,8 +969,13 @@ function endPointerPress(event: PointerEvent): void {
 
   if (action === "place-piece") {
     commitPlayerStateWithFeedback(
-      placePiece(puzzle.value, state.value, activePointer.startCell),
-      "piece",
+      placePieceWithAutoExclusions(
+        puzzle.value,
+        state.value,
+        activePointer.startCell,
+        autoExclusionsEnabled.value,
+      ),
+      autoExclusionsEnabled.value ? "shortcut" : "piece",
     );
     hint.value = undefined;
   } else if (action === "tap") {
@@ -1598,6 +1617,22 @@ function formatElapsed(seconds: number): string {
       class="seed-panel"
       :inert="!!activeDialog"
     >
+      <div class="auto-exclusions-settings">
+        <label>
+          <input
+            v-model="autoExclusionsEnabled"
+            type="checkbox"
+            aria-describedby="auto-exclusions-help"
+          />
+          正解のタコを置いたら自動で×を付ける
+        </label>
+        <p id="auto-exclusions-help">
+          初期設定はオフです。オンにすると、新しく正解のタコを置いた直後に、同じ行・列・エリアと周囲8マスへ×を付けます。配置済みのタコをダブルタップする操作と同じ範囲です。設定の変更だけでは盤面は変わりません。
+        </p>
+        <p v-if="autoExclusionsSaveFailed" role="status">
+          この設定を保存できませんでした。現在のプレイには反映されますが、再読み込みで元に戻る場合があります。
+        </p>
+      </div>
       <div class="haptics-settings">
         <label class="haptics-toggle">
           <input
