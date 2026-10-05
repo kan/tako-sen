@@ -1,4 +1,4 @@
-export const LONG_PRESS_MS = 150;
+export const LONG_PRESS_MS = 250;
 export const DOUBLE_TAP_MS = 300;
 
 // Coordinates and bounds must both use viewport CSS pixels (not page coordinates).

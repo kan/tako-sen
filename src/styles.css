@@ -531,6 +531,24 @@ h1 {
   animation: fixed-error-cell 360ms ease-out both;
 }
 
+.cell.is-holding::after {
+  border: 2px solid rgb(164 74 42 / 65%);
+}
+
+.cell.is-holding::before {
+  position: absolute;
+  right: 12%;
+  bottom: 8%;
+  left: 12%;
+  height: 3px;
+  border-radius: 2px;
+  background: #a44a2a;
+  content: "";
+  pointer-events: none;
+  transform-origin: left;
+  animation: long-press-progress var(--long-press-duration) linear both;
+}
+
 .is-pressed {
   transform: scale(0.98);
 }
@@ -973,6 +991,15 @@ h1 {
   flex-wrap: wrap;
 }
 
+@keyframes long-press-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @keyframes long-press-ready {
   from {
     opacity: 0.35;
@@ -1102,6 +1129,10 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .cell.is-holding::before {
+    display: none;
+  }
+
   .cell,
   .cell *,
   .cell::after {

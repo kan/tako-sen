@@ -326,8 +326,14 @@ describe("board pointer input", () => {
       currentTarget: { setPointerCapture: vi.fn() },
       preventDefault: vi.fn(),
     });
-    const send = (name: string, index: number) =>
-      (board.props[name] as (e: unknown) => void)(event(index));
+    const send = (name: string, index: number, dx = 0, dy = 0) => {
+      const input = event(index);
+      (board.props[name] as (e: unknown) => void)({
+        ...input,
+        clientX: input.clientX + dx,
+        clientY: input.clientY + dy,
+      });
+    };
     const tap = (index: number) => {
       send("onPointerdown", index);
       send("onPointerup", index);
@@ -409,6 +415,39 @@ describe("board pointer input", () => {
     expect(saved().state.excluded).toContain(9);
   });
 
+  it("shows immediate waiting feedback without treating it as permission to place a piece", async () => {
+    const { saved, send, cell } = await setup();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    send("onPointerdown", 17);
+    await nextTick();
+    expect(cell(17).props.class).toContain("is-holding");
+    expect(cell(17).props.class).not.toContain("is-pressed");
+    now += LONG_PRESS_MS - 1;
+    send("onPointerup", 17);
+    await nextTick();
+    expect(cell(17).props.class).not.toContain("is-holding");
+    expect(cell(17).props.class).not.toContain("is-pressed");
+    expect(saved().state.excluded).toContain(17);
+    expect(saved().state.pieces).not.toContain(17);
+    expect(saved().state.fixedErrors).not.toContain(17);
+  });
+
+  it.each(["onPointermove", "onPointercancel", "onLostpointercapture"])(
+    "clears immediate waiting feedback when %s interrupts the press",
+    async (eventName) => {
+      const { send, cell } = await setup();
+      send("onPointerdown", 17);
+      await nextTick();
+      expect(cell(17).props.class).toContain("is-holding");
+      send(eventName, 18);
+      await nextTick();
+      expect(cell(17).props.class).not.toContain("is-holding");
+      expect(cell(17).props.class).not.toContain("is-pressed");
+      send("onPointerup", 18);
+    },
+  );
+
   it("does not suppress the next short tap after a long press", async () => {
     const { saved, send, tap } = await setup();
     let now = Date.now();
@@ -463,12 +502,14 @@ describe("board pointer input", () => {
   });
 
   it("keeps a marked-cell drag in erase mode after waiting beyond the long press threshold", async () => {
-    const { saved, send, tap } = await setup();
+    const { saved, send, tap, cell } = await setup();
     tap(17);
     tap(18);
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);
     send("onPointerdown", 17);
+    await nextTick();
+    expect(cell(17).props.class).not.toContain("is-holding");
     now += LONG_PRESS_MS * 2;
     send("onPointermove", 18);
     send("onPointerup", 18);
@@ -489,8 +530,8 @@ describe("board pointer input", () => {
     expect(saved().state.excluded).toHaveLength(2);
   });
 
-  it("cancels a ready long press by moving away even when returning before release", async () => {
-    const { saved, send } = await setup();
+  it("switches a ready long press to drag marking and never confirms when returning before release", async () => {
+    const { saved, send, cell, tap } = await setup();
     let ready!: () => void;
     vi.stubGlobal("window", {
       ...window,
@@ -500,17 +541,99 @@ describe("board pointer input", () => {
       }),
     });
     send("onPointerdown", 17);
+    await nextTick();
+    expect(cell(17).props.class).toContain("is-holding");
+    expect(cell(17).props.class).not.toContain("is-pressed");
     ready();
     await nextTick();
+    expect(cell(17).props.class).not.toContain("is-holding");
+    expect(cell(17).props.class).toContain("is-pressed");
     expect(saved().state.pieces).not.toContain(17);
     expect(saved().state.fixedErrors).not.toContain(17);
     send("onPointermove", 18);
+    await nextTick();
+    expect(cell(17).props.class).not.toContain("is-pressed");
+    expect(saved().state.excluded).toEqual(expect.arrayContaining([17, 18]));
     send("onPointermove", 17);
     send("onPointerup", 17);
     await nextTick();
     expect(saved().state.pieces).not.toContain(17);
     expect(saved().state.fixedErrors).not.toContain(17);
-    expect(saved().state.excluded).toEqual([]);
+    expect(saved().state.excluded).toEqual(expect.arrayContaining([17, 18]));
+    tap(19);
+    await nextTick();
+    expect(saved().state.excluded).toContain(19);
+  });
+
+  it.each(["onPointermove", "onPointerleave"])(
+    "cancels a ready press via %s outside the board without resuming on re-entry",
+    async (eventName) => {
+      const { saved, send, cell } = await setup();
+      let ready!: () => void;
+      vi.stubGlobal("window", {
+        ...window,
+        setTimeout: vi.fn((callback: () => void, delay?: number) => {
+          if (delay === LONG_PRESS_MS) ready = callback;
+          return 1;
+        }),
+      });
+      send("onPointerdown", 17);
+      ready();
+      send(eventName, -1);
+      send("onPointermove", 18);
+      send("onPointerup", 17);
+      await nextTick();
+      expect(cell(17).props.class).not.toContain("is-pressed");
+      expect(saved().state.excluded).toEqual([]);
+      expect(saved().state.pieces).not.toContain(17);
+      expect(saved().state.fixedErrors).not.toContain(17);
+    },
+  );
+
+  it.each([
+    [11, false],
+    [12, true],
+  ])(
+    "uses displacement rather than elapsed time to distinguish ready presses from drags at %spx",
+    async (dx, dragging) => {
+      const { saved, send, cell } = await setup();
+      let ready!: () => void;
+      vi.stubGlobal("window", {
+        ...window,
+        setTimeout: vi.fn((callback: () => void, delay?: number) => {
+          if (delay === LONG_PRESS_MS) ready = callback;
+          return 1;
+        }),
+      });
+      send("onPointerdown", 17);
+      ready();
+      send("onPointermove", 17, dx);
+      await nextTick();
+      expect(String(cell(17).props.class).includes("is-pressed")).toBe(
+        !dragging,
+      );
+      send("onPointerup", 17, dx);
+      await nextTick();
+      expect(saved().state.excluded.includes(17)).toBe(dragging);
+      expect(
+        [...saved().state.pieces, ...saved().state.fixedErrors].includes(17),
+      ).toBe(!dragging);
+    },
+  );
+
+  it("retains already applied drag marks when leaving and returning to the board", async () => {
+    const { saved, send } = await setup();
+    send("onPointerdown", 17);
+    send("onPointermove", 18);
+    send("onPointermove", -1);
+    send("onPointerleave", -1);
+    send("onPointermove", 19);
+    send("onPointerup", 19);
+    await nextTick();
+    expect(saved().state.excluded).toEqual(
+      expect.arrayContaining([17, 18, 19]),
+    );
+    expect(saved().state.fixedErrors).toEqual([]);
   });
 
   it("cancels confirmation when released outside the starting cell without a move event", async () => {

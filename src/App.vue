@@ -202,6 +202,7 @@ const hintDialogRef = ref<HTMLElement>();
 const clearDialogRef = ref<HTMLElement>();
 let focusBeforeDialog: HTMLElement | null = null;
 const pressedCell = ref<number | undefined>();
+const holdingCell = ref<number | undefined>();
 const cellFeedbacks = ref<Record<number, CellFeedback & { token: number }>>({});
 let longPressTimer: number | undefined;
 let feedbackToken = 0;
@@ -893,9 +894,15 @@ function startPointerPress(event: PointerEvent): void {
 
 function startLongPress(index: number): void {
   cancelLongPressTimer();
+  holdingCell.value = index;
   longPressTimer = window.setTimeout(() => {
-    if (activePointer && activePointer.startCell === index) {
+    if (
+      activePointer &&
+      activePointer.startCell === index &&
+      !activePointer.dragging
+    ) {
       activePointer.longPressReady = true;
+      holdingCell.value = undefined;
       pressedCell.value = index;
     }
     longPressTimer = undefined;
@@ -904,11 +911,10 @@ function startLongPress(index: number): void {
 
 function onBoardPointerMove(event: PointerEvent): void {
   if (!activePointer || activePointer.pointerId !== event.pointerId) return;
-  if (activePointer.longPressReady) {
-    if (cellIndexFromPointer(event) !== activePointer.startCell) {
-      activePointer.longPressCanceled = true;
-      pressedCell.value = undefined;
-    }
+  const cell = cellIndexFromPointer(event);
+  // Before dragging, leaving the board cancels without adding any marks.
+  if (cell === undefined && !activePointer.dragging) {
+    cancelLongPress();
     return;
   }
 
@@ -917,12 +923,14 @@ function onBoardPointerMove(event: PointerEvent): void {
   const movedEnough = Math.hypot(dx, dy) >= dragStartThresholdPx;
   if (!activePointer.dragging && movedEnough) {
     activePointer.dragging = true;
+    activePointer.longPressReady = false;
+    holdingCell.value = undefined;
+    pressedCell.value = undefined;
     cancelLongPressTimer();
     applyDraggedExcludedMark(activePointer.startCell);
   }
 
   if (activePointer.dragging) {
-    const cell = cellIndexFromPointer(event);
     if (cell !== undefined) applyDraggedExcludedMark(cell);
   }
 }
@@ -971,6 +979,7 @@ function endPointerPress(event: PointerEvent): void {
 function cancelLongPress(clearTap = true): void {
   cancelLongPressTimer();
   activePointer = undefined;
+  holdingCell.value = undefined;
   pressedCell.value = undefined;
   if (clearTap) lastPointerTap = undefined;
 }
@@ -1020,11 +1029,6 @@ function cellIndexFromPointer(event: PointerEvent): number | undefined {
 
 function onBoardPointerLeave(event: PointerEvent): void {
   if (!activePointer || activePointer.pointerId !== event.pointerId) return;
-  if (activePointer.longPressReady) {
-    activePointer.longPressCanceled = true;
-    pressedCell.value = undefined;
-    return;
-  }
   if (!activePointer.dragging) {
     cancelLongPress();
   }
@@ -1238,6 +1242,7 @@ function cellClasses(index: number): Record<string, boolean> {
     "is-piece": viewState === "piece",
     "is-fixed-error": viewState === "fixed-error",
     "is-pressed": pressedCell.value === index,
+    "is-holding": holdingCell.value === index,
     "is-hint-focus":
       hint.value?.kind === "move" &&
       hintFocusCells(
@@ -1467,6 +1472,7 @@ function formatElapsed(seconds: number): string {
           :style="{
             gridTemplateColumns: `repeat(${puzzle.size}, 1fr)`,
             gridTemplateRows: `repeat(${puzzle.size}, 1fr)`,
+            '--long-press-duration': `${LONG_PRESS_MS}ms`,
           }"
           @pointermove.prevent="onBoardPointerMove"
           @pointerdown.prevent="startPointerPress"
