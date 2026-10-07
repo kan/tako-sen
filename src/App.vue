@@ -576,6 +576,7 @@ function registerPlay(): void {
 }
 
 function commitPlayerState(next: PlayerState): void {
+  if (complete.value) return;
   if (playerMarksChanged(state.value, next)) registerPlay();
   state.value = next;
 }
@@ -584,6 +585,7 @@ function commitPlayerStateWithFeedback(
   next: PlayerState,
   source: FeedbackSource,
 ): void {
+  if (complete.value) return;
   const feedbacks = cellFeedbacksForStateChange(state.value, next, source);
   const wasComplete = complete.value;
   commitPlayerState(next);
@@ -885,7 +887,8 @@ function onCellClick(index: number, event?: MouseEvent): void {
 }
 
 function startPointerPress(event: PointerEvent): void {
-  if (!event.isPrimary || event.button !== 0 || activePointer) return;
+  if (complete.value || !event.isPrimary || event.button !== 0 || activePointer)
+    return;
   const index = cellIndexFromPointer(event);
   if (index === undefined) return;
   void soundEffects.unlock();
@@ -1479,7 +1482,7 @@ function formatElapsed(seconds: number): string {
     <section
       v-show="screen === 'play'"
       class="play-area"
-      :inert="waitingToStart || !!activeDialog"
+      :inert="waitingToStart || complete || !!activeDialog"
     >
       <section ref="boardWrap" class="board-wrap">
         <div

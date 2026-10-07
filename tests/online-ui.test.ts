@@ -342,6 +342,46 @@ describe("board pointer input", () => {
     return { container, saved, cell, send, tap };
   }
 
+  it("keeps a cleared board unchanged after the result dialog is closed", async () => {
+    const { container, saved, cell, send, tap } = await setup();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    for (const index of saved().puzzle.solution as number[]) {
+      send("onPointerdown", index);
+      now += LONG_PRESS_MS;
+      send("onPointerup", index);
+      await nextTick();
+    }
+
+    expect(find(container, (n) => n.props.class === "clear")).toBeDefined();
+    const close = find(
+      container,
+      (n) => n.tag === "button" && n.text.trim() === "盤面を見る",
+    )!;
+    (close.props.onClick as () => void)();
+    await nextTick();
+    expect(
+      find(container, (n) => n.props.class === "play-area")?.props.inert,
+    ).toBe(true);
+
+    const cleared = saved().state;
+    const empty = Array.from({ length: 64 }, (_, index) => index).find(
+      (index) => !cleared.pieces.includes(index),
+    )!;
+    (cell(empty).props.onClick as () => void)();
+    tap(empty);
+    send("onPointerdown", empty);
+    send("onPointermove", empty + 1);
+    send("onPointerup", empty + 1);
+    send("onPointerdown", empty);
+    now += LONG_PRESS_MS;
+    send("onPointerup", empty);
+    await nextTick();
+
+    expect(saved().state).toEqual(cleared);
+    expect(find(container, (n) => n.props.class === "clear")).toBeDefined();
+  });
+
   it("persists auto exclusions and applies them only to new correct pieces", async () => {
     const { container, saved, send } = await setup();
     const checkbox = find(
