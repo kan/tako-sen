@@ -8,7 +8,7 @@ import {
   ref,
   watch,
 } from "vue";
-import { Show, SignInButton, SignUpButton } from "@clerk/vue";
+import { Show, SignInButton, SignUpButton, useAuth } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
@@ -36,6 +36,10 @@ import {
 } from "./core/difficulty";
 import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
 import { puzzleId } from "./core/puzzle-identity";
+import {
+  chooseNextPuzzle,
+  type RankedPuzzleCandidate,
+} from "./core/next-puzzle";
 import { restoreSharedPuzzleSnapshot } from "./core/shared-puzzle";
 import {
   createWaitingTimer,
@@ -126,6 +130,10 @@ const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const soundStorageKey = "tako-sen:sound-enabled";
 const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
+const nextPuzzleLoading = ref(false);
+const offeredPuzzleIds = new Set<string>();
+let nextPuzzleRequest = 0;
 const onlineGameName = ref("");
 const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
@@ -358,6 +366,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  nextPuzzleRequest += 1;
   soundEffects.dispose();
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   window.removeEventListener("pagehide", suspendGame);
@@ -655,17 +664,90 @@ function finalizePlay(): void {
   saveCurrentGame();
 }
 
-function newGame(): void {
+async function newGame(): Promise<void> {
+  if (nextPuzzleLoading.value) return;
+  const request = ++nextPuzzleRequest;
+  const difficulty = selectedDifficulty.value;
+  nextPuzzleLoading.value = true;
+  let generated;
+  let recommendedId: string | undefined;
+  try {
+    const accountId = onlineAuth?.userId.value;
+    const token = accountId ? await onlineAuth?.getToken.value() : null;
+    if (token && accountId === onlineAuth?.userId.value) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 3000);
+      let response: Response;
+      try {
+        response = await fetch(
+          `/api/next-puzzle?difficulty=${encodeURIComponent(difficulty)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+      } finally {
+        window.clearTimeout(timeout);
+      }
+      if (response.ok) {
+        const data: { candidates?: unknown } = await response.json();
+        if (Array.isArray(data.candidates)) {
+          const candidates = data.candidates.filter(
+            (value): value is RankedPuzzleCandidate =>
+              value !== null &&
+              typeof value === "object" &&
+              typeof value.puzzleId === "string" &&
+              /^p1:[0-9a-f]{64}$/.test(value.puzzleId) &&
+              typeof value.seedCode === "string" &&
+              value.seedCode.length <= 512 &&
+              Number.isSafeInteger(value.players),
+          );
+          const excluded = new Set(offeredPuzzleIds);
+          excluded.add(await puzzleId(puzzle.value));
+          for (const candidate of candidates) {
+            if (
+              resultHistory.value?.plays.some(
+                (play) =>
+                  play.status === "completed" &&
+                  play.seedCode === candidate.seedCode,
+              )
+            )
+              excluded.add(candidate.puzzleId);
+          }
+          const chosen = chooseNextPuzzle(candidates, excluded, Math.random);
+          if (chosen) {
+            const code = parsePuzzleSeedCode(chosen.seedCode);
+            if (code?.difficulty === difficulty) {
+              const candidate = generatePuzzleWithAnalysis({
+                version: code.version,
+                seed: code.seed,
+                difficulty: code.difficulty,
+              });
+              if ((await puzzleId(candidate.puzzle)) === chosen.puzzleId) {
+                generated = candidate;
+                recommendedId = chosen.puzzleId;
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // API が使えなくても、通常のクライアント生成で遊べる。
+  }
+  if (request !== nextPuzzleRequest) return;
+  if (!generated)
+    generated = generatePuzzleWithAnalysis({
+      seed: `game-${crypto.randomUUID()}`,
+      difficulty,
+    });
+  if (recommendedId) offeredPuzzleIds.add(recommendedId);
+  nextPuzzleLoading.value = false;
   activeDailyDate.value = undefined;
   activeDailyAccountId.value = undefined;
   dailyClaimed.value = false;
   dailyReadyMessage.value = "";
   clearSharedPuzzleUrl();
-  const seed = `game-${Date.now()}`;
-  const generated = generatePuzzleWithAnalysis({
-    seed,
-    difficulty: selectedDifficulty.value,
-  });
   puzzle.value = generated.puzzle;
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
@@ -676,11 +758,18 @@ function newGame(): void {
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
   restoreSeedCode.value = "";
-  seedMessage.value = "新しい問題を生成しました。";
+  seedMessage.value = recommendedId
+    ? "他のプレイヤーの記録がある問題を選びました。"
+    : "新しい問題を生成しました。";
   statsMessage.value = "";
   beginPlay();
   void navigateTo("play");
   centerBoardAfterPuzzleChange();
+}
+
+function cancelPendingNextPuzzle(): void {
+  nextPuzzleRequest += 1;
+  nextPuzzleLoading.value = false;
 }
 
 function startDaily(
@@ -690,6 +779,7 @@ function startDaily(
   dailyPlayId: string,
   saved?: ReturnType<typeof loadGame>,
 ): void {
+  cancelPendingNextPuzzle();
   if (!isDaily.value) pauseGame();
   else saveCurrentGame();
   clearSharedPuzzleUrl();
@@ -725,6 +815,7 @@ function startDaily(
 }
 
 function leaveDaily(): void {
+  cancelPendingNextPuzzle();
   pauseGame();
   saveCurrentGame();
   activeDailyDate.value = undefined;
@@ -795,6 +886,7 @@ function restoreSeed(code: string): boolean {
     return false;
   }
 
+  cancelPendingNextPuzzle();
   clearSharedPuzzleUrl();
 
   selectedDifficulty.value = parsed.difficulty;
@@ -849,6 +941,7 @@ async function openSharedPuzzleFromUrl(
       )
     )
       return;
+    cancelPendingNextPuzzle();
     puzzle.value = shared;
     difficultyAnalysis.value = analyzePuzzleDifficulty(shared);
     selectedDifficulty.value = shared.difficulty ?? "easy";
@@ -876,6 +969,7 @@ function clearSharedPuzzleUrl(): void {
 }
 
 function resetProgress(): void {
+  cancelPendingNextPuzzle();
   state.value = resetPlayerProgress(
     state.value,
     undefined,
@@ -1572,7 +1666,7 @@ function formatElapsed(seconds: number): string {
     >
       <label v-if="!isDaily" class="difficulty-select">
         難易度
-        <select v-model="selectedDifficulty">
+        <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
           <option value="easy">初級</option>
           <option value="normal">中級</option>
           <option value="hard">上級</option>
@@ -1601,6 +1695,7 @@ function formatElapsed(seconds: number): string {
       <button
         type="button"
         class="icon-button"
+        :disabled="nextPuzzleLoading"
         :aria-label="isDaily ? '通常のプレイに戻る' : '新しい問題'"
         :title="isDaily ? '通常のプレイに戻る' : '新しい問題'"
         @click="isDaily ? leaveDaily() : newGame()"
@@ -1617,6 +1712,9 @@ function formatElapsed(seconds: number): string {
       >
         <UiIcon name="ranking" />
       </button>
+      <span v-if="nextPuzzleLoading" role="status"
+        >次の問題を選んでいます。</span
+      >
     </section>
 
     <DailyChallenge
@@ -1980,14 +2078,18 @@ function formatElapsed(seconds: number): string {
         </p>
         <label v-if="!isDaily" class="clear-next-difficulty">
           次の問題の難易度
-          <select v-model="selectedDifficulty">
+          <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
             <option value="easy">初級</option>
             <option value="normal">中級</option>
             <option value="hard">上級</option>
           </select>
         </label>
         <div class="dialog-actions">
-          <button type="button" @click="isDaily ? leaveDaily() : newGame()">
+          <button
+            type="button"
+            :disabled="nextPuzzleLoading"
+            @click="isDaily ? leaveDaily() : newGame()"
+          >
             {{ isDaily ? "通常プレイに戻る" : "次の問題へ" }}
           </button>
           <button v-if="!isDaily" type="button" @click="resetProgress">

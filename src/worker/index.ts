@@ -9,6 +9,7 @@ import {
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 import { listLeaderboard } from "./leaderboard";
+import { listRankedPuzzleCandidates } from "./next-puzzle";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 import {
   completeDailyAttempt,
@@ -116,6 +117,7 @@ export default {
       pathname !== "/api/account" &&
       pathname !== "/api/puzzles" &&
       pathname !== "/api/profile" &&
+      pathname !== "/api/next-puzzle" &&
       pathname !== "/api/daily" &&
       pathname !== "/api/daily/start" &&
       pathname !== "/api/daily/complete" &&
@@ -129,13 +131,14 @@ export default {
     const isPuzzleCreation = pathname === "/api/puzzles";
     const isDailyRead =
       pathname === "/api/daily" || pathname === "/api/daily/ranking";
+    const isNextPuzzle = pathname === "/api/next-puzzle";
     const isDailyWrite =
       pathname === "/api/daily/start" || pathname === "/api/daily/complete";
     const allowedMethods = isAccountDeletion
       ? ["DELETE"]
       : isPuzzleCreation || isDailyWrite
         ? ["POST"]
-        : isDailyRead
+        : isDailyRead || isNextPuzzle
           ? ["GET"]
           : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
@@ -166,6 +169,23 @@ export default {
       });
       const accountId = auth.isAuthenticated ? auth.toAuth().userId : null;
       if (!accountId) return json({ error: "unauthorized" }, 401);
+
+      if (isNextPuzzle) {
+        const difficulty = new URL(request.url).searchParams.get("difficulty");
+        if (
+          difficulty !== "easy" &&
+          difficulty !== "normal" &&
+          difficulty !== "hard"
+        )
+          return json({ error: "invalid_difficulty" }, 400);
+        return json({
+          candidates: await listRankedPuzzleCandidates(
+            env.DB,
+            accountId,
+            difficulty,
+          ),
+        });
+      }
 
       if (isAccountDeletion) {
         await deleteAccountHistory(env.DB, accountId);
