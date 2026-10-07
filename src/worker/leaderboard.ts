@@ -1,5 +1,6 @@
 import type { LeaderboardEntry } from "../core/leaderboard";
 import type { HintStage } from "../core/hint-progress";
+import { rankingScoreSql } from "./ranking-score-sql";
 
 export async function listLeaderboard(
   db: D1Database,
@@ -8,7 +9,7 @@ export async function listLeaderboard(
   const result = await db
     .prepare(
       `SELECT p.display_name, c.elapsed_seconds, c.hints_used, c.mistakes, c.max_hint_stage,
-       RANK() OVER (ORDER BY COALESCE(c.max_hint_stage, 5), c.elapsed_seconds, c.hints_used, c.mistakes) AS rank
+       RANK() OVER (ORDER BY ${rankingScoreSql("c")} DESC, c.elapsed_seconds, c.mistakes, c.hints_used) AS rank
      FROM first_ranked_plays f
      JOIN completed_plays c ON c.account_id = f.account_id AND c.play_id = f.play_id
      JOIN leaderboard_profiles p ON p.account_id = f.account_id

@@ -3,6 +3,7 @@ import { useAuth } from "@clerk/vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import GameName from "./GameName.vue";
 import { hintStageLabel } from "../core/hint-progress";
+import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
 import {
   createCompletedPlayUpload,
@@ -533,6 +534,7 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
                 :key="entry.puzzleId"
               >
                 <code>{{ entry.seedCode }}</code> ·
+                {{ rankingScore(entry.best) }}点 ·
                 {{ formatSeconds(entry.best.elapsedSeconds) }} · ヒント
                 {{ entry.best.hintsUsed }}回（{{ hintStageLabel(entry.best) }}）
                 · ミス {{ entry.best.mistakes }} · {{ entry.attempts }} 回挑戦

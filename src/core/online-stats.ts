@@ -1,6 +1,6 @@
 import type { PuzzleDifficulty } from "./model";
 import type { CompletedPlayUpload } from "./online-history";
-import { hintStageOrder } from "./hint-progress";
+import { compareRankingScores } from "./ranking-score";
 
 export interface OnlineHistoryFilter {
   readonly difficulty?: PuzzleDifficulty;
@@ -107,10 +107,7 @@ function comparePersonalBest(
   b: CompletedPlayUpload,
 ): number {
   return (
-    hintStageOrder(a) - hintStageOrder(b) ||
-    a.elapsedSeconds - b.elapsedSeconds ||
-    a.hintsUsed - b.hintsUsed ||
-    a.mistakes - b.mistakes ||
+    compareRankingScores(a, b) ||
     a.completedAt - b.completedAt ||
     a.playId.localeCompare(b.playId)
   );

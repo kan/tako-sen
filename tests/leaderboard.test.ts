@@ -115,7 +115,7 @@ describe("consented automatic first-clear ranking", () => {
     await deleteAccountHistory(db, "migration-hinted");
     await deleteAccountHistory(db, "migration-unhinted");
   });
-  it("prioritizes hint depth before speed, keeps score ties and detects changed-depth retries", async () => {
+  it("scores time, mistakes and hints while keeping ties and detecting changed-depth retries", async () => {
     const db = platform.env.DB;
     const id = `p1:${"e".repeat(64)}`;
     const records = [
@@ -154,12 +154,12 @@ describe("consented automatic first-clear ranking", () => {
     const leaderboard = await listLeaderboard(db, id);
     expect(leaderboard.map((entry) => entry.rank)).toEqual([1, 2, 3, 3, 5, 6]);
     expect(leaderboard.map((entry) => entry.maxHintStage)).toEqual([
-      0,
-      1,
-      2,
-      2,
-      4,
       null,
+      4,
+      2,
+      2,
+      1,
+      0,
     ]);
     // より浅い再挑戦も初回スコアの置換はしない。
     await saveCompletedPlay(
@@ -174,6 +174,28 @@ describe("consented automatic first-clear ranking", () => {
       )?.maxHintStage,
     ).toBe(4);
     for (const [account] of records) await deleteAccountHistory(db, account);
+  });
+
+  it("puts a slower clean solve ahead of a faster solve with a mistake", async () => {
+    const db = platform.env.DB;
+    const id = `p1:${"f".repeat(64)}`;
+    for (const [account, elapsedSeconds, mistakes] of [
+      ["score-fast-miss", 30, 1],
+      ["score-slow-clean", 120, 0],
+    ] as const) {
+      await registerAccountProfile(db, account, account);
+      expect(
+        await saveCompletedPlay(
+          db,
+          account,
+          play({ puzzleId: id, elapsedSeconds, mistakes }),
+          true,
+        ),
+      ).toBe("created");
+    }
+    expect(
+      (await listLeaderboard(db, id)).map((entry) => entry.displayName),
+    ).toEqual(["score-slow-clean", "score-fast-miss"]);
   });
   it("withdraws legacy publications without deleting history or treating generated aliases as consent", async () => {
     const db = platform.env.DB;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareCompletedPlayScores,
   finishPlay,
   hasPlayerMarks,
   playerMarksChanged,
@@ -206,7 +207,17 @@ describe("local results", () => {
     expect(finished.plays[0].elapsedSeconds).toBe(42);
   });
 
-  it("sorts legacy unhinted plays before unknown hint stages and separates seed/version/difficulty", () => {
+  it("keeps equal scores tied even when hint disclosure depths differ", () => {
+    let history = begin({ version: 2, userId: "user", plays: [] }, "a");
+    history = finishPlay(history, "a", 62000, 0, 1, 60, 1);
+    history = begin(history, "b");
+    history = finishPlay(history, "b", 63000, 0, 1, 60, 3);
+    expect(compareCompletedPlayScores(history.plays[0], history.plays[1])).toBe(
+      0,
+    );
+  });
+
+  it("ranks legacy plays by score regardless of hint depth and separates seed/version/difficulty", () => {
     let history: ResultHistory = { version: 1, userId: "user", plays: [] };
     for (const [id, duration, mistakes, hints] of [
       ["slow", 64000, 0, 0],
@@ -233,7 +244,7 @@ describe("local results", () => {
     );
     expect(
       sameSeedRanking(history, "TAKO:g1:easy:one").map((play) => play.id),
-    ).toEqual(["best", "miss", "slow", "hint"]);
+    ).toEqual(["best", "slow", "hint", "miss"]);
   });
 
   it("summarizes plays, clears, averages, best updates and recent seeds", () => {

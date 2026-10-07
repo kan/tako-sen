@@ -1,9 +1,6 @@
 import type { PlayerState, Puzzle, PuzzleDifficulty } from "./model";
-import {
-  hintStageOrder,
-  maximumHintStage,
-  type HintStage,
-} from "./hint-progress";
+import { maximumHintStage, type HintStage } from "./hint-progress";
+import { compareRankingScores } from "./ranking-score";
 
 export interface PlayResult {
   readonly id: string;
@@ -137,13 +134,29 @@ export function sameSeedRanking(
     .sort(compareResults);
 }
 
+export function compareCompletedPlayScores(
+  a: PlayResult,
+  b: PlayResult,
+): number {
+  return compareRankingScores(
+    {
+      elapsedSeconds: a.elapsedSeconds ?? Infinity,
+      mistakes: a.mistakes ?? Infinity,
+      hintsUsed: a.hintsUsed ?? Infinity,
+    },
+    {
+      elapsedSeconds: b.elapsedSeconds ?? Infinity,
+      mistakes: b.mistakes ?? Infinity,
+      hintsUsed: b.hintsUsed ?? Infinity,
+    },
+  );
+}
+
 function compareResults(a: PlayResult, b: PlayResult): number {
   return (
-    hintStageOrder(a) - hintStageOrder(b) ||
-    (a.elapsedSeconds ?? Infinity) - (b.elapsedSeconds ?? Infinity) ||
-    (a.hintsUsed ?? Infinity) - (b.hintsUsed ?? Infinity) ||
-    (a.mistakes ?? Infinity) - (b.mistakes ?? Infinity) ||
-    (a.completedAt ?? 0) - (b.completedAt ?? 0)
+    compareCompletedPlayScores(a, b) ||
+    (a.completedAt ?? 0) - (b.completedAt ?? 0) ||
+    a.id.localeCompare(b.id)
   );
 }
 

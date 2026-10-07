@@ -53,6 +53,7 @@ import {
   saveAutoExclusionsEnabled,
 } from "./core/settings";
 import { hintStageLabel, maximumHintStage } from "./core/hint-progress";
+import { rankingScore } from "./core/ranking-score";
 import { isComplete } from "./core/rules";
 import { shortcutExclusionsForCell } from "./core/shortcuts";
 import {
@@ -68,6 +69,7 @@ import {
   saveResultHistory,
 } from "./core/storage";
 import {
+  compareCompletedPlayScores,
   finishPlay,
   hasPlayerMarks,
   playerMarksChanged,
@@ -267,10 +269,16 @@ const currentRanking = computed(() =>
     ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
     : [],
 );
-const currentRank = computed(
-  () =>
-    currentRanking.value.findIndex((result) => result.id === playId.value) + 1,
-);
+const currentRank = computed(() => {
+  const current = currentRanking.value.find(
+    (result) => result.id === playId.value,
+  );
+  return current
+    ? currentRanking.value.findIndex(
+        (result) => compareCompletedPlayScores(result, current) === 0,
+      ) + 1
+    : 0;
+});
 const userSummary = computed(() =>
   resultHistory.value ? summarizeUser(resultHistory.value) : undefined,
 );
@@ -1741,7 +1749,13 @@ function formatElapsed(seconds: number): string {
         <h2>このシードの記録</h2>
         <ol v-if="currentRanking.length" class="ranking-list">
           <li v-for="result in currentRanking.slice(0, 10)" :key="result.id">
-            {{ formatElapsed(result.elapsedSeconds ?? 0) }} · ヒント
+            {{
+              rankingScore({
+                elapsedSeconds: result.elapsedSeconds ?? 0,
+                mistakes: result.mistakes ?? 0,
+                hintsUsed: result.hintsUsed ?? 0,
+              })
+            }}点 · {{ formatElapsed(result.elapsedSeconds ?? 0) }} · ヒント
             {{ result.hintsUsed }}回（{{ hintStageLabel(result) }}） · ミス
             {{ result.mistakes }}
             <span v-if="result.id === playId">（今回）</span>
@@ -1903,6 +1917,18 @@ function formatElapsed(seconds: number): string {
           <div>
             <dt>時間</dt>
             <dd>{{ formatElapsed(displayedElapsedSeconds) }}</dd>
+          </div>
+          <div>
+            <dt>スコア</dt>
+            <dd>
+              {{
+                rankingScore({
+                  elapsedSeconds: displayedElapsedSeconds,
+                  mistakes: state.mistakes,
+                  hintsUsed: state.hintsUsed,
+                })
+              }}点
+            </dd>
           </div>
           <div>
             <dt>ミス</dt>

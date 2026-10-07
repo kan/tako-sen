@@ -15,6 +15,7 @@ import {
   type HintStage,
 } from "../core/hint-progress";
 import type { LeaderboardEntry } from "../core/leaderboard";
+import { rankingScoreSql } from "./ranking-score-sql";
 
 export interface DailyStatus {
   readonly date: string;
@@ -241,8 +242,8 @@ export async function listDailyLeaderboard(
     .prepare(
       `WITH ranked AS (
        SELECT a.account_id, p.display_name, a.elapsed_seconds, a.hints_used, a.mistakes, a.max_hint_stage,
-         RANK() OVER (ORDER BY COALESCE(a.max_hint_stage, 5), a.elapsed_seconds, a.hints_used, a.mistakes) AS rank,
-         ROW_NUMBER() OVER (ORDER BY COALESCE(a.max_hint_stage, 5), a.elapsed_seconds, a.hints_used, a.mistakes, p.display_name) AS place
+         RANK() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used) AS rank,
+         ROW_NUMBER() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used, p.display_name) AS place
        FROM daily_attempts a JOIN leaderboard_profiles p ON p.account_id = a.account_id
        WHERE a.challenge_date = ? AND a.completed_at IS NOT NULL AND p.consent_version = 1
      )

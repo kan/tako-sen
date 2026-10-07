@@ -80,4 +80,17 @@ describe("online history analytics", () => {
     expect(analyzeOnlineHistory(plays, { query: "p1:cccc" }).count).toBe(1);
     expect(analyzeOnlineHistory(plays, { since: 501 }).count).toBe(0);
   });
+
+  it("chooses a slower clean solve over a fast solve with mistakes", () => {
+    const view = analyzeOnlineHistory([
+      { ...base, mistakes: 1, elapsedSeconds: 30 },
+      {
+        ...base,
+        playId: "550e8400-e29b-41d4-a716-446655440004",
+        completedAt: 200,
+        elapsedSeconds: 120,
+      },
+    ]);
+    expect(view.puzzleBests[0].best.elapsedSeconds).toBe(120);
+  });
 });

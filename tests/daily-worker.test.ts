@@ -25,6 +25,7 @@ beforeAll(async () => {
   await migrateTestDatabase(platform.env.DB);
   await registerAccountProfile(platform.env.DB, "daily-a", "デイリーA");
   await registerAccountProfile(platform.env.DB, "daily-b", "デイリーB");
+  await registerAccountProfile(platform.env.DB, "daily-c", "デイリーC");
 });
 afterAll(async () => {
   await platform?.dispose();
@@ -120,9 +121,35 @@ describe("daily challenge server contract", () => {
     const tiedRanking = await listDailyLeaderboard(db, status.date, "daily-b");
     expect(tiedRanking.map((entry) => entry.rank)).toEqual([1, 1]);
     expect(tiedRanking.filter((entry) => entry.isSelf)).toHaveLength(1);
+    const thirdPlayId = crypto.randomUUID();
+    expect(
+      await startDailyAttempt(db, "daily-c", status.date, thirdPlayId, now),
+    ).toBe("started");
+    expect(
+      await completeDailyAttempt(
+        db,
+        "daily-c",
+        {
+          ...completion,
+          playId: thirdPlayId,
+          elapsedSeconds: 200,
+          mistakes: 0,
+        },
+        later,
+      ),
+    ).toBe("completed");
+    const scoredRanking = await listDailyLeaderboard(
+      db,
+      status.date,
+      "daily-b",
+    );
+    expect(scoredRanking.map((entry) => entry.rank)).toEqual([1, 2, 2]);
+    expect(scoredRanking[0].displayName).toBe("デイリーC");
     await deleteAccountHistory(db, "daily-a");
     expect(
-      await listDailyLeaderboard(db, status.date, "daily-b"),
-    ).toMatchObject([{ displayName: "デイリーB", isSelf: true }]);
+      (await listDailyLeaderboard(db, status.date, "daily-b")).map(
+        (entry) => entry.displayName,
+      ),
+    ).toEqual(["デイリーC", "デイリーB"]);
   });
 });

@@ -21,10 +21,6 @@ export function validHintProgress(stage: unknown, hintsUsed: number): boolean {
   );
 }
 
-export function hintStageOrder(progress: HintProgress): number {
-  return maximumHintStage(progress) ?? 5;
-}
-
 export function hintStageLabel(progress: HintProgress): string {
   const stage = maximumHintStage(progress);
   return stage === null

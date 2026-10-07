@@ -3,6 +3,7 @@ import { useAuth, SignInButton } from "@clerk/vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
 import { maximumHintStage, hintStageLabel } from "../core/hint-progress";
+import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
 import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { puzzleId } from "../core/puzzle-identity";
@@ -400,7 +401,7 @@ onUnmounted(() => {
             </button>
           </div>
           <p class="ranking-note">
-            時間・ヒント・ミスは参考記録です。同成績は同順位です。
+            スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較します。記録は参考値です。
           </p>
           <p v-if="rankingLoading" role="status">読み込み中…</p>
           <p v-else-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
@@ -415,6 +416,7 @@ onUnmounted(() => {
                 <strong class="ranking-place">{{ entry.rank }}位</strong>
                 <GameName :name="entry.displayName" />
                 <strong v-if="entry.isSelf" class="ranking-you">あなた</strong>
+                <strong>{{ rankingScore(entry) }}点</strong>
                 <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
               </div>
               <div class="ranking-score-meta">

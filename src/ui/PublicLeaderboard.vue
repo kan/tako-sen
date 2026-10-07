@@ -5,6 +5,7 @@ import type { LeaderboardEntry } from "../core/leaderboard";
 import { puzzleId } from "../core/puzzle-identity";
 import GameName from "./GameName.vue";
 import { hintStageLabel } from "../core/hint-progress";
+import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
 
 const props = defineProps<{
@@ -120,6 +121,7 @@ onUnmounted(() => {
           <div class="ranking-score-main">
             <strong class="ranking-place">{{ entry.rank }}位</strong>
             <GameName :name="entry.displayName" />
+            <strong>{{ rankingScore(entry) }}点</strong>
             <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
           </div>
           <div class="ranking-score-meta">
@@ -135,7 +137,7 @@ onUnmounted(() => {
       <details class="ranking-guide">
         <summary>順位の付け方</summary>
         <p>
-          ヒントの深さが浅い順、時間・ヒント数・ミス数の順で比較し、同成績は同順位です。深さは見たヒントの最も詳しいレベルを1/4〜4/4で表します。通常ヒントは3/4まで、矛盾調査は4/4までです。未使用が最優先で、深さ不明の旧記録は最後に並びます。最大100人を表示します。
+          スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較し、すべて同じなら同順位です。最大100人を表示します。
         </p>
       </details>
       <p class="ranking-note">

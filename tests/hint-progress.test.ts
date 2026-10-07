@@ -78,7 +78,7 @@ describe("maximum hint disclosure", () => {
       expect(validHintProgress(stage, 1)).toBe(false);
     expect(validHintProgress(1, 0)).toBe(false);
   });
-  it("prioritizes maximum stage over time for both local ranking and online personal best", () => {
+  it("keeps hint depth as metadata while ranking local and online plays by score", () => {
     let history: ResultHistory = { version: 2, userId: "user", plays: [] };
     for (const [id, hintsUsed, stage, seconds] of [
       ["deep", 1, 3, 1],
@@ -97,7 +97,7 @@ describe("maximum hint disclosure", () => {
     }
     expect(
       sameSeedRanking(history, "TAKO:g1:easy:one").map((play) => play.id),
-    ).toEqual(["none", "shallow", "deep", "unknown"]);
+    ).toEqual(["unknown", "deep", "none", "shallow"]);
     const online = history.plays.map((play) => ({
       playId: play.id,
       puzzleId: "p1:test",
@@ -112,7 +112,7 @@ describe("maximum hint disclosure", () => {
       maxHintStage: play.maxHintStage,
     }));
     expect(analyzeOnlineHistory(online).puzzleBests[0].best.playId).toBe(
-      "none",
+      "unknown",
     );
   });
 });
