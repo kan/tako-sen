@@ -1,6 +1,7 @@
 import type { KeyValueStorage } from "./storage";
 
-const TUTORIAL_KEY = "tako-sen.tutorial.v1";
+// v1 は紙芝居版の既読記録。操作型チュートリアルは既読を引き継がない。
+const TUTORIAL_KEY = "tako-sen.tutorial.v2";
 
 export function shouldShowTutorial(storage: KeyValueStorage): boolean {
   try {

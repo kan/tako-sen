@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 import { Show, SignInButton, SignUpButton } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
-import Tutorial from "./ui/Tutorial.vue";
 import UiIcon from "./ui/UiIcon.vue";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
@@ -111,6 +118,10 @@ import {
   regionColorForCell,
 } from "./ui/region-visuals";
 
+const InteractiveTutorial = defineAsyncComponent(
+  () => import("./ui/InteractiveTutorial.vue"),
+);
+
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const soundStorageKey = "tako-sen:sound-enabled";
@@ -120,6 +131,7 @@ const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
 const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
+const tutorialFirstVisit = ref(false);
 type Screen = "play" | "history" | "tools";
 const screen = ref<Screen>("play");
 const menuOpen = ref(false);
@@ -337,7 +349,9 @@ onMounted(() => {
   if (completedResult)
     clearElapsedSeconds.value = completedResult.elapsedSeconds;
   else if (complete.value) finalizePlay();
-  tutorialOpen.value = shouldShowTutorial(localStorage);
+  tutorialFirstVisit.value = shouldShowTutorial(localStorage);
+  tutorialOpen.value = tutorialFirstVisit.value;
+  if (tutorialOpen.value) pauseGame();
   if (waitingToStart.value) focusReadyButton();
   saveCurrentGame();
   void openSharedPuzzleFromUrl(saved);
@@ -516,12 +530,14 @@ function onMenuKeydown(event: KeyboardEvent): void {
 }
 
 function openTutorial(): void {
+  resumeAfterMenu = false;
   tutorialOpen.value = true;
   pauseGame();
 }
 
 function closeTutorial(): void {
   rememberTutorial(localStorage);
+  tutorialFirstVisit.value = false;
   tutorialOpen.value = false;
 }
 
@@ -1991,10 +2007,14 @@ function formatElapsed(seconds: number): string {
         </div>
       </section>
     </div>
-    <Tutorial
+    <InteractiveTutorial
+      v-if="activeDialog === 'tutorial'"
       :open="activeDialog === 'tutorial'"
+      :first-visit="tutorialFirstVisit"
       :online-enabled="onlineAuthEnabled"
+      :auto-exclusions-enabled="autoExclusionsEnabled"
       @close="closeTutorial"
+      @auto-exclusions-change="autoExclusionsEnabled = $event"
     />
     <div
       v-if="screen === 'play' && waitingToStart && !activeDialog"

@@ -3,6 +3,7 @@ import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import Tutorial from "../src/ui/Tutorial.vue";
+import InteractiveTutorial from "../src/ui/InteractiveTutorial.vue";
 import TutorialBoard from "../src/ui/TutorialBoard.vue";
 import App from "../src/App.vue";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
@@ -11,6 +12,7 @@ import type { Puzzle } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
 import { audioDevice } from "./audio-device";
 import { LONG_PRESS_MS } from "../src/ui/pointer";
+import { createTutorialLesson } from "../src/core/interactive-tutorial";
 
 const auth = vi.hoisted(() => ({
   user: undefined as Ref<string | null> | undefined,
@@ -216,7 +218,7 @@ describe("haptic settings", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = node();
     roots.push(container);
     renderer.render(h(App), container);
@@ -303,7 +305,7 @@ describe("board pointer input", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -749,7 +751,7 @@ describe("sound effects", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const device = audioDevice();
     const constructor = vi.fn(function () {
       return device.audio;
@@ -901,7 +903,7 @@ describe("play screen navigation", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -977,7 +979,7 @@ describe("play screen navigation", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -1089,7 +1091,7 @@ describe("play screen navigation", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -1332,6 +1334,188 @@ describe("tutorial dialog", () => {
   });
 });
 
+describe("interactive tutorial", () => {
+  it("keeps the active game isolated and requires READY after reopening from the menu", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === label || n.props["aria-label"] === label),
+      )!;
+      expect(button).toBeDefined();
+      (button.props.onClick as () => void)();
+      await nextTick();
+    };
+    await click("OK");
+    const game = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    const before = game().state;
+    await click("メニューを開く");
+    await click("遊び方");
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props.id === "tutorial-title")?.text,
+      ).toBe("長押しでタコを置こう"),
+    );
+    await click("遊び方を閉じる");
+    await click("メニューを閉じる");
+    expect(game().state).toEqual(before);
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeDefined();
+  });
+
+  it("offers an initial choice, remembers skipping and reopens directly from READY", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const savedBefore = localStorage.getItem("tako-sen.current-game.v2");
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props.id === "tutorial-title")?.text,
+      ).toBe("チュートリアルを見ますか？"),
+    );
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) => n.tag === "button" && n.text.trim() === label,
+      )!;
+      expect(button).toBeDefined();
+      (button.props.onClick as () => void)();
+      await nextTick();
+    };
+    await click("いいえ、すぐ遊ぶ");
+    expect(localStorage.getItem("tako-sen.tutorial.v2")).toBe("seen");
+    expect(localStorage.getItem("tako-sen.current-game.v2")).toBe(savedBefore);
+    await click("遊び方");
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props.id === "tutorial-title")?.text,
+      ).toBe("長押しでタコを置こう"),
+    );
+  });
+
+  it("guides real gestures through completion without saving a normal play", async () => {
+    const container = root();
+    const close = vi.fn();
+    const autoChange = vi.fn();
+    const lesson = createTutorialLesson();
+    renderer.render(
+      h(InteractiveTutorial, {
+        open: true,
+        firstVisit: true,
+        onlineEnabled: false,
+        autoExclusionsEnabled: true,
+        onClose: close,
+        onAutoExclusionsChange: autoChange,
+      }),
+      container,
+    );
+    await nextTick();
+    const title = () =>
+      find(container, (n) => n.props.id === "tutorial-title")?.text;
+    const click = async (label: string) => {
+      const button = find(
+        container,
+        (n) => n.tag === "button" && n.text.trim() === label,
+      )!;
+      expect(button).toBeDefined();
+      (button.props.onClick as () => void)();
+      await nextTick();
+    };
+    const cell = (index: number) =>
+      find(container, (n) => n.props["data-tutorial-cell"] === index)!;
+    const board = () =>
+      find(
+        container,
+        (n) => n.props.class === "board interactive-tutorial-board",
+      )!;
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const send = (name: string, index: number) => {
+      const input = {
+        isPrimary: true,
+        button: 0,
+        pointerId: 1,
+        clientX: 34 + (index % 8) * 40,
+        clientY: 124 + Math.floor(index / 8) * 40,
+        currentTarget: { setPointerCapture: vi.fn() },
+        preventDefault: vi.fn(),
+      };
+      (board().props[name] as (event: unknown) => void)(input);
+    };
+    const tap = (index: number) => {
+      send("onPointerdown", index);
+      send("onPointerup", index);
+      send("onLostpointercapture", index);
+    };
+    expect(title()).toBe("チュートリアルを見ますか？");
+    await click("はい、練習する");
+    expect(title()).toBe("長押しでタコを置こう");
+    expect(cell(lesson.firstPiece).props.class).toContain(
+      "tutorial-place-target",
+    );
+    send("onPointerdown", lesson.firstPiece);
+    now += LONG_PRESS_MS;
+    send("onPointerup", lesson.firstPiece);
+    await nextTick();
+    expect(title()).toBe("ダブルタップで×を追加");
+    expect(find(container, (n) => n.props.class === "mark")).toBeUndefined();
+    tap(lesson.firstPiece);
+    now += 100;
+    tap(lesson.firstPiece);
+    await nextTick();
+    expect(title()).toBe("自動の×を選ぼう");
+    await click("はい、自動で付ける");
+    expect(autoChange).toHaveBeenCalledWith(true);
+    expect(title()).toBe("指を滑らせて×を付けよう");
+    send("onPointerdown", lesson.dragTargets[0]);
+    for (const target of lesson.dragTargets.slice(1))
+      send("onPointermove", target);
+    send("onPointerup", lesson.dragTargets.at(-1)!);
+    await nextTick();
+    expect(title()).toBe("置けない理由を考えよう");
+    (cell(lesson.reasoningTarget).props.onClick as (event: unknown) => void)({
+      detail: 0,
+    });
+    await nextTick();
+    expect(title()).toBe("ヒントを試そう");
+    await click("ヒントを見る");
+    expect(title()).toBe("ここからは自由に解こう");
+    await click("次のヒント");
+    await click("次のヒント");
+    expect(
+      find(
+        container,
+        (n) => n.tag === "p" && n.text.includes("練習中のヒント 1回"),
+      ),
+    ).toBeDefined();
+    for (const index of lesson.puzzle.solution) {
+      if (index === lesson.firstPiece) continue;
+      send("onPointerdown", index);
+      now += LONG_PRESS_MS;
+      send("onPointerup", index);
+      await nextTick();
+    }
+    expect(title()).toBe("チュートリアル完了！");
+    expect(localStorage.getItem("tako-sen.results.v2")).toBeNull();
+    await click("通常プレイへ");
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
+
 describe("public leaderboard dialog", () => {
   it("decorates the ranking title with the shared octopus without changing its accessible label", async () => {
     const container = root();
@@ -1362,7 +1546,7 @@ describe("public leaderboard dialog", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -1402,7 +1586,7 @@ describe("public leaderboard dialog", () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -1561,7 +1745,7 @@ describe("account modal", () => {
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
     auth.user!.value = null;
-    localStorage.setItem("tako-sen.tutorial.v1", "seen");
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
     request.mockImplementation(async (path: string) =>
       Response.json(
         path === "/api/profile"

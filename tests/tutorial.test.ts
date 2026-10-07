@@ -33,4 +33,19 @@ describe("tutorial visit marker", () => {
     expect(shouldShowTutorial(blocked)).toBe(true);
     expect(() => rememberTutorial(blocked)).not.toThrow();
   });
+
+  it("shows the interactive version once even when the old tutorial was seen", () => {
+    const values = new Map([["tako-sen.tutorial.v1", "seen"]]);
+    const storage: KeyValueStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+    };
+    expect(shouldShowTutorial(storage)).toBe(true);
+    rememberTutorial(storage);
+    expect(values.get("tako-sen.tutorial.v1")).toBe("seen");
+    expect(values.get("tako-sen.tutorial.v2")).toBe("seen");
+    expect(shouldShowTutorial(storage)).toBe(false);
+  });
 });
