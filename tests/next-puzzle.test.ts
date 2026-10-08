@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  chooseNextPuzzle,
-  RANDOM_PUZZLE_CHANCE,
-} from "../src/core/next-puzzle";
+import { chooseNextPuzzle } from "../src/core/next-puzzle";
 
 const candidates = [
   { puzzleId: "a", seedCode: "A", players: 1 },
@@ -23,9 +20,16 @@ describe("next normal puzzle selection", () => {
     ).toBe("a");
   });
 
-  it("sometimes chooses fresh generation and falls back when no candidate remains", () => {
-    expect(RANDOM_PUZZLE_CHANCE).toBe(0.2);
-    expect(chooseNextPuzzle(candidates, new Set(), () => 0.1)).toBeUndefined();
+  it("always selects an available candidate regardless of the random value", () => {
+    for (const randomValue of [0, 0.1, 0.19, 0.2, 0.5, 0.999]) {
+      expect(
+        chooseNextPuzzle(candidates, new Set(), () => randomValue)?.players,
+      ).toBe(3);
+    }
+  });
+
+  it("falls back to generation when no candidate remains", () => {
+    expect(chooseNextPuzzle([], new Set(), () => 0)).toBeUndefined();
     expect(
       chooseNextPuzzle(candidates, new Set(["a", "b", "c"]), () => 0.5),
     ).toBeUndefined();

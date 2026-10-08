@@ -4,15 +4,12 @@ export interface RankedPuzzleCandidate {
   readonly players: number;
 }
 
-export const RANDOM_PUZZLE_CHANCE = 0.2;
-
-/** Pick the most populated available board; randomize ties and occasional fresh boards. */
+/** Pick the most populated available board; randomize ties, or generate when none remain. */
 export function chooseNextPuzzle(
   candidates: readonly RankedPuzzleCandidate[],
   excludedIds: ReadonlySet<string>,
   random: () => number,
 ): RankedPuzzleCandidate | undefined {
-  if (random() < RANDOM_PUZZLE_CHANCE) return undefined;
   const available = candidates.filter(
     (candidate) =>
       !excludedIds.has(candidate.puzzleId) &&
