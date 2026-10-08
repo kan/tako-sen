@@ -9,6 +9,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
+    "test:audit": "vitest run --mode audit tests/generator-audit.test.ts",
+    "test:full": "vitest run --mode audit",
     "format": "prettier --write ."
   },
   "dependencies": {

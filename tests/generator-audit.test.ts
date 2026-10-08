@@ -9,13 +9,18 @@ import { validatePuzzleShape, validateSolution } from "../src/core/rules";
 import { solvePuzzle } from "../src/core/solver";
 import { createSeededRandom, shuffled } from "../src/core/random";
 
+// 通常は代表seedだけを検証し、大量監査はCIまたは明示的なauditモードで行う。
+const fullAudit = import.meta.env.MODE === "audit";
 // 固定コーパスで失敗を再現可能にする。全盤面の網羅や一様分布の証明ではない。
 const seeds = [
   "",
   "0",
   "1",
   "タコ🐙",
-  ...Array.from({ length: 60 }, (_, i) => `generator-audit:${i}`),
+  ...Array.from(
+    { length: fullAudit ? 60 : 4 },
+    (_, i) => `generator-audit:${i}`,
+  ),
 ];
 const difficulties: PuzzleDifficulty[] = ["easy", "normal", "hard"];
 
@@ -79,7 +84,7 @@ function assertConnectedRegions(puzzle: Puzzle, context: string): void {
   }
 }
 
-describe("generator fixed-seed audit", () => {
+describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () => {
   it("uses reproducible bounded random streams and non-mutating permutation shuffles", () => {
     const streams = new Set<string>();
     const source = Array.from({ length: BOARD_SIZE ** 2 }, (_, cell) => cell);
@@ -112,7 +117,7 @@ describe("generator fixed-seed audit", () => {
       let curatedMatches = 0;
       const ratings: Record<string, number> = {};
       const samples =
-        difficulty === "easy"
+        fullAudit && difficulty === "easy"
           ? [
               ...seeds,
               ...Array.from(
