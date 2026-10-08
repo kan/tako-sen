@@ -1517,6 +1517,53 @@ describe("interactive tutorial", () => {
 });
 
 describe("public leaderboard dialog", () => {
+  it("highlights only the signed-in game name and updates on account changes", async () => {
+    request.mockImplementation(async () =>
+      Response.json({
+        entries: ["🐙タコ", "🐙別の人"].map((displayName, index) => ({
+          rank: index + 1,
+          displayName,
+          elapsedSeconds: 60,
+          hintsUsed: 0,
+          mistakes: 0,
+        })),
+      }),
+    );
+    const container = root();
+    const render = async (gameName: string) => {
+      renderer.render(
+        h(PublicLeaderboard, { puzzle, open: true, gameName }),
+        container,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await nextTick();
+    };
+    const self = () =>
+      find(
+        container,
+        (n) => n.tag === "li" && n.props.class === "ranking-self",
+      );
+    await render("🐙タコ");
+    expect(self()).toBeDefined();
+    expect(find(self()!, (n) => n.props.class === "ranking-you")?.text).toBe(
+      "あなた",
+    );
+    expect(find(self()!, (n) => n.props.class === "ranking-place")?.text).toBe(
+      "1位",
+    );
+    await render("🐙別の人");
+    expect(find(self()!, (n) => n.props.class === "ranking-place")?.text).toBe(
+      "2位",
+    );
+    await render("");
+    expect(self()).toBeUndefined();
+    expect(
+      find(container, (n) => n.props.class === "ranking-you"),
+    ).toBeUndefined();
+    await render("🐙未参加");
+    expect(self()).toBeUndefined();
+  });
+
   it("decorates the ranking title with the shared octopus without changing its accessible label", async () => {
     const container = root();
     renderer.render(h(PublicLeaderboard, { puzzle, open: true }), container);

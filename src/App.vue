@@ -1913,6 +1913,7 @@ function formatElapsed(seconds: number): string {
       :open="publicRankingOpen"
       :puzzle="puzzle"
       :revision="rankingRevision"
+      :game-name="onlineGameName"
       :complete="complete"
       @close="closeLeaderboard"
     />

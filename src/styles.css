@@ -477,6 +477,13 @@ h1 {
   min-width: 2.5em;
   color: #a44a2a;
 }
+.ranking-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
 .ranking-you {
   border-radius: 999px;
   padding: 2px 7px;
@@ -496,7 +503,8 @@ h1 {
   color: #674c3c;
   font-size: 0.85em;
 }
-.ranking-entries li.daily-self {
+.ranking-entries li.daily-self,
+.public-ranking-entries li.ranking-self {
   border: 2px solid #a44a2a;
   border-radius: 12px;
   background: #fff0c7;

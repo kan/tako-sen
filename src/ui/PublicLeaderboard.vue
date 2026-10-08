@@ -13,6 +13,7 @@ const props = defineProps<{
   revision?: number;
   complete?: boolean;
   open: boolean;
+  gameName?: string;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const entries = ref<LeaderboardEntry[]>([]);
@@ -117,10 +118,24 @@ onUnmounted(() => {
       <p v-if="busy" role="status">ランキングを取得しています。</p>
       <p v-else-if="message" aria-live="polite">{{ message }}</p>
       <ol v-if="entries.length" class="public-ranking-entries">
-        <li v-for="entry in entries" :key="entry.displayName">
+        <li
+          v-for="entry in entries"
+          :key="entry.displayName"
+          :class="{
+            'ranking-self':
+              !!props.gameName && entry.displayName === props.gameName,
+          }"
+        >
           <div class="ranking-score-main">
             <strong class="ranking-place">{{ entry.rank }}位</strong>
-            <GameName :name="entry.displayName" />
+            <div class="ranking-name">
+              <GameName :name="entry.displayName" />
+              <strong
+                v-if="props.gameName && entry.displayName === props.gameName"
+                class="ranking-you"
+                >あなた</strong
+              >
+            </div>
             <strong>{{ rankingScore(entry) }}点</strong>
             <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
           </div>
