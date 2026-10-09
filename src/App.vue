@@ -12,6 +12,9 @@ import { Show, SignInButton, SignUpButton, useAuth } from "@clerk/vue";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
+import SuperChallenge from "./ui/SuperChallenge.vue";
+import { parseSuperSeed } from "./core/super-puzzle";
+import type { SavedSuperGame } from "./core/super-storage";
 import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
 import UiIcon from "./ui/UiIcon.vue";
@@ -194,6 +197,10 @@ const returnToClearAfterRanking = ref(false);
 const publicRankingOpen = ref(false);
 const returnToClearAfterPublicRanking = ref(false);
 const isDaily = computed(() => puzzle.value.generatorVersion === "daily-v1");
+const isSuper = computed(() => puzzle.value.generatorVersion === "super-v1");
+const isSpecial = computed(() => isDaily.value || isSuper.value);
+const superChallengeRef = ref<InstanceType<typeof SuperChallenge>>();
+const superDialogOpen = ref(false);
 const resultHistory = ref<ResultHistory>();
 const showStats = ref(false);
 const hapticsEnabled = ref(true);
@@ -259,10 +266,18 @@ const cells = computed(() =>
 );
 const complete = computed(() => isComplete(puzzle.value, state.value));
 const activeDialog = computed<
-  "tutorial" | "hint" | "clear" | "account" | "menu" | "ranking" | undefined
+  | "tutorial"
+  | "hint"
+  | "clear"
+  | "account"
+  | "menu"
+  | "ranking"
+  | "super"
+  | undefined
 >(() => {
   if (accountSetupRequired.value) return "account";
   if (tutorialOpen.value) return "tutorial";
+  if (superDialogOpen.value) return "super";
   if (complete.value && showClearDialog.value) return "clear";
   if (hint.value && hintDialogOpen.value && canShowHint(complete.value))
     return "hint";
@@ -273,7 +288,9 @@ const activeDialog = computed<
 });
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
 const actualDifficultyLabel = computed(() =>
-  difficultyLabel(difficultyAnalysis.value.rating),
+  isSuper.value
+    ? "超級 / 10×10"
+    : difficultyLabel(difficultyAnalysis.value.rating),
 );
 const regionColorIndexes = computed(() =>
   assignRegionColorIndexes(puzzle.value),
@@ -285,7 +302,7 @@ const displayedElapsedSeconds = computed(
   () => clearElapsedSeconds.value ?? elapsedSeconds.value,
 );
 const currentRanking = computed(() =>
-  resultHistory.value && !isDaily.value
+  resultHistory.value && !isSpecial.value
     ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
     : [],
 );
@@ -349,7 +366,7 @@ onMounted(() => {
     !resultHistory.value.plays.some((play) => play.id === playId.value) &&
     hasPlayerMarks(puzzle.value, state.value)
   ) {
-    registerPlay();
+    registerPlay(false);
   }
   const completedResult = resultHistory.value.plays.find(
     (play) => play.id === playId.value && play.status === "completed",
@@ -390,6 +407,7 @@ watch(activeDialog, async (dialog, previous) => {
     } else if (
       dialog !== "account" &&
       dialog !== "tutorial" &&
+      dialog !== "super" &&
       dialog !== "ranking"
     )
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
@@ -446,6 +464,15 @@ function saveCurrentGame(): void {
     elapsedMs: elapsedTimerMs(timer.value, Date.now()),
     hasStarted: timer.value.hasStarted,
   };
+  if (isSuper.value) {
+    superChallengeRef.value?.saveCurrent(
+      puzzle.value,
+      state.value,
+      playId.value,
+      savedTimer,
+    );
+    return;
+  }
   if (isDaily.value && activeDailyDate.value && activeDailyAccountId.value)
     saveDailyGame(
       activeDailyAccountId.value,
@@ -552,6 +579,29 @@ function closeTutorial(): void {
 
 async function confirmReady(): Promise<void> {
   if (!waitingToStart.value) return;
+  if (isSuper.value) {
+    const expected = playId.value;
+    if (!expected || dailyClaiming.value) return;
+    dailyClaiming.value = true;
+    const claimed = await superChallengeRef.value?.claimReady(
+      puzzle.value,
+      state.value,
+      expected,
+      {
+        waitingToStart: true,
+        elapsedMs: elapsedTimerMs(timer.value, Date.now()),
+        hasStarted: timer.value.hasStarted,
+      },
+    );
+    dailyClaiming.value = false;
+    if (!isSuper.value || expected !== playId.value) return;
+    if (!claimed) {
+      dailyReadyMessage.value =
+        "超級を開始・再開できません。保存・ログイン・通信状態を確認してください。";
+      return;
+    }
+    dailyReadyMessage.value = "";
+  }
   if (isDaily.value && !dailyClaimed.value) {
     if (dailyClaiming.value || !activeDailyDate.value || !playId.value) return;
     const expectedDate = activeDailyDate.value;
@@ -594,8 +644,8 @@ function pauseGame(): void {
   focusReadyButton();
 }
 
-function registerPlay(): void {
-  if (!resultHistory.value || !playId.value || isDaily.value) return;
+function registerPlay(countForSuper = true): void {
+  if (!resultHistory.value || !playId.value || isSpecial.value) return;
   if (resultHistory.value.plays.some((play) => play.id === playId.value))
     return;
   resultHistory.value = startPlay(resultHistory.value, {
@@ -606,10 +656,19 @@ function registerPlay(): void {
     startedAt: state.value.startedAt,
   });
   saveResultHistory(resultHistory.value);
+  if (countForSuper)
+    superChallengeRef.value?.captureNormalTrial(
+      playId.value,
+      puzzleSeedCode.value,
+    );
 }
 
 function commitPlayerState(next: PlayerState): void {
   if (complete.value) return;
+  if (isSuper.value && !superChallengeRef.value?.canPlay()) {
+    pauseGame();
+    return;
+  }
   if (playerMarksChanged(state.value, next)) registerPlay();
   state.value = next;
 }
@@ -619,6 +678,10 @@ function commitPlayerStateWithFeedback(
   source: FeedbackSource,
 ): void {
   if (complete.value) return;
+  if (isSuper.value && !superChallengeRef.value?.canPlay()) {
+    pauseGame();
+    return;
+  }
   const feedbacks = cellFeedbacksForStateChange(state.value, next, source);
   const wasComplete = complete.value;
   commitPlayerState(next);
@@ -640,9 +703,15 @@ function finalizePlay(): void {
   );
   timer.value = finishTimer(timer.value, completedAt);
   currentTime.value = completedAt;
-  if (isDaily.value) {
+  if (isSpecial.value) {
     clearElapsedSeconds.value = clearSeconds;
     saveCurrentGame();
+    if (isSuper.value)
+      superChallengeRef.value?.completeCurrent(
+        state.value,
+        playId.value,
+        clearSeconds,
+      );
     return;
   }
   if (!resultHistory.value) return;
@@ -666,6 +735,10 @@ function finalizePlay(): void {
 
 async function newGame(): Promise<void> {
   if (nextPuzzleLoading.value) return;
+  if (!isSpecial.value && superChallengeRef.value?.offerIfPending()) {
+    showClearDialog.value = false;
+    return;
+  }
   const request = ++nextPuzzleRequest;
   const difficulty = selectedDifficulty.value;
   nextPuzzleLoading.value = true;
@@ -814,6 +887,46 @@ function startDaily(
   centerBoardAfterPuzzleChange();
 }
 
+function startSuper(superPuzzle: Puzzle, saved: SavedSuperGame): void {
+  cancelPendingNextPuzzle();
+  pauseGame();
+  clearSharedPuzzleUrl();
+  activeDailyDate.value = undefined;
+  activeDailyAccountId.value = undefined;
+  puzzle.value = superPuzzle;
+  difficultyAnalysis.value = analyzePuzzleDifficulty(superPuzzle);
+  state.value = saved.game.state;
+  playId.value = saved.game.playId;
+  timer.value = restoreTimer(
+    saved.game.timer,
+    saved.game.state.startedAt,
+    Date.now(),
+    isComplete(superPuzzle, saved.game.state),
+  );
+  hint.value = undefined;
+  hintDialogOpen.value = false;
+  showClearDialog.value = false;
+  clearElapsedSeconds.value = complete.value
+    ? Math.floor(elapsedTimerMs(timer.value, Date.now()) / 1000)
+    : undefined;
+  dailyReadyMessage.value = "";
+  void navigateTo("play");
+  saveCurrentGame();
+  centerBoardAfterPuzzleChange();
+  focusReadyButton();
+}
+
+function onSuperOpened(): void {
+  resumeAfterMenu = timer.value.status === "running";
+  superDialogOpen.value = true;
+  pauseGame();
+}
+function onSuperClosed(): void {
+  superDialogOpen.value = false;
+  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  resumeAfterMenu = false;
+}
+
 function leaveDaily(): void {
   cancelPendingNextPuzzle();
   pauseGame();
@@ -869,6 +982,20 @@ function restoreFromSeed(): void {
   restoreSeed(restoreSeedCode.value);
 }
 
+async function copySuperLink(): Promise<void> {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("p");
+    url.searchParams.set("s", puzzleSeedCode.value);
+    await navigator.clipboard.writeText(url.href);
+    seedMessage.value =
+      "超級の共有リンクをコピーしました。受け取った人もログインとオンライン接続が必要です。";
+  } catch {
+    seedMessage.value =
+      "共有リンクをコピーできませんでした。シードをコピーして共有できます。";
+  }
+}
+
 function restoreRecentSeed(code: string, event: MouseEvent): void {
   event.preventDefault();
   if (!restoreSeed(code)) {
@@ -879,6 +1006,14 @@ function restoreRecentSeed(code: string, event: MouseEvent): void {
 }
 
 function restoreSeed(code: string): boolean {
+  if (parseSuperSeed(code) !== undefined) {
+    if (!onlineAuthEnabled) {
+      seedMessage.value = "超級はログインとオンライン接続が必要です。";
+      return false;
+    }
+    superChallengeRef.value?.openShared(code.trim());
+    return true;
+  }
   const parsed = parsePuzzleSeedCode(code);
   if (!parsed) {
     seedMessage.value =
@@ -914,6 +1049,11 @@ function restoreSeed(code: string): boolean {
 async function openSharedPuzzleFromUrl(
   saved: ReturnType<typeof loadGame>,
 ): Promise<void> {
+  const superCode = new URL(window.location.href).searchParams.get("s");
+  if (superCode) {
+    restoreSeed(superCode);
+    return;
+  }
   const id = new URL(window.location.href).searchParams.get("p");
   if (!id) return;
   if (!/^p1:[0-9a-f]{64}$/.test(id)) {
@@ -963,12 +1103,14 @@ async function openSharedPuzzleFromUrl(
 
 function clearSharedPuzzleUrl(): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("p")) return;
+  if (!url.searchParams.has("p") && !url.searchParams.has("s")) return;
   url.searchParams.delete("p");
+  url.searchParams.delete("s");
   window.history.replaceState(null, "", url);
 }
 
 function resetProgress(): void {
+  if (isSpecial.value) return;
   cancelPendingNextPuzzle();
   state.value = resetPlayerProgress(
     state.value,
@@ -1313,6 +1455,12 @@ function showLeaderboard(): void {
 }
 
 function showCurrentRanking(): void {
+  if (isSuper.value) {
+    closeClearDialog();
+    menuOpen.value = false;
+    void superChallengeRef.value?.openRanking();
+    return;
+  }
   if (!isDaily.value) {
     showLeaderboard();
     return;
@@ -1659,83 +1807,102 @@ function formatElapsed(seconds: number): string {
       </section>
     </section>
 
-    <section
-      v-show="screen === 'play'"
-      class="actions"
-      :inert="waitingToStart || !!activeDialog"
-    >
-      <label v-if="!isDaily" class="difficulty-select">
-        難易度
-        <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
-          <option value="easy">初級</option>
-          <option value="normal">中級</option>
-          <option value="hard">上級</option>
-        </select>
-      </label>
-      <button
-        v-if="canShowHint(complete)"
-        type="button"
-        class="icon-button"
-        aria-label="ヒント"
-        title="ヒント"
-        @click="showHint"
+    <div :class="{ 'play-footer': screen === 'play' }">
+      <section
+        v-show="screen === 'play'"
+        class="actions"
+        :inert="waitingToStart || !!activeDialog"
       >
-        <UiIcon name="hint" />
-      </button>
-      <button
-        v-if="!isDaily"
-        type="button"
-        class="icon-button"
-        aria-label="リセット"
-        title="リセット"
-        @click="resetProgress"
-      >
-        <UiIcon name="reset" />
-      </button>
-      <button
-        type="button"
-        class="icon-button"
-        :disabled="nextPuzzleLoading"
-        :aria-label="isDaily ? '通常のプレイに戻る' : '新しい問題'"
-        :title="isDaily ? '通常のプレイに戻る' : '新しい問題'"
-        @click="isDaily ? leaveDaily() : newGame()"
-      >
-        <UiIcon name="next" />
-      </button>
-      <button
-        v-if="!isDaily || activeDailyDate"
-        type="button"
-        class="icon-button"
-        :aria-label="isDaily ? '今日のランキング' : 'この問題のランキング'"
-        :title="isDaily ? '今日のランキング' : 'この問題のランキング'"
-        @click="showCurrentRanking"
-      >
-        <UiIcon name="ranking" />
-      </button>
-      <span v-if="nextPuzzleLoading" role="status"
-        >次の問題を選んでいます。</span
-      >
-    </section>
+        <label v-if="!isSpecial" class="difficulty-select">
+          難易度
+          <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
+            <option value="easy">初級</option>
+            <option value="normal">中級</option>
+            <option value="hard">上級</option>
+          </select>
+        </label>
+        <button
+          v-if="canShowHint(complete)"
+          type="button"
+          class="icon-button"
+          aria-label="ヒント"
+          title="ヒント"
+          @click="showHint"
+        >
+          <UiIcon name="hint" />
+        </button>
+        <button
+          v-if="!isSpecial"
+          type="button"
+          class="icon-button"
+          aria-label="リセット"
+          title="リセット"
+          @click="resetProgress"
+        >
+          <UiIcon name="reset" />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
+          :disabled="nextPuzzleLoading"
+          :aria-label="isSpecial ? '通常のプレイに戻る' : '新しい問題'"
+          :title="isSpecial ? '通常のプレイに戻る' : '新しい問題'"
+          @click="isSpecial ? leaveDaily() : newGame()"
+        >
+          <UiIcon name="next" />
+        </button>
+        <button
+          v-if="!isDaily || activeDailyDate"
+          type="button"
+          class="icon-button"
+          :aria-label="isDaily ? '今日のランキング' : 'この問題のランキング'"
+          :title="isDaily ? '今日のランキング' : 'この問題のランキング'"
+          @click="showCurrentRanking"
+        >
+          <UiIcon name="ranking" />
+        </button>
+        <span v-if="nextPuzzleLoading" role="status"
+          >次の問題を選んでいます。</span
+        >
+      </section>
 
-    <DailyChallenge
-      v-if="onlineAuthEnabled && screen === 'play'"
-      ref="dailyChallengeRef"
-      :inert="!!activeDialog"
-      :active-date="activeDailyDate"
-      :active-account-id="activeDailyAccountId"
-      :puzzle="puzzle"
-      :state="state"
-      :play-id="playId"
-      :elapsed-seconds="displayedElapsedSeconds"
-      :complete="complete"
-      :game-name="onlineGameName"
-      @start="startDaily"
-      @account="accountDialogOpen = true"
-      @panel-opened="dailyPanelOpen = true"
-      @panel-closed="dailyPanelOpen = false"
-      @ranking-opened="dailyRankingOpen = true"
-      @ranking-closed="onDailyRankingClosed"
-    />
+      <SuperChallenge
+        v-if="onlineAuthEnabled"
+        ref="superChallengeRef"
+        :puzzle="puzzle"
+        :play-id="playId"
+        :complete="complete"
+        :game-name="onlineGameName"
+        :play-screen="screen === 'play'"
+        :history-open="screen === 'history'"
+        :modal-blocked="!!activeDialog"
+        @start="startSuper"
+        @pause="pauseGame"
+        @account="accountDialogOpen = true"
+        @opened="onSuperOpened"
+        @closed="onSuperClosed"
+      />
+
+      <DailyChallenge
+        v-if="onlineAuthEnabled && screen === 'play'"
+        ref="dailyChallengeRef"
+        :inert="!!activeDialog"
+        :active-date="activeDailyDate"
+        :active-account-id="activeDailyAccountId"
+        :puzzle="puzzle"
+        :state="state"
+        :play-id="playId"
+        :elapsed-seconds="displayedElapsedSeconds"
+        :complete="complete"
+        :game-name="onlineGameName"
+        @start="startDaily"
+        @account="accountDialogOpen = true"
+        @panel-opened="dailyPanelOpen = true"
+        @panel-closed="dailyPanelOpen = false"
+        @ranking-opened="dailyRankingOpen = true"
+        @ranking-closed="onDailyRankingClosed"
+      />
+    </div>
 
     <section
       v-show="screen === 'tools'"
@@ -1839,9 +2006,12 @@ function formatElapsed(seconds: number): string {
         </label>
         <button type="button" @click="restoreFromSeed">復元</button>
         <SharePuzzle
-          v-if="onlineAuthEnabled && !isDaily"
+          v-if="onlineAuthEnabled && !isSpecial"
           :seed-code="puzzleSeedCode"
         />
+        <button v-if="isSuper" type="button" @click="copySuperLink">
+          超級の共有リンクをコピー
+        </button>
         <p v-if="seedMessage" class="seed-message" aria-live="polite">
           {{ seedMessage }}
         </p>
@@ -1909,7 +2079,7 @@ function formatElapsed(seconds: number): string {
     </section>
 
     <PublicLeaderboard
-      v-if="!isDaily"
+      v-if="!isSpecial"
       :open="publicRankingOpen"
       :puzzle="puzzle"
       :revision="rankingRevision"
@@ -2073,11 +2243,11 @@ function formatElapsed(seconds: number): string {
         <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
           {{ clearDialogMessage }}
         </p>
-        <p v-if="!isDaily && currentRank > 0">
+        <p v-if="!isSpecial && currentRank > 0">
           このシードのローカル順位：{{ currentRank }} 位 /
           {{ currentRanking.length }} 回
         </p>
-        <label v-if="!isDaily" class="clear-next-difficulty">
+        <label v-if="!isSpecial" class="clear-next-difficulty">
           次の問題の難易度
           <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
             <option value="easy">初級</option>
@@ -2089,11 +2259,11 @@ function formatElapsed(seconds: number): string {
           <button
             type="button"
             :disabled="nextPuzzleLoading"
-            @click="isDaily ? leaveDaily() : newGame()"
+            @click="isSpecial ? leaveDaily() : newGame()"
           >
-            {{ isDaily ? "通常プレイに戻る" : "次の問題へ" }}
+            {{ isSpecial ? "通常プレイに戻る" : "次の問題へ" }}
           </button>
-          <button v-if="!isDaily" type="button" @click="resetProgress">
+          <button v-if="!isSpecial" type="button" @click="resetProgress">
             もう一度
           </button>
           <button type="button" @click="closeClearDialog">盤面を見る</button>
@@ -2104,7 +2274,11 @@ function formatElapsed(seconds: number): string {
           >
             今日のランキング
           </button>
-          <button v-if="!isDaily" type="button" @click="showLeaderboard">
+          <button
+            v-if="!isDaily"
+            type="button"
+            @click="isSuper ? showCurrentRanking() : showLeaderboard()"
+          >
             この問題のランキング
           </button>
         </div>
@@ -2134,6 +2308,10 @@ function formatElapsed(seconds: number): string {
         <p v-if="isDaily && !dailyClaimed">
           OK を押すと今日の挑戦権を使用します。
         </p>
+        <p v-if="isSuper">
+          超級 / 10×10 ·
+          ログインとオンライン接続が必要です。初回のOKでのみ挑戦権を使用します（共有経由は消費しません）。
+        </p>
         <p v-if="dailyReadyMessage" role="alert">{{ dailyReadyMessage }}</p>
         <button
           ref="readyButton"
@@ -2144,7 +2322,7 @@ function formatElapsed(seconds: number): string {
           OK
         </button>
         <button
-          v-if="isDaily && !dailyClaimed"
+          v-if="isSuper || (isDaily && !dailyClaimed)"
           type="button"
           :disabled="dailyClaiming"
           @click="leaveDaily"
@@ -2152,6 +2330,13 @@ function formatElapsed(seconds: number): string {
           通常の問題に戻る
         </button>
         <button type="button" @click="openTutorial">遊び方</button>
+        <button
+          v-if="!isSpecial && superChallengeRef?.right"
+          type="button"
+          @click="superChallengeRef?.openEarned()"
+        >
+          超級に挑戦
+        </button>
         <button
           type="button"
           class="icon-button"

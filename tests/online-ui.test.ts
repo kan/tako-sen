@@ -3,6 +3,10 @@ import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import DailyChallenge from "../src/ui/DailyChallenge.vue";
+import SuperChallenge from "../src/ui/SuperChallenge.vue";
+import { generateSuperPuzzle, encodeSuperSeed } from "../src/core/super-puzzle";
+import { puzzleId as identifyPuzzle } from "../src/core/puzzle-identity";
+import { loadSuperGame } from "../src/core/super-storage";
 import Tutorial from "../src/ui/Tutorial.vue";
 import InteractiveTutorial from "../src/ui/InteractiveTutorial.vue";
 import TutorialBoard from "../src/ui/TutorialBoard.vue";
@@ -56,9 +60,17 @@ vi.mock("@clerk/vue", async () => {
     }),
   };
 });
-vi.mock("../src/core/puzzle-identity", () => ({
-  puzzleId: async (puzzle: Puzzle) => `p1:${puzzle.seed}`,
-}));
+vi.mock("../src/core/puzzle-identity", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/core/puzzle-identity")>();
+  return {
+    ...actual,
+    puzzleId: async (puzzle: Puzzle) =>
+      puzzle.generatorVersion === "super-v1"
+        ? actual.puzzleId(puzzle)
+        : `p1:${puzzle.seed}`,
+  };
+});
 vi.mock("../src/core/online-history", () => ({
   createCompletedPlayUpload: async (play: PlayResult) => ({ playId: play.id }),
 }));
@@ -179,6 +191,10 @@ beforeEach(() => {
     ],
   ]);
   vi.stubGlobal("localStorage", {
+    get length() {
+      return data.size;
+    },
+    key: (index: number) => [...data.keys()][index] ?? null,
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => data.set(key, value),
   });
@@ -1518,6 +1534,273 @@ describe("interactive tutorial", () => {
     expect(localStorage.getItem("tako-sen.results.v2")).toBeNull();
     await click("通常プレイへ");
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("super challenge flow", () => {
+  async function setup(count = 10) {
+    vi.stubGlobal("HTMLElement", class {});
+    const generated = generateSuperPuzzle("super-regression:0");
+    const id = await identifyPuzzle(generated);
+    const code = encodeSuperSeed(generated.seed);
+    let progress = { cycle: 0, count, offerPending: count === 10 };
+    request.mockImplementation(async (path: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (path === "/api/super/progress") return Response.json({ progress });
+      if (path === "/api/super/event") {
+        progress = { ...progress, count: Math.min(10, progress.count + 1) };
+        return Response.json({ progress });
+      }
+      if (path === "/api/super/defer") {
+        progress = { ...progress, offerPending: false };
+        return Response.json({ progress });
+      }
+      if (path === "/api/super/candidates")
+        return Response.json({
+          candidates: [{ puzzleId: id, seedCode: code, players: 3 }],
+        });
+      if (path === "/api/super/prepare")
+        return Response.json({
+          puzzle: {
+            id,
+            size: 10,
+            seed: generated.seed,
+            regions: generated.regions,
+            givens: generated.givens,
+            difficulty: "hard",
+            generatorVersion: "super-v1",
+          },
+        });
+      if (path === "/api/super/start") {
+        if (body.entry === "earned")
+          progress = { cycle: 1, count: 0, offerPending: false };
+        return Response.json({ status: "started" });
+      }
+      return Response.json({ entries: [], plays: [], status: "completed" });
+    });
+    const start = vi.fn(),
+      pause = vi.fn();
+    const controller = ref<InstanceType<typeof SuperChallenge>>();
+    const playId = crypto.randomUUID();
+    const current = ref({ ...puzzle, size: 8 } as Puzzle);
+    const container = root();
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(SuperChallenge, {
+            ref: controller,
+            puzzle: current.value,
+            playId,
+            complete: false,
+            gameName: "🐙タコ",
+            playScreen: true,
+            historyOpen: false,
+            modalBlocked: false,
+            onStart: start,
+            onPause: pause,
+          }),
+      }),
+      container,
+    );
+    await vi.waitFor(() => expect(controller.value?.right).toBe(count === 10));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const click = async (text: string) => {
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === text || n.props["aria-label"] === text),
+      )!;
+      expect(button).toBeDefined();
+      await (button.props.onClick as () => Promise<void> | void)();
+      await nextTick();
+    };
+    return {
+      controller,
+      generated,
+      id,
+      code,
+      start,
+      pause,
+      playId,
+      current,
+      container,
+      click,
+    };
+  }
+  it("prepares at a safe boundary and consumes only on READY OK with an identical retry body", async () => {
+    const s = await setup();
+    expect(s.controller.value!.offerIfPending()).toBe(true);
+    await nextTick();
+    expect(
+      find(
+        s.container,
+        (n) => n.props["aria-labelledby"] === "super-offer-title",
+      ),
+    ).toBeDefined();
+    await s.click("あとで");
+    expect(s.controller.value!.right).toBe(true);
+    expect(
+      find(
+        s.container,
+        (n) => n.tag === "button" && n.props["aria-label"] === "超級に挑戦",
+      )?.props.class,
+    ).toBe("icon-button super-challenge-button");
+    expect(
+      find(
+        s.container,
+        (n) => n.tag === "p" && n.text.includes("超級に挑戦できます"),
+      ),
+    ).toBeUndefined();
+    expect(
+      find(s.container, (n) => n.text === "超級の記録を同期しました。"),
+    ).toBeUndefined();
+    await s.click("超級に挑戦");
+    await s.click("挑戦する");
+    expect(s.start).toHaveBeenCalledOnce();
+    expect(
+      request.mock.calls.some(([path]) => path === "/api/super/start"),
+    ).toBe(false);
+    const saved = loadSuperGame("ui-account", localStorage)!;
+    expect(saved.game.puzzle.size).toBe(10);
+    expect(saved.session.claimed).toBe(false);
+    s.current.value = s.generated;
+    await nextTick();
+    expect(
+      await s.controller.value!.claimReady(
+        s.generated,
+        saved.game.state,
+        saved.game.playId!,
+        saved.game.timer,
+      ),
+    ).toBe(true);
+    expect(loadSuperGame("ui-account", localStorage)?.session.claimed).toBe(
+      true,
+    );
+    expect(
+      await s.controller.value!.claimReady(
+        s.generated,
+        saved.game.state,
+        saved.game.playId!,
+        saved.game.timer,
+      ),
+    ).toBe(true);
+    const calls = request.mock.calls.filter(
+      ([path]) => path === "/api/super/start",
+    );
+    expect(JSON.parse(calls[0][1].body)).toEqual(JSON.parse(calls[1][1].body));
+    expect(localStorage.getItem("tako-sen.current-game.v2")).toBeNull();
+    s.controller.value!.completeCurrent(
+      { ...saved.game.state, pieces: new Set(s.generated.solution) },
+      saved.game.playId!,
+      30,
+    );
+    s.current.value = puzzle;
+    await nextTick();
+    expect(
+      find(
+        s.container,
+        (n) => n.props["aria-label"] === "この端末の超級を再開",
+      ),
+    ).toBeUndefined();
+    await vi.waitFor(() =>
+      expect(
+        find(
+          s.container,
+          (n) => n.props.class === "super-progress",
+        )?.text.trim(),
+      ).toBe("あと10"),
+    );
+    expect(
+      find(s.container, (n) => n.props["aria-label"] === "超級に挑戦")?.props
+        .disabled,
+    ).toBe(true);
+  });
+  it("admits shared seeds without a right and pauses an active trial on offline and account change", async () => {
+    const s = await setup(0);
+    s.controller.value!.openShared(s.code);
+    await nextTick();
+    await s.click("挑戦する");
+    const saved = loadSuperGame("ui-account", localStorage)!;
+    expect(saved.session.entry).toBe("shared");
+    s.current.value = s.generated;
+    await nextTick();
+    await s.controller.value!.claimReady(
+      s.generated,
+      saved.game.state,
+      saved.game.playId!,
+      saved.game.timer,
+    );
+    expect(s.controller.value!.canPlay()).toBe(true);
+    Object.assign(navigator, { onLine: false });
+    const offline = vi
+      .mocked(window.addEventListener)
+      .mock.calls.find(
+        ([event]) => String(event) === "offline",
+      )![1] as EventListener;
+    offline(new Event("offline"));
+    expect(s.pause).toHaveBeenCalled();
+    expect(s.controller.value!.canPlay()).toBe(false);
+    const before = request.mock.calls.length;
+    expect(
+      await s.controller.value!.claimReady(
+        s.generated,
+        saved.game.state,
+        saved.game.playId!,
+        saved.game.timer,
+      ),
+    ).toBe(false);
+    expect(request.mock.calls.length).toBe(before);
+    auth.user!.value = "another-account";
+    await nextTick();
+    expect(loadSuperGame("another-account", localStorage)).toBeUndefined();
+    expect(loadSuperGame("ui-account", localStorage)).toBeDefined();
+  });
+  it("captures first mutations once, never backfills anonymous trials, and preserves the original cycle", async () => {
+    const s = await setup(0);
+    s.controller.value!.captureNormalTrial(s.playId, "TAKO:g2:easy:first");
+    await vi.waitFor(() =>
+      expect(
+        request.mock.calls.filter(([path]) => path === "/api/super/event"),
+      ).toHaveLength(1),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    s.controller.value!.captureNormalTrial(s.playId, "TAKO:g2:easy:first");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      request.mock.calls.filter(([path]) => path === "/api/super/event"),
+    ).toHaveLength(1);
+    expect(
+      JSON.parse(
+        request.mock.calls.find(([path]) => path === "/api/super/event")![1]
+          .body,
+      ).cycle,
+    ).toBe(0);
+    auth.user!.value = null;
+    await nextTick();
+    s.controller.value!.captureNormalTrial(
+      crypto.randomUUID(),
+      "TAKO:g2:easy:anonymous",
+    );
+    auth.user!.value = "ui-account";
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      request.mock.calls.filter(([path]) => path === "/api/super/event"),
+    ).toHaveLength(1);
+  });
+  it("refuses unavailable persistence and does not consume on canceled or failed preparation", async () => {
+    const s = await setup();
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    await s.click("超級に挑戦");
+    await s.click("挑戦する");
+    expect(s.start).not.toHaveBeenCalled();
+    expect(
+      request.mock.calls.some(([path]) => path === "/api/super/start"),
+    ).toBe(false);
+    expect(s.controller.value!.right).toBe(true);
   });
 });
 

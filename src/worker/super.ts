@@ -11,26 +11,18 @@ import {
   type SharedPuzzleSnapshot,
 } from "../core/shared-puzzle";
 import { maximumHintStage } from "../core/hint-progress";
-import {
-  parseDailyCompletion,
-  type DailyCompletion,
-  type DailyLeaderboardEntry,
-} from "./daily";
+import { parseDailyCompletion, type DailyLeaderboardEntry } from "./daily";
 import type { RankedPuzzleCandidate } from "../core/next-puzzle";
 import { rankingScoreSql } from "./ranking-score-sql";
 
-export interface SuperPlayEvent {
-  readonly playId: string;
-  readonly cycle: number;
-  readonly seedCode: string;
-}
+import type { SuperPlayEvent, SuperCompletion } from "../core/super-outbox";
+export type { SuperPlayEvent, SuperCompletion } from "../core/super-outbox";
 export interface SuperStart {
   readonly playId: string;
   readonly puzzleId: string;
   readonly entry: SuperEntry;
   readonly cycle: number;
 }
-export type SuperCompletion = Omit<DailyCompletion, "date">;
 export class SuperApiError extends Error {
   constructor(
     readonly status: number,

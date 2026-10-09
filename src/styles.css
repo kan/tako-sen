@@ -352,21 +352,57 @@ h1 {
   touch-action: none;
 }
 
-.daily-entry {
-  width: min(100%, 520px);
-  margin: 12px auto 20px;
-  text-align: center;
+.play-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.daily-entry > button,
-.daily-entry > span > button {
-  width: 100%;
-  min-height: 48px;
-  border: 2px solid #513621;
-  border-radius: 14px;
+.play-footer > .actions {
+  flex: 1;
+  margin: 0;
+}
+
+.daily-entry,
+.super-entry {
+  margin: 0;
+  text-align: right;
+}
+
+.daily-challenge-button,
+.super-challenge-button {
+  border: 2px solid #2a1b14;
+  border-radius: 999px;
+  box-shadow: 0 2px 0 #2a1b14;
   background: #fff0c7;
   color: #2a1b14;
-  font-weight: 800;
+  cursor: pointer;
+}
+
+.super-challenge-button {
+  background: #eadcff;
+  color: #48255f;
+}
+
+.super-progress {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.super-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.super-challenge-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .dialog-backdrop.daily-panel-backdrop {

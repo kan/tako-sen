@@ -8,6 +8,8 @@ defineProps<{
     | "difficulty"
     | "reset"
     | "next"
+    | "daily"
+    | "super"
     | "ranking";
 }>();
 </script>
@@ -24,7 +26,14 @@ defineProps<{
     aria-hidden="true"
     focusable="false"
   >
-    <template v-if="name === 'settings'">
+    <template v-if="name === 'daily'">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M7 3v4M17 3v4M3 10h18m-13 5 3 3 5-5" />
+    </template>
+    <template v-else-if="name === 'super'">
+      <path d="m3 7 4 3 5-6 5 6 4-3-2 12H5ZM5 22h14" />
+    </template>
+    <template v-else-if="name === 'settings'">
       <path
         d="m9 3-.7 2.5-1.7 1L4 6l-2 3.5 1.9 1.8v1.9L2 15l2 3.5 2.6-.5 1.7 1L9 21h6l.7-2.5 1.7-1 2.6.5 2-3.5-1.9-1.8v-1.9L22 9l-2-3.5-2.6.5-1.7-1L15 3Z"
       />

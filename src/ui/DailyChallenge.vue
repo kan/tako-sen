@@ -14,6 +14,7 @@ import type {
   DailyCompletion,
 } from "../worker/daily";
 import GameName from "./GameName.vue";
+import UiIcon from "./UiIcon.vue";
 
 const props = defineProps<{
   activeDate?: string;
@@ -329,18 +330,25 @@ onUnmounted(() => {
 <template>
   <section class="daily-entry">
     <SignInButton v-if="!signedIn"
-      ><button type="button">
-        デイリーチャレンジ · ログインして挑戦
-      </button></SignInButton
-    >
+      ><button
+        type="button"
+        class="icon-button daily-challenge-button"
+        aria-label="デイリーチャレンジ · ログインして挑戦"
+        title="デイリーチャレンジ · ログインして挑戦"
+      >
+        <UiIcon name="daily" /></button
+    ></SignInButton>
     <button
       v-else
       ref="entryButtonRef"
+      class="icon-button daily-challenge-button"
+      :aria-label="busy ? '読み込み中…' : 'デイリーチャレンジ'"
+      :title="busy ? '読み込み中…' : 'デイリーチャレンジ'"
       type="button"
       :disabled="busy"
       @click="openPanel"
     >
-      {{ busy ? "読み込み中…" : "デイリーチャレンジ" }}
+      <UiIcon name="daily" />
     </button>
     <Teleport v-if="panelOpen" to="body">
       <div

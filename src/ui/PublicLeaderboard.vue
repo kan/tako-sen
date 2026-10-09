@@ -14,6 +14,8 @@ const props = defineProps<{
   complete?: boolean;
   open: boolean;
   gameName?: string;
+  title?: string;
+  fetchEntries?: (id: string) => Promise<Response>;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const entries = ref<LeaderboardEntry[]>([]);
@@ -50,7 +52,9 @@ async function refresh(): Promise<void> {
   try {
     const id = await puzzleId(props.puzzle);
     if (current !== generation) return;
-    const response = await fetch(`/api/leaderboards/${encodeURIComponent(id)}`);
+    const response = props.fetchEntries
+      ? await props.fetchEntries(id)
+      : await fetch(`/api/leaderboards/${encodeURIComponent(id)}`);
     if (!response.ok) throw new Error("Leaderboard unavailable.");
     const data: { entries: LeaderboardEntry[] } = await response.json();
     if (current !== generation) return;
@@ -106,7 +110,7 @@ onUnmounted(() => {
       <div class="ranking-header">
         <h2 id="public-leaderboard-title" class="tako-title">
           <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
-          <span>この問題のランキング</span>
+          <span>{{ props.title ?? "この問題のランキング" }}</span>
         </h2>
         <button type="button" class="dialog-close" @click="emit('close')">
           閉じる
