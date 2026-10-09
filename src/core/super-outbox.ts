@@ -1,5 +1,6 @@
 import type { KeyValueStorage } from "./storage";
 import { parsePuzzleSeedCode } from "./puzzle-code";
+import { parseSuperSeed } from "./super-puzzle";
 import { validHintProgress, type HintStage } from "./hint-progress";
 
 export interface SuperPlayEvent {
@@ -72,6 +73,52 @@ function valid(item: SuperPending): boolean {
 export class SuperOutbox {
   private running = false;
   constructor(private readonly storage: SuperQueueStorage) {}
+  completedRecords(accountId: string): readonly {
+    completion: SuperCompletion;
+    capturedAt: number;
+    seedCode: string;
+  }[] {
+    const records: {
+      completion: SuperCompletion;
+      capturedAt: number;
+      seedCode: string;
+    }[] = [];
+    try {
+      const accountPrefix = `${prefix}${encodeURIComponent(accountId)}:complete:`;
+      for (const key of this.storage
+        .keys()
+        .filter(
+          (key) => key.startsWith(accountPrefix) && !key.endsWith(".corrupt"),
+        )) {
+        try {
+          const value = JSON.parse(this.storage.getItem(key) ?? "null");
+          if (
+            value?.version === 1 &&
+            value.accountId === accountId &&
+            typeof value.acknowledged === "boolean" &&
+            value.item?.kind === "complete" &&
+            valid(value.item) &&
+            typeof value.seedCode === "string" &&
+            parseSuperSeed(value.seedCode) !== undefined &&
+            itemKey(accountId, value.item) === key
+          )
+            records.push({
+              completion: value.item.body,
+              seedCode: value.seedCode,
+              capturedAt:
+                Number.isSafeInteger(value.capturedAt) && value.capturedAt >= 0
+                  ? value.capturedAt
+                  : 0,
+            });
+        } catch {
+          /* Invalid queue entries never become history. */
+        }
+      }
+    } catch {
+      /* Unavailable storage. */
+    }
+    return records;
+  }
   isDeferred(accountId: string, cycle: number): boolean {
     try {
       const item: SuperPending = { kind: "defer", body: { cycle } };
@@ -117,25 +164,42 @@ export class SuperOutbox {
     }
     return ids;
   }
-  capture(accountId: string, item: SuperPending): boolean {
+  capture(accountId: string, item: SuperPending, seedCode?: string): boolean {
     if (!accountId || !valid(item)) return false;
     try {
       const key = itemKey(accountId, item);
       const existing = this.storage.getItem(key);
       if (existing !== null) {
         const parsed = JSON.parse(existing);
-        return (
+        const validExisting =
           parsed.version === 1 &&
           parsed.accountId === accountId &&
           valid(parsed.item) &&
           itemKey(accountId, parsed.item) === key &&
-          typeof parsed.acknowledged === "boolean"
-        );
+          typeof parsed.acknowledged === "boolean";
+        if (!validExisting) return false;
+        if (
+          item.kind === "complete" &&
+          seedCode &&
+          parseSuperSeed(seedCode) !== undefined &&
+          parsed.seedCode === undefined
+        ) {
+          const raw = JSON.stringify({ ...parsed, seedCode });
+          this.storage.setItem(key, raw);
+          return this.storage.getItem(key) === raw;
+        }
+        return true;
       }
       const raw = JSON.stringify({
         version: 1,
         accountId,
         item,
+        capturedAt: Date.now(),
+        ...(item.kind === "complete" &&
+        seedCode &&
+        parseSuperSeed(seedCode) !== undefined
+          ? { seedCode }
+          : {}),
         acknowledged: false,
       });
       this.storage.setItem(key, raw);

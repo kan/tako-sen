@@ -4,6 +4,7 @@ import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import DailyChallenge from "../src/ui/DailyChallenge.vue";
 import SuperChallenge from "../src/ui/SuperChallenge.vue";
+import HistoryDialog from "../src/ui/HistoryDialog.vue";
 import { generateSuperPuzzle, encodeSuperSeed } from "../src/core/super-puzzle";
 import { puzzleId as identifyPuzzle } from "../src/core/puzzle-identity";
 import { loadSuperGame } from "../src/core/super-storage";
@@ -244,7 +245,7 @@ describe("haptic settings", () => {
     roots.push(container);
     renderer.render(h(App), container);
     await nextTick();
-    for (const label of ["メニューを開く", "設定・シード・共有"]) {
+    for (const label of ["メニューを開く", "設定"]) {
       const button = find(
         container,
         (n) =>
@@ -254,7 +255,10 @@ describe("haptic settings", () => {
       await (button.props.onClick as () => void)();
       await nextTick();
     }
-    return container;
+    return find(
+      container,
+      (n) => n.props["aria-labelledby"] === "settings-title",
+    )!;
   }
   const checkbox = (container: HostNode) =>
     find(container, (n) => n.props["aria-describedby"] === "haptics-help")!;
@@ -455,6 +459,19 @@ describe("board pointer input", () => {
 
   it("persists auto exclusions and applies them only to new correct pieces", async () => {
     const { container, saved, send } = await setup();
+    const click = async (label: string) => {
+      (
+        find(
+          container,
+          (n) =>
+            n.tag === "button" &&
+            (n.props["aria-label"] === label || n.text.trim() === label),
+        )!.props.onClick as () => void
+      )();
+      await nextTick();
+    };
+    await click("メニューを開く");
+    await click("設定");
     const checkbox = find(
       container,
       (n) => n.props["aria-describedby"] === "auto-exclusions-help",
@@ -467,6 +484,8 @@ describe("board pointer input", () => {
     await nextTick();
     expect(saved().state.excluded).toEqual([]);
     expect(localStorage.getItem("tako-sen:auto-exclusions-enabled")).toBe("1");
+    await click("設定を閉じる");
+    await click("OK");
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const index = saved().puzzle.solution[0];
@@ -477,7 +496,14 @@ describe("board pointer input", () => {
     expect(saved().state.pieces).toContain(index);
     expect(saved().state.excluded.length).toBeGreaterThan(0);
     const marks = saved().state.excluded;
-    change(false);
+    await click("メニューを開く");
+    await click("設定");
+    (
+      find(
+        container,
+        (n) => n.props["aria-describedby"] === "auto-exclusions-help",
+      )!.props["onUpdate:modelValue"] as (value: boolean) => void
+    )(false);
     await nextTick();
     expect(saved().state.excluded).toEqual(marks);
     expect(localStorage.getItem("tako-sen:auto-exclusions-enabled")).toBe("0");
@@ -536,7 +562,16 @@ describe("board pointer input", () => {
       alt: "",
       "aria-hidden": "true",
     });
-    expect(find(title, (n) => n.tag === "span")!.text).toBe("メニュー");
+    expect(find(title, (n) => n.tag === "span")!.text).toBe(
+      "TAKO-SEN メニュー",
+    );
+    const header = find(
+      container,
+      (n) => n.props.class === "dialog-header menu-header",
+    )!;
+    expect(
+      find(header, (n) => n.props["aria-label"] === "アカウント"),
+    ).toBeDefined();
   });
 
   it("commits short taps without click, ignores retargeted clicks, and preserves keyboard activation", async () => {
@@ -848,7 +883,7 @@ describe("sound effects", () => {
     renderer.render(h(App), container);
     await nextTick();
     await click(container, "メニューを開く");
-    await click(container, "設定・シード・共有");
+    await click(container, "設定");
     const checkbox = find(
       container,
       (n) => n.props["aria-describedby"] === "sound-help",
@@ -1076,13 +1111,12 @@ describe("play screen navigation", () => {
     expect(game().hasStarted).toBe(false);
     await click("OK");
     let expectedElapsed = 0;
-    for (const method of ["button", "backdrop", "escape", "return"]) {
+    for (const method of ["button", "backdrop", "escape"]) {
       now += 1000;
       expectedElapsed += 1000;
       await click("メニューを開く");
       now += 60000;
       if (method === "button") await click("メニューを閉じる");
-      else if (method === "return") await click("プレイに戻る");
       else if (method === "escape") {
         (menu().props.onKeydown as (e: unknown) => void)({
           key: "Escape",
@@ -1197,13 +1231,15 @@ describe("play screen navigation", () => {
     expect(menu.focus).toHaveBeenCalled();
     expect(find(container, (n) => n.tag === "h1")).toBeUndefined();
     const menuItems = find(container, (n) => n.props.class === "screen-menu")!;
-    expect(menuItems.children.at(-1)?.text.trim()).toBe("プレイに戻る");
+    expect(
+      find(menuItems, (n) => n.text.trim() === "プレイに戻る"),
+    ).toBeUndefined();
     expect(game().elapsedMs).toBe(3000);
     now += 60000;
     await click("履歴・成績");
     expect(game().elapsedMs).toBe(3000);
     expect(game().state).toEqual(markedState);
-    await click("プレイに戻る");
+    await click("履歴・成績を閉じる");
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeDefined();
@@ -1213,7 +1249,18 @@ describe("play screen navigation", () => {
     await click("メニューを開く");
     expect(game().elapsedMs).toBe(5000);
     expect(game().state).toEqual(markedState);
-    await click("設定・シード・共有");
+    await click("シード・共有");
+    const shareDialog = find(
+      container,
+      (n) => n.props["aria-labelledby"] === "seed-share-title",
+    )!;
+    expect(shareDialog.props.role).toBe("dialog");
+    expect(
+      find(
+        shareDialog,
+        (n) => n.props["aria-describedby"] === "auto-exclusions-help",
+      ),
+    ).toBeUndefined();
     const restoreInput = find(
       container,
       (n) => n.props.placeholder === "TAKO:g2:easy:...",
@@ -1224,13 +1271,16 @@ describe("play screen navigation", () => {
     updateCode("invalid");
     await click("復元");
     expect(
-      find(container, (n) => n.tag === "h2" && n.text === "設定・シード・共有"),
+      find(container, (n) => n.tag === "h2" && n.text === "シード・共有"),
     ).toBeDefined();
     expect(game().state).toEqual(markedState);
     const oldPlayId = game().playId;
     updateCode(encodePuzzleSeed({ ...game().puzzle, generatorVersion: "g1" }));
     await click("復元");
     expect(game().puzzle.generatorVersion).toBe("g1");
+    expect(
+      find(container, (n) => n.props["aria-labelledby"] === "seed-share-title"),
+    ).toBeUndefined();
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeDefined();
@@ -1582,6 +1632,204 @@ describe("interactive tutorial", () => {
     expect(localStorage.getItem("tako-sen.results.v2")).toBeNull();
     await click("通常プレイへ");
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("history and results dialog", () => {
+  const record = (seed: string, seconds = 10) => ({
+    playId: seed,
+    seedCode: `TAKO:g2:easy:${seed}`,
+    difficulty: "easy",
+    completedAt: 100,
+    elapsedSeconds: seconds,
+    mistakes: 0,
+    hintsUsed: 0,
+  });
+  function setup(
+    loadOnline = vi.fn(async (mode: "normal" | "super") => ({
+      plays:
+        mode === "normal"
+          ? [record("server")]
+          : [
+              {
+                ...record("super", 90),
+                seedCode: encodeSuperSeed("server-super"),
+              },
+            ],
+    })),
+  ) {
+    const account = ref<string | undefined>("history-account");
+    const container = root();
+    const close = vi.fn(),
+      restore = vi.fn();
+    const local: PlayResult[] = [
+      {
+        id: "local",
+        userId: "anonymous",
+        seedCode: "TAKO:g2:easy:local",
+        generatorVersion: "g2",
+        difficulty: "easy",
+        startedAt: 0,
+        completedAt: 10,
+        status: "completed",
+        elapsedSeconds: 100,
+        mistakes: 1,
+        hintsUsed: 2,
+      },
+    ];
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(HistoryDialog, {
+            open: true,
+            accountId: account.value,
+            plays: local,
+            loadOnline,
+            onClose: close,
+            onRestore: restore,
+          }),
+      }),
+      container,
+    );
+    const tab = (text: string) =>
+      find(container, (n) => n.props.role === "tab" && n.text === text)!;
+    return { container, account, close, restore, tab, loadOnline };
+  }
+  it("uses online data, switches difficulty tabs including super, and collapses recent plays", async () => {
+    const s = setup();
+    await vi.waitFor(() =>
+      expect(
+        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+      ).toBeDefined(),
+    );
+    expect(
+      find(s.container, (n) => n.props["aria-labelledby"] === "history-title")
+        ?.props.role,
+    ).toBe("dialog");
+    const body = find(
+      s.container,
+      (n) => n.props.class === "history-dialog-body",
+    )!;
+    expect(find(body, (n) => n.text === "グラフの数値")).toBeUndefined();
+    expect(find(body, (n) => n.props.role === "tablist")).toBeDefined();
+    expect(
+      find(body, (n) => n.props["aria-label"] === "履歴・成績を閉じる"),
+    ).toBeUndefined();
+    expect(
+      find(body, (n) => n.props.class === "history-summary-grid")?.children,
+    ).toHaveLength(4);
+    expect(
+      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+    ).toBeUndefined();
+    expect(
+      find(s.container, (n) => n.props.class === "history-recent")?.props.open,
+    ).toBeUndefined();
+    expect(
+      find(
+        s.container,
+        (n) =>
+          n.props.role === "img" &&
+          n.props["aria-label"] === "初級のクリア時間の推移",
+      ),
+    ).toBeDefined();
+    (s.tab("初級").props.onKeydown as (e: unknown) => void)({
+      key: "ArrowRight",
+      preventDefault: vi.fn(),
+    });
+    await nextTick();
+    expect(s.tab("中級").props["aria-selected"]).toBe(true);
+    (s.tab("超級").props.onClick as () => void)();
+    await nextTick();
+    const seed = find(
+      s.container,
+      (n) => n.props.title === encodeSuperSeed("server-super"),
+    )!;
+    (seed.props.onClick as () => void)();
+    expect(s.restore).toHaveBeenCalledWith(encodeSuperSeed("server-super"));
+    const dialog = find(
+      s.container,
+      (n) => n.props["aria-labelledby"] === "history-title",
+    )!;
+    (dialog.props.onKeydown as (e: unknown) => void)({
+      key: "Escape",
+      preventDefault: vi.fn(),
+    });
+    expect(s.close).toHaveBeenCalledOnce();
+  });
+  it("switches to local data on offline and back to server data on reconnect without mixing sources", async () => {
+    const s = setup();
+    await vi.waitFor(() =>
+      expect(
+        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+      ).toBeDefined(),
+    );
+    Object.assign(navigator, { onLine: false });
+    const listener = (event: string) =>
+      vi
+        .mocked(window.addEventListener)
+        .mock.calls.find(
+          ([name]) => String(name) === event,
+        )![1] as EventListener;
+    listener("offline")(new Event("offline"));
+    await nextTick();
+    expect(
+      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+    ).toBeDefined();
+    expect(
+      find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+    ).toBeUndefined();
+    Object.assign(navigator, { onLine: true });
+    listener("online")(new Event("online"));
+    await vi.waitFor(() =>
+      expect(
+        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+      ).toBeDefined(),
+    );
+    s.account.value = undefined;
+    await nextTick();
+    expect(
+      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+    ).toBeDefined();
+  });
+  it("rejects late history from the previous account and clearly reports retrieval errors", async () => {
+    const pending: ((data: { plays: unknown[] }) => void)[] = [];
+    const load = vi.fn(
+      (_mode: "normal" | "super") =>
+        new Promise<{ plays: unknown[] }>((resolve) => pending.push(resolve)),
+    );
+    const s = setup(load);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    s.account.value = "another-account";
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+    pending[2]({ plays: [record("new")] });
+    pending[3]({ plays: [] });
+    await vi.waitFor(() =>
+      expect(
+        find(s.container, (n) => n.props.title === "TAKO:g2:easy:new"),
+      ).toBeDefined(),
+    );
+    pending[0]({ plays: [record("old")] });
+    pending[1]({ plays: [] });
+    await nextTick();
+    await nextTick();
+    expect(
+      find(s.container, (n) => n.props.title === "TAKO:g2:easy:old"),
+    ).toBeUndefined();
+    const failed = setup(
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        find(failed.container, (n) =>
+          n.text.includes("一部のオンライン成績を取得できません"),
+        ),
+      ).toBeDefined(),
+    );
+    expect(
+      find(failed.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+    ).toBeUndefined();
   });
 });
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from "./UiIcon.vue";
 import { useAuth } from "@clerk/vue";
 import { ref, watch } from "vue";
 
@@ -66,10 +67,12 @@ async function share(seedCode: string): Promise<void> {
   <div>
     <button
       type="button"
+      class="share-link-button"
+      aria-label="問題の共有リンクを作成"
       :disabled="busy || !isSignedIn"
       @click="share(seedCode)"
     >
-      問題の共有リンクを作成
+      <UiIcon name="share" />問題の共有リンクを作成
     </button>
     <p v-if="!isSignedIn">共有リンクの作成にはログインが必要です。</p>
     <p v-if="message" aria-live="polite">{{ message }}</p>

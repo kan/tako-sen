@@ -13,6 +13,7 @@ import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
 import SuperChallenge from "./ui/SuperChallenge.vue";
+import HistoryDialog from "./ui/HistoryDialog.vue";
 import { parseSuperSeed } from "./core/super-puzzle";
 import type { SavedSuperGame } from "./core/super-storage";
 import SharePuzzle from "./ui/SharePuzzle.vue";
@@ -86,9 +87,7 @@ import {
   finishPlay,
   hasPlayerMarks,
   playerMarksChanged,
-  sameSeedRanking,
   startPlay,
-  summarizeUser,
   type ResultHistory,
 } from "./core/results";
 import {
@@ -142,22 +141,21 @@ const accountDialogOpen = ref(false);
 const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
 const tutorialFirstVisit = ref(false);
-type Screen = "play" | "history" | "tools";
+type Screen = "play";
 const screen = ref<Screen>("play");
 const menuOpen = ref(false);
+const historyDialogOpen = ref(false);
+const toolsDialog = ref<"settings" | "share">();
+const toolsDialogRef = ref<HTMLElement>();
+const historyAccountId = computed(() =>
+  onlineAuth?.isSignedIn.value
+    ? (onlineAuth.userId.value ?? undefined)
+    : undefined,
+);
 let resumeAfterMenu = false;
 const menuDialogRef = ref<HTMLElement>();
-const screenHeading = ref<HTMLElement>();
 const menuButton = ref<HTMLButtonElement>();
 const accountMenuButton = ref<HTMLButtonElement>();
-const screenTitle = computed(
-  () =>
-    ({
-      play: "プレイ",
-      history: "履歴・成績",
-      tools: "設定・シード・共有",
-    })[screen.value],
-);
 const initialGenerated = generatePuzzleWithAnalysis({
   seed: "tako-sen-prototype",
 });
@@ -179,7 +177,6 @@ const boardWrap = ref<HTMLElement>();
 const boardElement = ref<HTMLElement>();
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
-const statsMessage = ref("");
 const showClearDialog = ref(false);
 const clearElapsedSeconds = ref<number | undefined>();
 const clearDialogMessage = ref("");
@@ -201,7 +198,6 @@ const isSpecial = computed(() => isDaily.value || isSuper.value);
 const superChallengeRef = ref<InstanceType<typeof SuperChallenge>>();
 const superDialogOpen = ref(false);
 const resultHistory = ref<ResultHistory>();
-const showStats = ref(false);
 const hapticsEnabled = ref(true);
 const hapticsApiAvailable = ref(false);
 const hapticsTestMessage = ref("");
@@ -272,6 +268,9 @@ const activeDialog = computed<
   | "menu"
   | "ranking"
   | "super"
+  | "history"
+  | "settings"
+  | "share"
   | undefined
 >(() => {
   if (accountSetupRequired.value) return "account";
@@ -282,6 +281,8 @@ const activeDialog = computed<
     return "hint";
   if (accountDialogOpen.value) return "account";
   if (publicRankingOpen.value) return "ranking";
+  if (historyDialogOpen.value) return "history";
+  if (toolsDialog.value) return toolsDialog.value;
   if (menuOpen.value) return "menu";
   return undefined;
 });
@@ -299,11 +300,6 @@ const elapsedSeconds = computed(() =>
 );
 const displayedElapsedSeconds = computed(
   () => clearElapsedSeconds.value ?? elapsedSeconds.value,
-);
-const currentRanking = computed(() =>
-  resultHistory.value && !isSpecial.value
-    ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
-    : [],
 );
 const clearRanking = ref("— / —");
 let clearRankingGeneration = 0;
@@ -351,9 +347,6 @@ watch(
       /* Rankings are optional; never substitute a local rank. */
     }
   },
-);
-const userSummary = computed(() =>
-  resultHistory.value ? summarizeUser(resultHistory.value) : undefined,
 );
 const contradictionCells = computed(() =>
   hint.value?.kind === "move" &&
@@ -440,11 +433,14 @@ watch(activeDialog, async (dialog, previous) => {
     if (dialog === "menu") {
       if (previous === "account") accountMenuButton.value?.focus();
       else menuDialogRef.value?.focus();
-    } else if (
+    } else if (dialog === "settings" || dialog === "share")
+      toolsDialogRef.value?.focus();
+    else if (
       dialog !== "account" &&
       dialog !== "tutorial" &&
       dialog !== "super" &&
-      dialog !== "ranking"
+      dialog !== "ranking" &&
+      dialog !== "history"
     )
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
@@ -548,7 +544,25 @@ function focusReadyButton(): void {
   });
 }
 
-async function navigateTo(next: Screen): Promise<void> {
+async function navigateTo(
+  next: Screen | "history" | "settings" | "share",
+): Promise<void> {
+  if (next === "settings" || next === "share") {
+    cancelLongPress();
+    pauseGame();
+    resumeAfterMenu = false;
+    menuOpen.value = false;
+    toolsDialog.value = next;
+    return;
+  }
+  if (next === "history") {
+    cancelLongPress();
+    pauseGame();
+    resumeAfterMenu = false;
+    menuOpen.value = false;
+    historyDialogOpen.value = true;
+    return;
+  }
   if (next === "play" && screen.value === "play" && menuOpen.value) {
     closeMenu();
     return;
@@ -557,11 +571,10 @@ async function navigateTo(next: Screen): Promise<void> {
   pauseGame();
   resumeAfterMenu = false;
   screen.value = next;
+  toolsDialog.value = undefined;
   menuOpen.value = false;
-  showStats.value = next === "history";
   await nextTick();
-  if (next !== "play") screenHeading.value?.focus();
-  else if (waitingToStart.value) focusReadyButton();
+  if (waitingToStart.value) focusReadyButton();
   else menuButton.value?.focus();
   window.scrollTo({ top: 0 });
 }
@@ -571,6 +584,42 @@ function openMenu(): void {
   resumeAfterMenu = timer.value.status === "running";
   menuOpen.value = true;
   pauseGame();
+}
+
+function onToolsKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    toolsDialog.value = undefined;
+  } else trapDialogFocus(event, toolsDialogRef.value);
+}
+
+async function loadHistoryOnline(mode: "normal" | "super"): Promise<unknown> {
+  const account = historyAccountId.value;
+  if (!account || navigator.onLine === false)
+    throw new Error("Offline history.");
+  const token = await onlineAuth?.getToken.value();
+  if (!token || account !== historyAccountId.value)
+    throw new Error("History account changed.");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(
+      mode === "super" ? "/api/super/history" : "/api/plays",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok || account !== historyAccountId.value)
+      throw new Error("History unavailable.");
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+function restoreHistorySeed(seedCode: string): void {
+  historyDialogOpen.value = false;
+  restoreSeed(seedCode);
 }
 
 function closeMenu(): void {
@@ -870,7 +919,6 @@ async function newGame(): Promise<void> {
   seedMessage.value = recommendedId
     ? "他のプレイヤーの記録がある問題を選びました。"
     : "新しい問題を生成しました。";
-  statsMessage.value = "";
   beginPlay();
   void navigateTo("play");
   centerBoardAfterPuzzleChange();
@@ -1009,12 +1057,11 @@ async function copySeed(): Promise<void> {
     seedMessage.value = "シードをコピーしました。";
   } catch {
     seedMessage.value =
-      "コピーできませんでした。設定のシード表示から手動でコピーしてください。";
+      "コピーできませんでした。シード・共有のシード表示から手動でコピーしてください。";
   }
 }
 
 function restoreFromSeed(): void {
-  statsMessage.value = "";
   restoreSeed(restoreSeedCode.value);
 }
 
@@ -1030,15 +1077,6 @@ async function copySuperLink(): Promise<void> {
     seedMessage.value =
       "共有リンクをコピーできませんでした。シードをコピーして共有できます。";
   }
-}
-
-function restoreRecentSeed(code: string, event: MouseEvent): void {
-  event.preventDefault();
-  if (!restoreSeed(code)) {
-    statsMessage.value = seedMessage.value;
-    return;
-  }
-  statsMessage.value = "シードから問題を復元しました。";
 }
 
 function restoreSeed(code: string): boolean {
@@ -1159,7 +1197,6 @@ function resetProgress(): void {
   showClearDialog.value = false;
   clearElapsedSeconds.value = undefined;
   clearDialogMessage.value = "";
-  statsMessage.value = "";
   beginPlay();
 }
 
@@ -1700,7 +1737,7 @@ function formatElapsed(seconds: number): string {
 
     <div
       v-if="activeDialog === 'menu'"
-      class="dialog-backdrop"
+      class="dialog-backdrop menu-backdrop"
       role="presentation"
       @click.self="closeMenu"
     >
@@ -1713,11 +1750,35 @@ function formatElapsed(seconds: number): string {
         tabindex="-1"
         @keydown="onMenuKeydown"
       >
-        <div class="dialog-header">
+        <div class="dialog-header menu-header">
           <h2 id="menu-title" class="tako-title">
             <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
-            <span>メニュー</span>
+            <span>TAKO-SEN メニュー</span>
           </h2>
+          <nav
+            v-if="onlineAuthEnabled"
+            class="account-controls"
+            aria-label="アカウント"
+          >
+            <Show when="signed-out">
+              <SignInButton
+                ><button type="button">ログイン</button></SignInButton
+              >
+              <SignUpButton
+                ><button type="button">アカウント作成</button></SignUpButton
+              >
+            </Show>
+            <Show when="signed-in"
+              ><button
+                ref="accountMenuButton"
+                type="button"
+                aria-haspopup="dialog"
+                :aria-expanded="accountDialogOpen"
+                @click="accountDialogOpen = true"
+              >
+                <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
+            ></Show>
+          </nav>
           <button
             type="button"
             class="dialog-close"
@@ -1727,28 +1788,6 @@ function formatElapsed(seconds: number): string {
             閉じる
           </button>
         </div>
-        <nav
-          v-if="onlineAuthEnabled"
-          class="account-controls"
-          aria-label="アカウント"
-        >
-          <Show when="signed-out">
-            <SignInButton><button type="button">ログイン</button></SignInButton>
-            <SignUpButton
-              ><button type="button">アカウント作成</button></SignUpButton
-            >
-          </Show>
-          <Show when="signed-in"
-            ><button
-              ref="accountMenuButton"
-              type="button"
-              aria-haspopup="dialog"
-              :aria-expanded="accountDialogOpen"
-              @click="accountDialogOpen = true"
-            >
-              <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
-          ></Show>
-        </nav>
         <nav class="screen-menu" aria-label="メニュー">
           <button type="button" @click="navigateTo('history')">
             履歴・成績
@@ -1756,30 +1795,14 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="showCurrentRanking">
             {{ isDaily ? "今日のランキング" : "この問題のランキング" }}
           </button>
-          <button type="button" @click="navigateTo('tools')">
-            設定・シード・共有
+          <button type="button" @click="navigateTo('settings')">設定</button>
+          <button type="button" @click="navigateTo('share')">
+            シード・共有
           </button>
           <button type="button" @click="openTutorial">遊び方</button>
-          <button
-            type="button"
-            class="return-to-play"
-            @click="navigateTo('play')"
-          >
-            プレイに戻る
-          </button>
         </nav>
       </section>
     </div>
-
-    <section
-      v-if="screen !== 'play'"
-      class="screen-header"
-      :inert="!!activeDialog"
-    >
-      <button type="button" @click="navigateTo('play')">プレイに戻る</button>
-      <h2 ref="screenHeading" tabindex="-1">{{ screenTitle }}</h2>
-      <p v-if="!complete">プレイは一時停止中です。戻って OK で再開できます。</p>
-    </section>
 
     <section
       v-show="screen === 'play'"
@@ -1910,7 +1933,7 @@ function formatElapsed(seconds: number): string {
         :complete="complete"
         :game-name="onlineGameName"
         :play-screen="screen === 'play'"
-        :history-open="screen === 'history'"
+        :history-open="false"
         :modal-blocked="!!activeDialog"
         @start="startSuper"
         @pause="pauseGame"
@@ -1942,179 +1965,189 @@ function formatElapsed(seconds: number): string {
       />
     </div>
 
-    <section
-      v-show="screen === 'tools'"
-      class="seed-panel"
-      :inert="!!activeDialog"
+    <div
+      v-if="activeDialog === 'settings' || activeDialog === 'share'"
+      class="dialog-backdrop tools-backdrop"
+      role="presentation"
+      @click.self="toolsDialog = undefined"
     >
-      <div class="auto-exclusions-settings">
-        <label>
-          <input
-            v-model="autoExclusionsEnabled"
-            type="checkbox"
-            aria-describedby="auto-exclusions-help"
-          />
-          正解のタコを置いたら自動で×を付ける
-        </label>
-        <p id="auto-exclusions-help">
-          初期設定はオフです。オンにすると、新しく正解のタコを置いた直後に、同じ行・列・エリアと周囲8マスへ×を付けます。配置済みのタコをダブルタップする操作と同じ範囲です。設定の変更だけでは盤面は変わりません。
-        </p>
-        <p v-if="autoExclusionsSaveFailed" role="status">
-          この設定を保存できませんでした。現在のプレイには反映されますが、再読み込みで元に戻る場合があります。
-        </p>
-      </div>
-      <div class="haptics-settings">
-        <label class="haptics-toggle">
-          <input
-            v-model="hapticsEnabled"
-            type="checkbox"
-            :disabled="!hapticsApiAvailable"
-            aria-describedby="haptics-help"
-          />
-          操作時に振動する（対応ブラウザ・端末のみ）
-        </label>
-        <p id="haptics-help">
-          <template v-if="!hapticsApiAvailable">
-            このブラウザでは振動APIが利用できません。操作結果は盤面の表示で確認できます。
-          </template>
-          <template v-else>
-            振動APIを利用できますが、実際に振動するとは限りません。振動しない場合は端末の振動設定やマナーモードを確認してください。Firefox
-            Androidではブラウザ側で振動が無効化されています。
-          </template>
-        </p>
-        <button
-          type="button"
-          :disabled="!hapticsApiAvailable || !hapticsEnabled"
-          @click="testHaptics"
-        >
-          振動を試す（100ms）
-        </button>
-        <p v-if="hapticsTestMessage" role="status">{{ hapticsTestMessage }}</p>
-      </div>
-      <div class="sound-settings">
-        <label>
-          <input
-            v-model="soundEnabled"
-            type="checkbox"
-            :disabled="!soundApiAvailable"
-            aria-describedby="sound-help"
-            @change="onSoundPreferenceChange"
-          />
-          効果音（SE）を鳴らす
-        </label>
-        <p id="sound-help">
-          {{
-            soundApiAvailable
-              ? "初期設定はオフです。×・タコの配置とCLEAR時に鳴ります。音量は端末で調整してください。"
-              : "このブラウザでは音声APIが利用できません。音なしでもプレイできます。"
-          }}
-        </p>
-        <div class="sound-previews">
-          <button
-            v-for="preview in soundPreviews"
-            :key="preview.kind"
-            type="button"
-            :disabled="!soundApiAvailable || !soundEnabled"
-            @click="soundEffects.play(preview.kind)"
+      <section
+        ref="toolsDialogRef"
+        class="dialog-card tools-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="
+          toolsDialog === 'settings' ? 'settings-title' : 'seed-share-title'
+        "
+        tabindex="-1"
+        @keydown="onToolsKeydown"
+      >
+        <div class="dialog-header">
+          <h2
+            :id="
+              toolsDialog === 'settings' ? 'settings-title' : 'seed-share-title'
+            "
           >
-            {{ preview.label }}
+            {{ toolsDialog === "settings" ? "設定" : "シード・共有" }}
+          </h2>
+          <button
+            type="button"
+            class="dialog-close"
+            :aria-label="
+              toolsDialog === 'settings'
+                ? '設定を閉じる'
+                : 'シード・共有を閉じる'
+            "
+            @click="toolsDialog = undefined"
+          >
+            閉じる
           </button>
         </div>
-      </div>
-      <h3>{{ isDaily ? "今日の問題" : "シード表示・復元" }}</h3>
-      <p v-if="isDaily">
-        {{ activeDailyDate }}
-        のデイリーチャレンジです。通常のシード復元・共有には対応しません。
-      </p>
-      <div v-else class="seed-panel-body" aria-label="シード">
-        <div>
-          <span class="seed-label">現在のシード</span>
-          <code>{{ puzzleSeedCode }}</code>
+        <div class="tools-dialog-body">
+          <template v-if="toolsDialog === 'settings'">
+            <div class="auto-exclusions-settings">
+              <label>
+                <input
+                  v-model="autoExclusionsEnabled"
+                  type="checkbox"
+                  aria-describedby="auto-exclusions-help"
+                />
+                正解のタコを置いたら自動で×を付ける
+              </label>
+              <p id="auto-exclusions-help">
+                初期設定はオフです。オンにすると、新しく正解のタコを置いた直後に、同じ行・列・エリアと周囲8マスへ×を付けます。配置済みのタコをダブルタップする操作と同じ範囲です。設定の変更だけでは盤面は変わりません。
+              </p>
+              <p v-if="autoExclusionsSaveFailed" role="status">
+                この設定を保存できませんでした。現在のプレイには反映されますが、再読み込みで元に戻る場合があります。
+              </p>
+            </div>
+            <div class="haptics-settings">
+              <label class="haptics-toggle">
+                <input
+                  v-model="hapticsEnabled"
+                  type="checkbox"
+                  :disabled="!hapticsApiAvailable"
+                  aria-describedby="haptics-help"
+                />
+                操作時に振動する（対応ブラウザ・端末のみ）
+              </label>
+              <p id="haptics-help">
+                <template v-if="!hapticsApiAvailable">
+                  このブラウザでは振動APIが利用できません。操作結果は盤面の表示で確認できます。
+                </template>
+                <template v-else>
+                  振動APIを利用できますが、実際に振動するとは限りません。振動しない場合は端末の振動設定やマナーモードを確認してください。Firefox
+                  Androidではブラウザ側で振動が無効化されています。
+                </template>
+              </p>
+              <button
+                type="button"
+                :disabled="!hapticsApiAvailable || !hapticsEnabled"
+                @click="testHaptics"
+              >
+                振動を試す（100ms）
+              </button>
+              <p v-if="hapticsTestMessage" role="status">
+                {{ hapticsTestMessage }}
+              </p>
+            </div>
+            <div class="sound-settings">
+              <label>
+                <input
+                  v-model="soundEnabled"
+                  type="checkbox"
+                  :disabled="!soundApiAvailable"
+                  aria-describedby="sound-help"
+                  @change="onSoundPreferenceChange"
+                />
+                効果音（SE）を鳴らす
+              </label>
+              <p id="sound-help">
+                {{
+                  soundApiAvailable
+                    ? "初期設定はオフです。×・タコの配置とCLEAR時に鳴ります。音量は端末で調整してください。"
+                    : "このブラウザでは音声APIが利用できません。音なしでもプレイできます。"
+                }}
+              </p>
+              <div class="sound-previews">
+                <button
+                  v-for="preview in soundPreviews"
+                  :key="preview.kind"
+                  type="button"
+                  :disabled="!soundApiAvailable || !soundEnabled"
+                  @click="soundEffects.play(preview.kind)"
+                >
+                  {{ preview.label }}
+                </button>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <h3>{{ isDaily ? "今日の問題" : "シード表示・復元" }}</h3>
+            <p v-if="isDaily">
+              {{ activeDailyDate }}
+              のデイリーチャレンジです。通常のシード復元・共有には対応しません。
+            </p>
+            <div v-else class="seed-panel-body" aria-label="シード">
+              <span class="seed-label">現在のシード</span>
+              <div class="seed-inline-row">
+                <code :title="puzzleSeedCode">{{ puzzleSeedCode }}</code>
+                <button
+                  type="button"
+                  class="icon-button"
+                  aria-label="シードをコピー"
+                  title="シードをコピー"
+                  @click="copySeed"
+                >
+                  <UiIcon name="copy" />
+                </button>
+              </div>
+              <label for="restore-seed-input">シード復元</label>
+              <div class="seed-inline-row">
+                <input
+                  id="restore-seed-input"
+                  v-model="restoreSeedCode"
+                  type="text"
+                  inputmode="text"
+                  autocomplete="off"
+                  :placeholder="`TAKO:${GENERATOR_VERSION}:easy:...`"
+                />
+                <button
+                  type="button"
+                  class="icon-button"
+                  aria-label="復元"
+                  title="シードを復元"
+                  @click="restoreFromSeed"
+                >
+                  <UiIcon name="reset" />
+                </button>
+              </div>
+              <SharePuzzle
+                v-if="onlineAuthEnabled && !isSpecial"
+                :seed-code="puzzleSeedCode"
+              />
+              <button v-if="isSuper" type="button" @click="copySuperLink">
+                <UiIcon name="share" />
+                超級の共有リンクをコピー
+              </button>
+              <p v-if="seedMessage" class="seed-message" aria-live="polite">
+                {{ seedMessage }}
+              </p>
+            </div>
+          </template>
         </div>
-        <button type="button" @click="copySeed">コピー</button>
-        <label>
-          シード復元
-          <input
-            v-model="restoreSeedCode"
-            type="text"
-            inputmode="text"
-            autocomplete="off"
-            :placeholder="`TAKO:${GENERATOR_VERSION}:easy:...`"
-          />
-        </label>
-        <button type="button" @click="restoreFromSeed">復元</button>
-        <SharePuzzle
-          v-if="onlineAuthEnabled && !isSpecial"
-          :seed-code="puzzleSeedCode"
-        />
-        <button v-if="isSuper" type="button" @click="copySuperLink">
-          超級の共有リンクをコピー
-        </button>
-        <p v-if="seedMessage" class="seed-message" aria-live="polite">
-          {{ seedMessage }}
-        </p>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <section
-      v-show="screen === 'history'"
-      class="stats-panel"
-      :inert="!!activeDialog"
-    >
-      <h3>この端末の成績</h3>
-      <div v-if="showStats && userSummary" class="stats-panel-body">
-        <p>
-          総プレイ {{ userSummary.plays }} 回 · クリア
-          {{ userSummary.clears }} 回 · 自己ベスト更新
-          {{ userSummary.personalBests }} 回
-        </p>
-        <h2>このシードの記録</h2>
-        <ol v-if="currentRanking.length" class="ranking-list">
-          <li v-for="result in currentRanking.slice(0, 10)" :key="result.id">
-            {{
-              rankingScore({
-                elapsedSeconds: result.elapsedSeconds ?? 0,
-                mistakes: result.mistakes ?? 0,
-                hintsUsed: result.hintsUsed ?? 0,
-              })
-            }}点 · {{ formatElapsed(result.elapsedSeconds ?? 0) }} · ヒント
-            {{ result.hintsUsed }}回（{{ hintStageLabel(result) }}） · ミス
-            {{ result.mistakes }}
-            <span v-if="result.id === playId">（今回）</span>
-          </li>
-        </ol>
-        <p v-else>このシードのクリア記録はまだありません。</p>
-        <h2>難易度別集計</h2>
-        <ul class="stats-list">
-          <li
-            v-for="summary in userSummary.byDifficulty"
-            :key="summary.difficulty"
-          >
-            <strong>{{ difficultyLabel(summary.difficulty) }}</strong
-            >：{{ summary.plays }} 回中 {{ summary.clears }} 回クリア
-            <span v-if="summary.averageSeconds !== undefined">
-              · 平均 {{ formatElapsed(Math.round(summary.averageSeconds)) }} ·
-              ミス {{ summary.averageMistakes?.toFixed(1) }} · ヒント
-              {{ summary.averageHints?.toFixed(1) }}</span
-            >
-          </li>
-        </ul>
-        <h2>最近のシード</h2>
-        <ul class="stats-list">
-          <li v-for="seed in userSummary.recentSeeds" :key="seed">
-            <a
-              class="recent-seed-link"
-              href="#board"
-              @click="restoreRecentSeed(seed, $event)"
-              ><code>{{ seed }}</code></a
-            >
-          </li>
-        </ul>
-        <p v-if="statsMessage" class="seed-message" aria-live="polite">
-          {{ statsMessage }}
-        </p>
-      </div>
-    </section>
+    <HistoryDialog
+      :open="activeDialog === 'history'"
+      :plays="resultHistory?.plays ?? []"
+      :account-id="historyAccountId"
+      :revision="rankingRevision"
+      :load-online="loadHistoryOnline"
+      @close="historyDialogOpen = false"
+      @restore="restoreHistorySeed"
+    />
 
     <PublicLeaderboard
       v-if="!isSpecial"
@@ -2131,7 +2164,7 @@ function formatElapsed(seconds: number): string {
       :plays="resultHistory.plays"
       :open="activeDialog === 'account'"
       :setup-only="accountSetupRequired"
-      :history-open="screen === 'history'"
+      :history-open="false"
       :history-inert="!!activeDialog"
       @close="accountDialogOpen = false"
       @profile="onAccountProfile"

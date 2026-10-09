@@ -503,18 +503,22 @@ function completeCurrent(
   if (!meta?.session.claimed) return;
   availableSave.value = false;
   if (
-    !outbox.capture(meta.accountId, {
-      kind: "complete",
-      body: {
-        playId,
-        puzzleId: meta.session.puzzleId,
-        pieces: [...state.pieces],
-        elapsedSeconds: seconds,
-        mistakes: state.mistakes,
-        hintsUsed: state.hintsUsed,
-        maxHintStage: maximumHintStage(state),
+    !outbox.capture(
+      meta.accountId,
+      {
+        kind: "complete",
+        body: {
+          playId,
+          puzzleId: meta.session.puzzleId,
+          pieces: [...state.pieces],
+          elapsedSeconds: seconds,
+          mistakes: state.mistakes,
+          hintsUsed: state.hintsUsed,
+          maxHintStage: maximumHintStage(state),
+        },
       },
-    })
+      meta.session.seedCode,
+    )
   )
     message.value =
       "超級の結果を保存できません。画面を閉じず、保存できる状態で再試行してください。";

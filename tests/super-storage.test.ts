@@ -204,6 +204,22 @@ describe("super per-trial outbox", () => {
       new Set([session.puzzleId]),
     );
     expect(queue.completedIds("b").size).toBe(0);
+    expect(queue.completedRecords("a")).toEqual([]);
+    expect(queue.capture("a", completion, session.seedCode)).toBe(true);
+    expect(queue.completedRecords("a")[0]).toMatchObject({
+      completion: completion.body,
+      seedCode: session.seedCode,
+    });
+    expect(queue.completedRecords("b")).toEqual([]);
+    expect(
+      await queue.flush(
+        "a",
+        () => true,
+        async () => {
+          throw new Error("metadata must not resend a completed trial");
+        },
+      ),
+    ).toBe(0);
     const broken = event();
     queue.capture("a", broken);
     const key = [...values.keys()].find((k) => k.endsWith(broken.body.playId))!;
