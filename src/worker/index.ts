@@ -20,6 +20,21 @@ import {
 } from "./daily";
 import { isDailyDate } from "../core/daily-puzzle";
 import {
+  SuperApiError,
+  getSuperProgress,
+  recordSuperEvent,
+  deferSuperProgress,
+  prepareSuperPuzzle,
+  startSuperAttempt,
+  completeSuperAttempt,
+  listSuperCandidates,
+  listSuperRanking,
+  listSuperHistory,
+  parseSuperEvent,
+  parseSuperStart,
+  parseSuperCompletion,
+} from "./super";
+import {
   RANKING_CONSENT_VERSION,
   validateGameName,
 } from "../core/account-profile";
@@ -30,6 +45,21 @@ const maxWebhookBytes = 65536;
 export default {
   async fetch(request, env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    const superReads = [
+      "/api/super/progress",
+      "/api/super/candidates",
+      "/api/super/ranking",
+      "/api/super/history",
+    ];
+    const superWrites = [
+      "/api/super/event",
+      "/api/super/defer",
+      "/api/super/prepare",
+      "/api/super/start",
+      "/api/super/complete",
+    ];
+    const isSuper =
+      superReads.includes(pathname) || superWrites.includes(pathname);
     if (pathname.startsWith("/api/leaderboards/")) {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -121,7 +151,8 @@ export default {
       pathname !== "/api/daily" &&
       pathname !== "/api/daily/start" &&
       pathname !== "/api/daily/complete" &&
-      pathname !== "/api/daily/ranking"
+      pathname !== "/api/daily/ranking" &&
+      !isSuper
     ) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
@@ -134,13 +165,17 @@ export default {
     const isNextPuzzle = pathname === "/api/next-puzzle";
     const isDailyWrite =
       pathname === "/api/daily/start" || pathname === "/api/daily/complete";
-    const allowedMethods = isAccountDeletion
-      ? ["DELETE"]
-      : isPuzzleCreation || isDailyWrite
-        ? ["POST"]
-        : isDailyRead || isNextPuzzle
-          ? ["GET"]
-          : ["GET", "POST"];
+    const allowedMethods = isSuper
+      ? superReads.includes(pathname)
+        ? ["GET"]
+        : ["POST"]
+      : isAccountDeletion
+        ? ["DELETE"]
+        : isPuzzleCreation || isDailyWrite
+          ? ["POST"]
+          : isDailyRead || isNextPuzzle
+            ? ["GET"]
+            : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: allowedMethods.join(", "),
@@ -169,6 +204,90 @@ export default {
       });
       const accountId = auth.isAuthenticated ? auth.toAuth().userId : null;
       if (!accountId) return json({ error: "unauthorized" }, 401);
+
+      if (isSuper) {
+        if (!(await getAccountProfile(env.DB, accountId)))
+          return json({ error: "profile_required" }, 403);
+        if (pathname === "/api/super/progress")
+          return json({ progress: await getSuperProgress(env.DB, accountId) });
+        if (pathname === "/api/super/candidates")
+          return json({
+            candidates: await listSuperCandidates(env.DB, accountId),
+          });
+        if (pathname === "/api/super/history")
+          return json({ plays: await listSuperHistory(env.DB, accountId) });
+        if (pathname === "/api/super/ranking")
+          return json({
+            entries: await listSuperRanking(
+              env.DB,
+              accountId,
+              new URL(request.url).searchParams.get("puzzleId") ?? "",
+            ),
+          });
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let body: unknown;
+        try {
+          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        if (pathname === "/api/super/event")
+          return json({
+            progress: await recordSuperEvent(
+              env.DB,
+              accountId,
+              parseSuperEvent(body),
+              Date.now(),
+            ),
+          });
+        if (pathname === "/api/super/start")
+          return json({
+            status: await startSuperAttempt(
+              env.DB,
+              accountId,
+              parseSuperStart(body),
+              Date.now(),
+            ),
+          });
+        if (pathname === "/api/super/complete")
+          return json({
+            status: await completeSuperAttempt(
+              env.DB,
+              accountId,
+              parseSuperCompletion(body),
+              Date.now(),
+            ),
+          });
+        const value = body as Record<string, unknown> | null;
+        if (pathname === "/api/super/defer") {
+          if (
+            !value ||
+            !Number.isSafeInteger(value.cycle) ||
+            (value.cycle as number) < 0
+          )
+            return json({ error: "invalid_cycle" }, 400);
+          return json({
+            progress: await deferSuperProgress(
+              env.DB,
+              accountId,
+              value.cycle as number,
+            ),
+          });
+        }
+        if (!value || typeof value.seedCode !== "string")
+          return json({ error: "invalid_seed" }, 400);
+        return json({
+          puzzle: await prepareSuperPuzzle(
+            env.DB,
+            accountId,
+            value.seedCode,
+            Date.now(),
+          ),
+        });
+      }
 
       if (isNextPuzzle) {
         const difficulty = new URL(request.url).searchParams.get("difficulty");
@@ -353,6 +472,14 @@ export default {
         ? json({ error: "play_id_conflict" }, 409)
         : json({ status: outcome }, outcome === "created" ? 201 : 200);
     } catch (error) {
+      if (error instanceof SuperApiError)
+        return json(
+          { error: error.code },
+          error.status,
+          error.status === 429 ? { "Retry-After": "60" } : {},
+        );
+      if (String(error).includes("super_rate_limited"))
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       if (String(error).includes("play_rate_limited"))
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       console.error(

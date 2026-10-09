@@ -5,6 +5,7 @@ import { puzzleId } from "./puzzle-identity";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
+import { SUPER_GENERATOR_VERSION, isSuperSeed } from "./super-puzzle";
 
 export interface SharedPuzzleSnapshot {
   readonly id: string;
@@ -68,9 +69,13 @@ export async function restoreSharedPuzzleSnapshot(
     typeof snapshot.generatorVersion !== "string" ||
     !/^[a-z0-9-]{1,32}$/.test(snapshot.generatorVersion) ||
     (size === DAILY_BOARD_SIZE &&
-      (snapshot.generatorVersion !== DAILY_GENERATOR_VERSION ||
-        snapshot.difficulty !== "hard" ||
-        !isDailyDate(snapshot.seed)))
+      (snapshot.difficulty !== "hard" ||
+        !(
+          (snapshot.generatorVersion === DAILY_GENERATOR_VERSION &&
+            isDailyDate(snapshot.seed)) ||
+          (snapshot.generatorVersion === SUPER_GENERATOR_VERSION &&
+            isSuperSeed(snapshot.seed))
+        )))
   ) {
     throw new Error("Invalid shared puzzle.");
   }
