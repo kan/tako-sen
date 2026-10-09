@@ -23,11 +23,17 @@ export function isDailyDate(value: string): boolean {
  * problem for the other eight pieces. */
 export function generateDailyPuzzle(date: string): Puzzle {
   if (!isDailyDate(date)) throw new Error("Invalid daily date.");
+  return generateTenBySeed(date, DAILY_GENERATOR_VERSION);
+}
+
+/** Versioned construction shared with super challenges. Keeping the source seed
+ * prefix preserves every daily-v1 board when adding a new challenge mode. */
+export function generateTenBySeed(seed: string, version: string): Puzzle {
   for (let sourceIndex = 0; sourceIndex < 4; sourceIndex += 1) {
     const source = generatePuzzle({
       version: "g2",
       difficulty: "hard",
-      seed: `daily-v1:${date}:${sourceIndex}`,
+      seed: `${version}:${seed}:${sourceIndex}`,
     });
     for (let firstRow = 1; firstRow < 8; firstRow += 1) {
       for (let secondRow = firstRow + 2; secondRow < 10; secondRow += 1) {
@@ -36,10 +42,11 @@ export function generateDailyPuzzle(date: string): Puzzle {
             for (const swapped of [false, true]) {
               const puzzle = expandPuzzle(
                 source,
-                date,
+                seed,
                 [firstRow, secondRow],
                 [firstCol, secondCol],
                 swapped,
+                version,
               );
               if (!validateSolution(puzzle).valid) continue;
               if (solvePuzzle(puzzle, { maxSolutions: 2 }).status !== "unique")
@@ -52,7 +59,7 @@ export function generateDailyPuzzle(date: string): Puzzle {
       }
     }
   }
-  throw new Error("Could not build a hard daily puzzle.");
+  throw new Error("Could not build a hard 10×10 puzzle.");
 }
 
 function expandPuzzle(
@@ -61,6 +68,7 @@ function expandPuzzle(
   addedRows: readonly [number, number],
   addedCols: readonly [number, number],
   swapped: boolean,
+  version: string,
 ): Puzzle {
   const size = DAILY_BOARD_SIZE;
   const rows = Array.from({ length: size }, (_, row) => row).filter(
@@ -99,6 +107,6 @@ function expandPuzzle(
     givens: extraPieces,
     seed: date,
     difficulty: "hard",
-    generatorVersion: DAILY_GENERATOR_VERSION,
+    generatorVersion: version,
   };
 }

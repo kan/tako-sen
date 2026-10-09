@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   generateDailyPuzzle,
   dailyDate,
@@ -16,6 +17,28 @@ import {
 } from "../src/ui/region-visuals";
 
 describe("daily challenge puzzle", () => {
+  it.each([
+    [
+      "2026-10-02",
+      "36acebbc445b8ad04c12bc7bb6c74a7cd1e5bde064df5ea4fdc213b0bb0c3a8a",
+    ],
+    [
+      "2026-10-03",
+      "13ae02083ea374cf47a1b64d7c62dd5efb1bc04f3bda998526eb03805821d81e",
+    ],
+    [
+      "2026-10-09",
+      "904a4a64a956b4b51cd404b7218a717e1762aa2ee77d60a8ce9bd4fcdee30b29",
+    ],
+  ])("preserves the frozen daily-v1 board for %s", (date, expected) => {
+    // Hashes were verified against the pre-super implementation, not just a
+    // second call to the new shared constructor.
+    const hash = createHash("sha256")
+      .update(JSON.stringify(generateDailyPuzzle(date)))
+      .digest("hex");
+    expect(hash).toBe(expected);
+  });
+
   it("uses Japan midnight as its date boundary", () => {
     expect(dailyDate(Date.parse("2026-10-01T14:59:59Z"))).toBe("2026-10-01");
     expect(dailyDate(Date.parse("2026-10-01T15:00:00Z"))).toBe("2026-10-02");
