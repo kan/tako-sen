@@ -527,6 +527,9 @@ describe("board pointer input", () => {
       class: "tako",
     });
     expect(cell(index).props["aria-label"]).toContain("piece");
+    expect(cell(index).props.class).toContain("is-feedback-piece-place");
+    expect(cell(index).props.class).not.toContain("is-holding");
+    expect(cell(index).props.class).not.toContain("is-pressed");
   });
 
   it("renders the same SVG at the center of each tutorial piece cell", () => {
