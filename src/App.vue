@@ -1872,14 +1872,6 @@ function formatElapsed(seconds: number): string {
         class="actions"
         :inert="waitingToStart || !!activeDialog"
       >
-        <label v-if="!isSpecial" class="difficulty-select">
-          難易度
-          <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
-            <option value="easy">初級</option>
-            <option value="normal">中級</option>
-            <option value="hard">上級</option>
-          </select>
-        </label>
         <button
           v-if="canShowHint(complete)"
           type="button"
@@ -1920,49 +1912,67 @@ function formatElapsed(seconds: number): string {
         >
           <UiIcon name="ranking" />
         </button>
-        <span v-if="nextPuzzleLoading" role="status"
-          >次の問題を選んでいます。</span
-        >
       </section>
 
-      <SuperChallenge
-        v-if="onlineAuthEnabled"
-        ref="superChallengeRef"
-        :puzzle="puzzle"
-        :play-id="playId"
-        :complete="complete"
-        :game-name="onlineGameName"
-        :play-screen="screen === 'play'"
-        :history-open="false"
-        :modal-blocked="!!activeDialog"
-        @start="startSuper"
-        @pause="pauseGame"
-        @account="accountDialogOpen = true"
-        @opened="onSuperOpened"
-        @closed="onSuperClosed"
-        @synced="rankingRevision += 1"
-      />
+      <div v-show="screen === 'play'" class="play-options">
+        <label
+          v-if="!isSpecial"
+          class="difficulty-select"
+          :inert="waitingToStart || !!activeDialog"
+        >
+          難易度
+          <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
+            <option value="easy">初級</option>
+            <option value="normal">中級</option>
+            <option value="hard">上級</option>
+          </select>
+        </label>
+        <SuperChallenge
+          v-if="onlineAuthEnabled"
+          ref="superChallengeRef"
+          :puzzle="puzzle"
+          :play-id="playId"
+          :complete="complete"
+          :game-name="onlineGameName"
+          :play-screen="screen === 'play'"
+          :history-open="false"
+          :modal-blocked="!!activeDialog"
+          @start="startSuper"
+          @pause="pauseGame"
+          @account="accountDialogOpen = true"
+          @opened="onSuperOpened"
+          @closed="onSuperClosed"
+          @synced="rankingRevision += 1"
+        />
 
-      <DailyChallenge
-        v-if="onlineAuthEnabled && screen === 'play'"
-        ref="dailyChallengeRef"
-        :inert="!!activeDialog"
-        :active-date="activeDailyDate"
-        :active-account-id="activeDailyAccountId"
-        :puzzle="puzzle"
-        :state="state"
-        :play-id="playId"
-        :elapsed-seconds="displayedElapsedSeconds"
-        :complete="complete"
-        :game-name="onlineGameName"
-        @start="startDaily"
-        @account="accountDialogOpen = true"
-        @panel-opened="dailyPanelOpen = true"
-        @panel-closed="dailyPanelOpen = false"
-        @ranking-opened="dailyRankingOpen = true"
-        @ranking-closed="onDailyRankingClosed"
-        @synced="rankingRevision += 1"
-      />
+        <DailyChallenge
+          v-if="onlineAuthEnabled && screen === 'play'"
+          ref="dailyChallengeRef"
+          :inert="!!activeDialog"
+          :active-date="activeDailyDate"
+          :active-account-id="activeDailyAccountId"
+          :puzzle="puzzle"
+          :state="state"
+          :play-id="playId"
+          :elapsed-seconds="displayedElapsedSeconds"
+          :complete="complete"
+          :game-name="onlineGameName"
+          @start="startDaily"
+          @account="accountDialogOpen = true"
+          @panel-opened="dailyPanelOpen = true"
+          @panel-closed="dailyPanelOpen = false"
+          @ranking-opened="dailyRankingOpen = true"
+          @ranking-closed="onDailyRankingClosed"
+          @synced="rankingRevision += 1"
+        />
+      </div>
+      <p
+        v-if="screen === 'play' && nextPuzzleLoading"
+        class="play-footer-message"
+        role="status"
+      >
+        次の問題を選んでいます。
+      </p>
     </div>
 
     <div

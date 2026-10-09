@@ -517,17 +517,52 @@ h1 {
 }
 
 .play-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
   margin-top: 12px;
 }
 
 .play-footer > .actions {
-  flex: 1;
   margin: 0;
+}
+
+.play-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.play-options > .difficulty-select {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.play-options > .super-entry {
+  display: contents;
+}
+
+.play-options .super-progress {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.play-options .super-challenge-button {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.play-options > .daily-entry {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.play-options .super-entry > p[role="status"],
+.play-footer-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
 }
 
 .daily-entry,

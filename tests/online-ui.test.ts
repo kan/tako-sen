@@ -509,6 +509,22 @@ describe("board pointer input", () => {
     expect(localStorage.getItem("tako-sen:auto-exclusions-enabled")).toBe("0");
   });
 
+  it("keeps difficulty selection in a separate row below board actions", async () => {
+    const { container } = await setup();
+    const actions = find(container, (n) => n.props.class === "actions")!;
+    const options = find(container, (n) => n.props.class === "play-options")!;
+    expect(actions).toBeDefined();
+    expect(options).toBeDefined();
+    expect(find(actions, (n) => n.tag === "select")).toBeUndefined();
+    expect(find(options, (n) => n.tag === "select")).toBeDefined();
+    expect(
+      find(actions, (n) => n.props["aria-label"] === "ヒント"),
+    ).toBeDefined();
+    expect(
+      find(options, (n) => n.props["aria-label"] === "ヒント"),
+    ).toBeUndefined();
+  });
+
   it("renders placed pieces with the shared decorative SVG instead of emoji", async () => {
     const { saved, send, cell } = await setup();
     const index = saved().puzzle.solution[0];
