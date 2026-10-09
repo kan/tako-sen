@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRenderer, h, nextTick, ref, type Ref } from "vue";
 import AccountHistory from "../src/ui/AccountHistory.vue";
 import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
+import DailyChallenge from "../src/ui/DailyChallenge.vue";
 import Tutorial from "../src/ui/Tutorial.vue";
 import InteractiveTutorial from "../src/ui/InteractiveTutorial.vue";
 import TutorialBoard from "../src/ui/TutorialBoard.vue";
@@ -9,6 +10,7 @@ import App from "../src/App.vue";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
 import type { Puzzle } from "../src/core/model";
+import { createInitialPlayerState } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
 import { audioDevice } from "./audio-device";
 import { LONG_PRESS_MS } from "../src/ui/pointer";
@@ -114,7 +116,9 @@ function node(tag = "root", text = ""): HostNode {
     focus: vi.fn(),
   };
 }
+let teleportBody: HostNode | null = null;
 const renderer = createRenderer<HostNode, HostNode>({
+  querySelector: (selector) => (selector === "body" ? teleportBody : null),
   createElement: (tag) => node(tag),
   createText: (text) => node("text", text),
   createComment: (text) => node("comment", text),
@@ -166,6 +170,7 @@ function root(): HostNode {
 }
 let request: ReturnType<typeof vi.fn>;
 beforeEach(() => {
+  teleportBody = null;
   auth.user!.value = "ui-account";
   const data = new Map([
     [
@@ -1516,6 +1521,65 @@ describe("interactive tutorial", () => {
   });
 });
 
+describe("daily leaderboard layout", () => {
+  it("keeps the name and self label in one of four columns for every participant", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    const longName = "🐙".repeat(20);
+    request.mockResolvedValue(
+      Response.json({
+        entries: [longName, "別の参加者"].map((displayName, index) => ({
+          rank: index + 1,
+          displayName,
+          isSelf: index === 0,
+          elapsedSeconds: 60,
+          hintsUsed: 0,
+          mistakes: 0,
+        })),
+      }),
+    );
+    teleportBody = root();
+    const body = teleportBody;
+    const container = root();
+    const challenge = ref<{ openRanking: (date: string) => Promise<void> }>();
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(DailyChallenge, {
+            ref: challenge,
+            puzzle,
+            state: createInitialPlayerState(0),
+            elapsedSeconds: 0,
+            complete: false,
+            gameName: longName,
+          }),
+      }),
+      container,
+    );
+    await challenge.value!.openRanking("2026-10-09");
+    await nextTick();
+    const list = find(body, (n) => n.tag === "ol")!;
+    const rows = list.children.filter((n) => n.tag === "li");
+    expect(rows).toHaveLength(2);
+    for (const [index, row] of rows.entries()) {
+      const main = find(row, (n) => n.props.class === "ranking-score-main")!;
+      const columns = main.children.filter((n) => n.tag !== "comment");
+      expect(columns).toHaveLength(4);
+      expect(columns[0].text).toBe(`${index + 1}位`);
+      expect(columns[1].props.class).toBe("ranking-name");
+      expect(
+        find(columns[1], (n) => n.props.class === "game-name"),
+      ).toBeDefined();
+      const label = find(columns[1], (n) => n.props.class === "ranking-you");
+      if (index === 0) expect(label?.text).toBe("あなた");
+      else expect(label).toBeUndefined();
+      expect(columns[2].text).toBe("9940点");
+      expect(columns[3].props.class).toBe("ranking-time");
+      expect(columns[3].text).toBe("60秒");
+      expect(row.props.class).toBe(index === 0 ? "daily-self" : "");
+    }
+  });
+});
+
 describe("public leaderboard dialog", () => {
   it("highlights only the signed-in game name and updates on account changes", async () => {
     request.mockImplementation(async () =>
@@ -1545,6 +1609,12 @@ describe("public leaderboard dialog", () => {
       );
     await render("🐙タコ");
     expect(self()).toBeDefined();
+    const main = find(self()!, (n) => n.props.class === "ranking-score-main")!;
+    expect(main.children.filter((n) => n.tag !== "comment")).toHaveLength(4);
+    const name = find(main, (n) => n.props.class === "ranking-name")!;
+    expect(find(name, (n) => n.props.class === "ranking-you")?.text).toBe(
+      "あなた",
+    );
     expect(find(self()!, (n) => n.props.class === "ranking-you")?.text).toBe(
       "あなた",
     );

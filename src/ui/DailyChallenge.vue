@@ -414,8 +414,12 @@ onUnmounted(() => {
             >
               <div class="ranking-score-main">
                 <strong class="ranking-place">{{ entry.rank }}位</strong>
-                <GameName :name="entry.displayName" />
-                <strong v-if="entry.isSelf" class="ranking-you">あなた</strong>
+                <div class="ranking-name">
+                  <GameName :name="entry.displayName" />
+                  <strong v-if="entry.isSelf" class="ranking-you"
+                    >あなた</strong
+                  >
+                </div>
                 <strong>{{ rankingScore(entry) }}点</strong>
                 <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
               </div>
