@@ -50,6 +50,7 @@ const emit = defineEmits<{
   account: [];
   opened: [];
   closed: [];
+  synced: [];
 }>();
 const { userId, isLoaded, isSignedIn, getToken } = useAuth();
 const account = computed(() =>
@@ -232,6 +233,7 @@ async function retry(): Promise<void> {
     );
     if (sent && current(id, generation)) {
       revision.value += 1;
+      emit("synced");
       message.value = "";
     }
     if (current(id, generation)) await refresh();

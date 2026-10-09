@@ -83,7 +83,6 @@ import {
   saveResultHistory,
 } from "./core/storage";
 import {
-  compareCompletedPlayScores,
   finishPlay,
   hasPlayerMarks,
   playerMarksChanged,
@@ -306,16 +305,53 @@ const currentRanking = computed(() =>
     ? sameSeedRanking(resultHistory.value, puzzleSeedCode.value)
     : [],
 );
-const currentRank = computed(() => {
-  const current = currentRanking.value.find(
-    (result) => result.id === playId.value,
-  );
-  return current
-    ? currentRanking.value.findIndex(
-        (result) => compareCompletedPlayScores(result, current) === 0,
-      ) + 1
-    : 0;
-});
+const clearRanking = ref("— / —");
+let clearRankingGeneration = 0;
+watch(
+  () => [
+    activeDialog.value,
+    puzzle.value,
+    rankingRevision.value,
+    onlineGameName.value,
+    onlineAuth?.userId.value,
+    onlineAuth?.isSignedIn.value,
+  ],
+  async () => {
+    const generation = ++clearRankingGeneration;
+    clearRanking.value = "— / —";
+    if (activeDialog.value !== "clear") return;
+    try {
+      const id = await puzzleId(puzzle.value);
+      const special = isSpecial.value;
+      const token = special ? await onlineAuth?.getToken.value() : undefined;
+      if (special && !token) return;
+      const path = isDaily.value
+        ? `/api/daily/ranking?date=${encodeURIComponent(activeDailyDate.value ?? "")}`
+        : isSuper.value
+          ? `/api/super/ranking?puzzleId=${encodeURIComponent(id)}`
+          : `/api/leaderboards/${encodeURIComponent(id)}`;
+      if (generation !== clearRankingGeneration) return;
+      const response = await fetch(path, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        entries?: { rank: number; displayName: string; isSelf?: boolean }[];
+      };
+      if (generation !== clearRankingGeneration || !Array.isArray(data.entries))
+        return;
+      const self = data.entries.find((entry) =>
+        special
+          ? entry.isSelf
+          : !!onlineGameName.value &&
+            entry.displayName === onlineGameName.value,
+      );
+      clearRanking.value = `${self?.rank ?? "—"} / ${data.entries.length}`;
+    } catch {
+      /* Rankings are optional; never substitute a local rank. */
+    }
+  },
+);
 const userSummary = computed(() =>
   resultHistory.value ? summarizeUser(resultHistory.value) : undefined,
 );
@@ -973,7 +1009,7 @@ async function copySeed(): Promise<void> {
     seedMessage.value = "シードをコピーしました。";
   } catch {
     seedMessage.value =
-      "コピーできませんでした。シードを手動で選択してください。";
+      "コピーできませんでした。設定のシード表示から手動でコピーしてください。";
   }
 }
 
@@ -1881,6 +1917,7 @@ function formatElapsed(seconds: number): string {
         @account="accountDialogOpen = true"
         @opened="onSuperOpened"
         @closed="onSuperClosed"
+        @synced="rankingRevision += 1"
       />
 
       <DailyChallenge
@@ -1901,6 +1938,7 @@ function formatElapsed(seconds: number): string {
         @panel-closed="dailyPanelOpen = false"
         @ranking-opened="dailyRankingOpen = true"
         @ranking-closed="onDailyRankingClosed"
+        @synced="rankingRevision += 1"
       />
     </div>
 
@@ -2192,19 +2230,22 @@ function formatElapsed(seconds: number): string {
         tabindex="-1"
         @keydown="onDialogKeydown"
       >
-        <p class="clear-badge">CLEAR</p>
-        <h2 id="clear-title">クリアしました！</h2>
+        <h2 id="clear-title" class="clear-badge">CLEAR</h2>
         <dl class="result-list">
           <div>
-            <dt>難易度</dt>
-            <dd>{{ actualDifficultyLabel }}</dd>
+            <dt>
+              <UiIcon name="difficulty" /><span class="sr-only">難易度</span>
+            </dt>
+            <dd :title="actualDifficultyLabel">
+              {{ isSuper ? "超級" : isDaily ? "上級" : actualDifficultyLabel }}
+            </dd>
           </div>
-          <div>
-            <dt>時間</dt>
+          <div class="result-primary">
+            <dt><UiIcon name="clock" /><span class="sr-only">時間</span></dt>
             <dd>{{ formatElapsed(displayedElapsedSeconds) }}</dd>
           </div>
-          <div>
-            <dt>スコア</dt>
+          <div class="result-primary">
+            <dt><UiIcon name="score" /><span class="sr-only">スコア</span></dt>
             <dd>
               {{
                 rankingScore({
@@ -2212,74 +2253,94 @@ function formatElapsed(seconds: number): string {
                   mistakes: state.mistakes,
                   hintsUsed: state.hintsUsed,
                 })
-              }}点
+              }}
             </dd>
           </div>
           <div>
-            <dt>ミス</dt>
+            <dt><UiIcon name="mistake" /><span class="sr-only">ミス</span></dt>
             <dd>{{ state.mistakes }}</dd>
           </div>
           <div>
-            <dt>ヒント</dt>
-            <dd>{{ state.hintsUsed }}回（{{ hintStageLabel(state) }}）</dd>
-          </div>
-          <div>
-            <dt>{{ isDaily ? "日付" : "シード" }}</dt>
-            <dd class="result-seed-row">
-              <span class="result-seed">{{
-                isDaily ? activeDailyDate : puzzleSeedCode
-              }}</span>
-              <button
-                v-if="!isDaily"
-                type="button"
-                class="inline-copy"
-                @click="copyResultSeed"
-              >
-                コピー
-              </button>
-            </dd>
+            <dt><UiIcon name="hint" /><span class="sr-only">ヒント</span></dt>
+            <dd :title="hintStageLabel(state)">{{ state.hintsUsed }}</dd>
           </div>
         </dl>
         <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
           {{ clearDialogMessage }}
         </p>
-        <p v-if="!isSpecial && currentRank > 0">
-          このシードのローカル順位：{{ currentRank }} 位 /
-          {{ currentRanking.length }} 回
-        </p>
-        <label v-if="!isSpecial" class="clear-next-difficulty">
-          次の問題の難易度
-          <select v-model="selectedDifficulty" :disabled="nextPuzzleLoading">
+        <div class="dialog-actions clear-actions">
+          <select
+            v-if="!isSpecial"
+            v-model="selectedDifficulty"
+            aria-label="次の問題の難易度"
+            class="clear-next-difficulty"
+            :disabled="nextPuzzleLoading"
+          >
             <option value="easy">初級</option>
             <option value="normal">中級</option>
             <option value="hard">上級</option>
           </select>
-        </label>
-        <div class="dialog-actions">
           <button
             type="button"
+            class="icon-button"
+            :aria-label="isSpecial ? '通常プレイに戻る' : '次の問題へ'"
+            :title="isSpecial ? '通常プレイに戻る' : '次の問題へ'"
             :disabled="nextPuzzleLoading"
             @click="isSpecial ? leaveDaily() : newGame()"
           >
-            {{ isSpecial ? "通常プレイに戻る" : "次の問題へ" }}
+            <UiIcon name="next" />
           </button>
-          <button v-if="!isSpecial" type="button" @click="resetProgress">
-            もう一度
+          <button
+            v-if="!isSpecial"
+            type="button"
+            class="icon-button"
+            aria-label="もう一度"
+            title="もう一度"
+            @click="resetProgress"
+          >
+            <UiIcon name="reset" />
           </button>
-          <button type="button" @click="closeClearDialog">盤面を見る</button>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="盤面を見る"
+            title="盤面を見る"
+            @click="closeClearDialog"
+          >
+            <UiIcon name="board" />
+          </button>
           <button
             v-if="isDaily"
             type="button"
+            class="icon-button clear-ranking-button"
+            :aria-label="`今日のランキング ${clearRanking}`"
+            title="今日のランキング（取得した公開成績内の順位 / 人数）"
             @click="showDailyRankingFromClear"
           >
-            今日のランキング
+            <UiIcon name="ranking" />
           </button>
           <button
             v-if="!isDaily"
             type="button"
+            class="icon-button clear-ranking-button"
+            :aria-label="`この問題のランキング ${clearRanking}`"
+            title="この問題のランキング（取得した公開成績内の順位 / 人数）"
             @click="isSuper ? showCurrentRanking() : showLeaderboard()"
           >
-            この問題のランキング
+            <UiIcon name="ranking" />
+          </button>
+          <span class="clear-ranking-position" aria-live="polite">{{
+            clearRanking
+          }}</span>
+          <button
+            v-if="!isDaily"
+            type="button"
+            class="icon-button"
+            aria-label="シードをシェア"
+            title="シードをコピー"
+            @click="copyResultSeed"
+          >
+            <UiIcon name="share" />
           </button>
         </div>
       </section>

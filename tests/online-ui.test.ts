@@ -377,9 +377,57 @@ describe("board pointer input", () => {
     }
 
     expect(find(container, (n) => n.props.class === "clear")).toBeDefined();
+    const clearDialog = find(
+      container,
+      (n) => n.props.class === "dialog-card clear-card",
+    )!;
+    expect(
+      find(clearDialog, (n) => n.text === "クリアしました！"),
+    ).toBeUndefined();
+    expect(
+      find(clearDialog, (n) => n.props.class === "result-list")?.children,
+    ).toHaveLength(5);
+    expect(
+      find(clearDialog, (n) => n.props["aria-label"] === "シードをシェア")
+        ?.props.class,
+    ).toContain("icon-button");
+    expect(
+      find(clearDialog, (n) => n.props.class === "result-seed-row"),
+    ).toBeUndefined();
+    expect(
+      find(clearDialog, (n) => n.props.class === "clear-ranking-position"),
+    ).toBeDefined();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    await (
+      find(clearDialog, (n) => n.props["aria-label"] === "シードをシェア")!
+        .props.onClick as () => Promise<void>
+    )();
+    expect(writeText).toHaveBeenCalledWith(encodePuzzleSeed(saved().puzzle));
+    expect(
+      find(clearDialog, (n) => n.text.includes("このシードのローカル順位")),
+    ).toBeUndefined();
+    expect(
+      find(
+        clearDialog,
+        (n) =>
+          n.tag === "select" && n.props["aria-label"] === "次の問題の難易度",
+      ),
+    ).toBeDefined();
+    expect(
+      find(clearDialog, (n) => n.props["aria-label"] === "次の問題へ")?.props
+        .class,
+    ).toBe("icon-button");
+    await vi.waitFor(() =>
+      expect(
+        find(clearDialog, (n) =>
+          String(n.props["aria-label"]).startsWith("この問題のランキング"),
+        )?.props["aria-label"],
+      ).toContain(" / "),
+    );
     const close = find(
       container,
-      (n) => n.tag === "button" && n.text.trim() === "盤面を見る",
+      (n) => n.tag === "button" && n.props["aria-label"] === "盤面を見る",
     )!;
     (close.props.onClick as () => void)();
     await nextTick();

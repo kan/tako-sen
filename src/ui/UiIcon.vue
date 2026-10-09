@@ -10,6 +10,10 @@ defineProps<{
     | "next"
     | "daily"
     | "super"
+    | "copy"
+    | "board"
+    | "score"
+    | "share"
     | "ranking";
 }>();
 </script>
@@ -26,7 +30,25 @@ defineProps<{
     aria-hidden="true"
     focusable="false"
   >
-    <template v-if="name === 'daily'">
+    <template v-if="name === 'share'">
+      <circle cx="5" cy="12" r="3" />
+      <circle cx="19" cy="5" r="3" />
+      <circle cx="19" cy="19" r="3" />
+      <path d="m8 10 8-4M8 14l8 4" />
+    </template>
+    <template v-else-if="name === 'copy'">
+      <rect x="8" y="8" width="13" height="13" rx="2" />
+      <path d="M16 8V3H3v13h5" />
+    </template>
+    <template v-else-if="name === 'board'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
+    </template>
+    <path
+      v-else-if="name === 'score'"
+      d="m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1Z"
+    />
+    <template v-else-if="name === 'daily'">
       <rect x="3" y="5" width="18" height="16" rx="2" />
       <path d="M7 3v4M17 3v4M3 10h18m-13 5 3 3 5-5" />
     </template>

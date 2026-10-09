@@ -39,6 +39,7 @@ const emit = defineEmits<{
   panelClosed: [];
   rankingOpened: [];
   rankingClosed: [];
+  synced: [];
 }>();
 const { getToken, isLoaded, isSignedIn, userId } = useAuth();
 const panelOpen = ref(false);
@@ -252,6 +253,7 @@ async function sendCompletion(
     } catch {
       /* 保存不可 */
     }
+    emit("synced");
     if (panelOpen.value) await refresh();
   } catch {
     message.value = "結果の送信待ちです。接続が戻ると再送します。";
