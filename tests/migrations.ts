@@ -14,6 +14,7 @@ export async function migrateTestDatabase(
     "0005_hint_stage.sql",
     "0006_daily_challenge.sql",
     "0007_super_challenge.sql",
+    "0008_ranking_query_indexes.sql",
   ]) {
     if (file === "0004_automatic_ranking.sql") await beforeAutomaticRanking?.();
     if (file === "0005_hint_stage.sql") await beforeHintStage?.();
