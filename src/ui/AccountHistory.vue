@@ -391,7 +391,7 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
           aria-label="アカウントを閉じる"
           @click="emit('close')"
         >
-          閉じる
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       <p v-if="!isLoaded || profileLoading">オンライン設定を確認しています。</p>

@@ -112,8 +112,13 @@ onUnmounted(() => {
           <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
           <span>{{ props.title ?? "この問題のランキング" }}</span>
         </h2>
-        <button type="button" class="dialog-close" @click="emit('close')">
-          閉じる
+        <button
+          type="button"
+          class="dialog-close"
+          aria-label="ランキングを閉じる"
+          @click="emit('close')"
+        >
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       <p class="ranking-note">

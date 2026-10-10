@@ -369,8 +369,13 @@ onUnmounted(() => {
         >
           <div class="daily-panel-header">
             <h2 id="daily-panel-title">デイリーチャレンジ</h2>
-            <button type="button" class="dialog-close" @click="closePanel">
-              閉じる
+            <button
+              type="button"
+              class="dialog-close"
+              aria-label="デイリーチャレンジを閉じる"
+              @click="closePanel"
+            >
+              <span aria-hidden="true">×</span>
             </button>
           </div>
           <p v-if="message" role="alert">{{ message }}</p>
@@ -406,8 +411,13 @@ onUnmounted(() => {
         >
           <div class="ranking-header">
             <h2 id="daily-ranking-title">今日のランキング</h2>
-            <button type="button" class="dialog-close" @click="closeRanking">
-              閉じる
+            <button
+              type="button"
+              class="dialog-close"
+              aria-label="今日のランキングを閉じる"
+              @click="closeRanking"
+            >
+              <span aria-hidden="true">×</span>
             </button>
           </div>
           <p class="ranking-note">

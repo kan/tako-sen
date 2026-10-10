@@ -429,7 +429,6 @@ h1 {
 }
 
 .actions button,
-.difficulty-select,
 .haptics-toggle {
   border: 2px solid #2a1b14;
   border-radius: 999px;
@@ -869,16 +868,23 @@ h1 {
 }
 
 .actions button {
-  background: #ff8a5b;
+  background: #ffcf70;
   color: #2a1b14;
   font-weight: 800;
 }
 
 .difficulty-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 800;
+  position: relative;
+  display: inline-grid;
+  font-size: 14px;
+}
+
+.difficulty-select > .ui-icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .haptics-toggle {
@@ -895,10 +901,20 @@ h1 {
 }
 
 .difficulty-select select {
-  border: 0;
-  background: transparent;
-  color: inherit;
+  min-height: 44px;
+  border: 2px solid #2a1b14;
+  border-radius: 999px;
+  padding: 6px 10px 6px 38px;
+  background: #fffdf8;
+  color: #2a1b14;
+  box-shadow: 0 2px 0 #2a1b14;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.difficulty-select select:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
 }
 
 .seed-panel,
@@ -1179,6 +1195,29 @@ h1 {
   box-shadow: 0 8px 0 #2a1b14;
 }
 
+.dialog-card,
+.dialog-card * {
+  scrollbar-width: thin;
+  scrollbar-color: #b99c80 transparent;
+}
+
+.dialog-card::-webkit-scrollbar,
+.dialog-card *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dialog-card::-webkit-scrollbar-thumb,
+.dialog-card *::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b99c80;
+}
+
+.dialog-card::-webkit-scrollbar-track,
+.dialog-card *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .dialog-header {
   display: flex;
   align-items: start;
@@ -1200,6 +1239,46 @@ h1 {
   color: #2a1b14;
   font-weight: 800;
   box-shadow: 0 2px 0 #2a1b14;
+}
+
+.dialog-close {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.dialog-close > span {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  font-size: 0;
+}
+
+.dialog-close > span::before,
+.dialog-close > span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.dialog-close > span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.dialog-close:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
 }
 
 .clear-backdrop {
@@ -1244,12 +1323,17 @@ h1 {
   text-align: center;
 }
 
-.clear-next-difficulty {
-  border: 2px solid #2a1b14;
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: #fffdf8;
-  color: #2a1b14;
+.clear-dialog-header {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.clear-dialog-header .clear-badge {
+  grid-column: 2;
+  justify-self: center;
+  margin: 0;
 }
 
 .clear-badge {
@@ -1325,17 +1409,33 @@ h1 {
 }
 
 .dialog-actions.clear-actions {
-  gap: 4px;
+  gap: 8px;
   align-items: center;
+}
+
+.clear-actions > .difficulty-select {
+  margin-right: 8px;
 }
 
 .clear-actions .icon-button {
   padding: 8px;
 }
 
-.clear-ranking-position {
-  font-size: 14px;
-  white-space: nowrap;
+.actions .next-puzzle-button,
+.clear-actions .next-puzzle-button {
+  background: #ff8a5b;
+}
+
+.clear-ranking-preview {
+  margin: 16px 0;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+}
+
+.clear-ranking-preview:focus-visible {
+  outline: 3px solid #2026d2;
+  outline-offset: 2px;
 }
 
 .inline-copy {

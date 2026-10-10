@@ -208,7 +208,7 @@ onUnmounted(() => {
           aria-label="履歴・成績を閉じる"
           @click="emit('close')"
         >
-          閉じる
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       <div class="history-dialog-body">

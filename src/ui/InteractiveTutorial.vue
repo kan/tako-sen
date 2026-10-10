@@ -451,7 +451,7 @@ function onKeydown(event: KeyboardEvent): void {
           aria-label="遊び方を閉じる"
           @click="emit('close')"
         >
-          ×
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       <p v-if="stageNumber" class="tutorial-progress">

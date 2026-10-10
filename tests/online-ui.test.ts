@@ -400,7 +400,7 @@ describe("board pointer input", () => {
     ).toBeUndefined();
     expect(
       find(clearDialog, (n) => n.props.class === "clear-ranking-position"),
-    ).toBeDefined();
+    ).toBeUndefined();
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
     await (
@@ -418,21 +418,44 @@ describe("board pointer input", () => {
           n.tag === "select" && n.props["aria-label"] === "次の問題の難易度",
       ),
     ).toBeDefined();
+    const difficultyControl = find(
+      clearDialog,
+      (n) => n.tag === "label" && n.props.class === "difficulty-select",
+    )!;
+    expect(find(difficultyControl, (n) => n.tag === "svg")).toBeDefined();
+    expect(
+      find(difficultyControl, (n) => n.tag === "select")?.props["aria-label"],
+    ).toBe("次の問題の難易度");
     expect(
       find(clearDialog, (n) => n.props["aria-label"] === "次の問題へ")?.props
         .class,
-    ).toBe("icon-button");
-    await vi.waitFor(() =>
-      expect(
-        find(clearDialog, (n) =>
-          String(n.props["aria-label"]).startsWith("この問題のランキング"),
-        )?.props["aria-label"],
-      ).toContain(" / "),
-    );
-    const close = find(
-      container,
-      (n) => n.tag === "button" && n.props["aria-label"] === "盤面を見る",
+    ).toContain("next-puzzle-button");
+    const rankingPreview = find(
+      clearDialog,
+      (n) => n.props.class === "clear-ranking-preview",
     )!;
+    expect(rankingPreview.props.role).toBe("button");
+    expect(rankingPreview.props.tabindex).toBe("0");
+    (rankingPreview.props.onClick as () => void)();
+    await nextTick();
+    expect(
+      find(container, (n) => n.props.id === "public-leaderboard"),
+    ).toBeDefined();
+    const closeRanking = find(
+      container,
+      (n) => n.props["aria-label"] === "ランキングを閉じる",
+    )!;
+    (closeRanking.props.onClick as () => void)();
+    await nextTick();
+    const close = find(
+      find(clearDialog, (n) => n.props.class === "clear-dialog-header")!,
+      (n) =>
+        n.tag === "button" && n.props["aria-label"] === "クリア結果を閉じる",
+    )!;
+    expect(close).toBeDefined();
+    expect(
+      find(clearDialog, (n) => n.props["aria-label"] === "盤面を見る"),
+    ).toBeUndefined();
     (close.props.onClick as () => void)();
     await nextTick();
     expect(
@@ -516,7 +539,18 @@ describe("board pointer input", () => {
     expect(actions).toBeDefined();
     expect(options).toBeDefined();
     expect(find(actions, (n) => n.tag === "select")).toBeUndefined();
+    expect(
+      find(actions, (n) => n.props["aria-label"] === "新しい問題")?.props.class,
+    ).toContain("next-puzzle-button");
     expect(find(options, (n) => n.tag === "select")).toBeDefined();
+    const difficultyControl = find(
+      options,
+      (n) => n.tag === "label" && n.props.class === "difficulty-select",
+    )!;
+    expect(find(difficultyControl, (n) => n.tag === "svg")).toBeDefined();
+    expect(
+      find(difficultyControl, (n) => n.tag === "select")?.props["aria-label"],
+    ).toBe("難易度");
     expect(
       find(actions, (n) => n.props["aria-label"] === "ヒント"),
     ).toBeDefined();
@@ -1050,11 +1084,21 @@ describe("play screen navigation", () => {
     expect(game().state.maxHintStage).toBe(2);
     await click("次のヒント");
     expect(game().state.maxHintStage).toBe(3);
-    await click("閉じる");
+    const closeButton = find(
+      container,
+      (n) => n.props["aria-label"] === "ヒントを閉じる",
+    )!;
+    expect(
+      find(
+        closeButton,
+        (n) => n.tag === "span" && n.props["aria-hidden"] === "true",
+      )?.text,
+    ).toBe("×");
+    await click("ヒントを閉じる");
     await click("ヒント");
     expect(game().state.maxHintStage).toBe(3);
     expect(game().state.hintsUsed).toBe(1);
-    await click("閉じる");
+    await click("ヒントを閉じる");
     renderer.render(null, container);
     renderer.render(h(App), container);
     await nextTick();
@@ -1075,7 +1119,7 @@ describe("play screen navigation", () => {
     await click("次のヒント");
     await click("次のヒント");
     expect(game().state.maxHintStage).toBe(4);
-    await click("閉じる");
+    await click("ヒントを閉じる");
     const completeSave = game();
     renderer.render(null, container);
     completeSave.state.pieces = completeSave.puzzle.solution;
@@ -2288,7 +2332,7 @@ describe("public leaderboard dialog", () => {
       JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
     expect(game().elapsedMs).toBe(3000);
     now += 60000;
-    await click("閉じる");
+    await click("ランキングを閉じる");
     expect(game().elapsedMs).toBe(3000);
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
@@ -2333,7 +2377,7 @@ describe("public leaderboard dialog", () => {
       find(container, (n) => n.props.class === "screen-header"),
     ).toBeUndefined();
     now += 60000;
-    await click("閉じる");
+    await click("ランキングを閉じる");
     expect(
       find(container, (n) => n.props.id === "public-leaderboard"),
     ).toBeUndefined();
