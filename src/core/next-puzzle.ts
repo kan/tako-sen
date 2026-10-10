@@ -1,3 +1,17 @@
+import type { PuzzleDifficulty } from "./model";
+
+export type DifficultySelection = PuzzleDifficulty | "random";
+
+/** Resolve once per new puzzle so recommendations and fallback use the same difficulty. */
+export function resolveDifficultySelection(
+  selection: DifficultySelection,
+  random: () => number,
+): PuzzleDifficulty {
+  if (selection !== "random") return selection;
+  const difficulties: readonly PuzzleDifficulty[] = ["easy", "normal", "hard"];
+  return difficulties[Math.floor(random() * difficulties.length)]!;
+}
+
 export interface RankedPuzzleCandidate {
   readonly puzzleId: string;
   readonly seedCode: string;

@@ -427,6 +427,12 @@ describe("board pointer input", () => {
       find(difficultyControl, (n) => n.tag === "select")?.props["aria-label"],
     ).toBe("次の問題の難易度");
     expect(
+      find(
+        difficultyControl,
+        (n) => n.tag === "option" && n.props.value === "random",
+      ),
+    ).toBeDefined();
+    expect(
       find(clearDialog, (n) => n.props["aria-label"] === "次の問題へ")?.props
         .class,
     ).toContain("next-puzzle-button");
@@ -557,6 +563,32 @@ describe("board pointer input", () => {
     expect(
       find(options, (n) => n.props["aria-label"] === "ヒント"),
     ).toBeUndefined();
+  });
+
+  it("keeps random selected while generating a concrete normal difficulty", async () => {
+    const { container, saved } = await setup();
+    const select = find(
+      container,
+      (n) => n.tag === "select" && n.props["aria-label"] === "難易度",
+    )!;
+    expect(
+      find(select, (n) => n.tag === "option" && n.props.value === "random"),
+    ).toBeDefined();
+    (select.props["onUpdate:modelValue"] as (value: string) => void)("random");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    await (
+      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+        .onClick as () => Promise<void>
+    )();
+    await nextTick();
+    expect(saved().puzzle.difficulty).toBe("easy");
+    random.mockReturnValue(0.5);
+    await (
+      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+        .onClick as () => Promise<void>
+    )();
+    await nextTick();
+    expect(saved().puzzle.difficulty).toBe("normal");
   });
 
   it("renders placed pieces with the shared decorative SVG instead of emoji", async () => {

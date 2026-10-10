@@ -27,7 +27,6 @@ import {
   cellCoord,
   createInitialPlayerState,
   getCellViewState,
-  type PuzzleDifficulty,
   type PlayerState,
   type Puzzle,
 } from "./core/model";
@@ -44,6 +43,8 @@ import { encodePuzzleSeed, parsePuzzleSeedCode } from "./core/puzzle-code";
 import { puzzleId } from "./core/puzzle-identity";
 import {
   chooseNextPuzzle,
+  resolveDifficultySelection,
+  type DifficultySelection,
   type RankedPuzzleCandidate,
 } from "./core/next-puzzle";
 import { restoreSharedPuzzleSnapshot } from "./core/shared-puzzle";
@@ -168,7 +169,7 @@ const difficultyAnalysis = ref<PuzzleDifficultyAnalysis>(
 const state = ref<PlayerState>(
   createInitialPlayerState(undefined, puzzle.value.givens),
 );
-const selectedDifficulty = ref<PuzzleDifficulty>(
+const selectedDifficulty = ref<DifficultySelection>(
   puzzle.value.difficulty ?? "easy",
 );
 const currentTime = ref(Date.now());
@@ -842,7 +843,10 @@ async function newGame(): Promise<void> {
     return;
   }
   const request = ++nextPuzzleRequest;
-  const difficulty = selectedDifficulty.value;
+  const difficulty = resolveDifficultySelection(
+    selectedDifficulty.value,
+    Math.random,
+  );
   nextPuzzleLoading.value = true;
   let generated;
   let recommendedId: string | undefined;
@@ -1946,6 +1950,7 @@ function formatElapsed(seconds: number): string {
             <option value="easy">初級</option>
             <option value="normal">中級</option>
             <option value="hard">上級</option>
+            <option value="random">ランダム</option>
           </select>
         </label>
         <SuperChallenge
@@ -2406,6 +2411,7 @@ function formatElapsed(seconds: number): string {
               <option value="easy">初級</option>
               <option value="normal">中級</option>
               <option value="hard">上級</option>
+              <option value="random">ランダム</option>
             </select>
           </label>
           <button

@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { chooseNextPuzzle } from "../src/core/next-puzzle";
+import {
+  chooseNextPuzzle,
+  resolveDifficultySelection,
+} from "../src/core/next-puzzle";
+
+describe("random difficulty selection", () => {
+  it("assigns equal thirds to easy, normal and hard", () => {
+    const counts = { easy: 0, normal: 0, hard: 0 };
+    for (let index = 0; index < 300; index++) {
+      counts[resolveDifficultySelection("random", () => (index + 0.5) / 300)]++;
+    }
+    expect(counts).toEqual({ easy: 100, normal: 100, hard: 100 });
+    expect(resolveDifficultySelection("random", () => 0)).toBe("easy");
+    expect(resolveDifficultySelection("random", () => 1 / 3)).toBe("normal");
+    expect(resolveDifficultySelection("random", () => 2 / 3)).toBe("hard");
+    expect(resolveDifficultySelection("random", () => 0.999999)).toBe("hard");
+  });
+  it("keeps explicit selections without drawing randomness", () => {
+    for (const difficulty of ["easy", "normal", "hard"] as const) {
+      expect(
+        resolveDifficultySelection(difficulty, () => {
+          throw new Error("unexpected draw");
+        }),
+      ).toBe(difficulty);
+    }
+  });
+});
 
 const candidates = [
   { puzzleId: "a", seedCode: "A", players: 1 },
