@@ -1942,7 +1942,10 @@ describe("history and results dialog", () => {
     const s = setup();
     await vi.waitFor(() =>
       expect(
-        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+        find(
+          s.container,
+          (n) => n.props["data-seed-code"] === "TAKO:g2:easy:server",
+        ),
       ).toBeDefined(),
     );
     expect(
@@ -1962,7 +1965,10 @@ describe("history and results dialog", () => {
       find(body, (n) => n.props.class === "history-summary-grid")?.children,
     ).toHaveLength(4);
     expect(
-      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+      find(
+        s.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:local",
+      ),
     ).toBeUndefined();
     expect(
       find(s.container, (n) => n.props.class === "history-recent")?.props.open,
@@ -1985,9 +1991,35 @@ describe("history and results dialog", () => {
     await nextTick();
     const seed = find(
       s.container,
-      (n) => n.props.title === encodeSuperSeed("server-super"),
+      (n) => n.props["data-seed-code"] === encodeSuperSeed("server-super"),
     )!;
-    (seed.props.onClick as () => void)();
+    expect(find(seed, (n) => n.tag === "code")).toBeUndefined();
+    expect(find(seed, (n) => n.tag === "details")).toBeUndefined();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const share = find(
+      seed,
+      (n) => n.props["aria-label"] === "シードを共有（コピー）",
+    )!;
+    expect(share.props.class).toBe("icon-button");
+    await (share.props.onClick as () => Promise<void>)();
+    await nextTick();
+    expect(writeText).toHaveBeenCalledWith(encodeSuperSeed("server-super"));
+    expect(
+      find(s.container, (n) => n.text === "シードをコピーしました。"),
+    ).toBeDefined();
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    await (share.props.onClick as () => Promise<void>)();
+    await nextTick();
+    expect(
+      find(s.container, (n) => n.text.includes("クリップボード権限")),
+    ).toBeDefined();
+    (
+      find(
+        s.container,
+        (n) => n.tag === "button" && n.props["aria-label"] === "再挑戦",
+      )!.props.onClick as () => void
+    )();
     expect(s.restore).toHaveBeenCalledWith(encodeSuperSeed("server-super"));
     const dialog = find(
       s.container,
@@ -2003,7 +2035,10 @@ describe("history and results dialog", () => {
     const s = setup();
     await vi.waitFor(() =>
       expect(
-        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+        find(
+          s.container,
+          (n) => n.props["data-seed-code"] === "TAKO:g2:easy:server",
+        ),
       ).toBeDefined(),
     );
     Object.assign(navigator, { onLine: false });
@@ -2016,22 +2051,34 @@ describe("history and results dialog", () => {
     listener("offline")(new Event("offline"));
     await nextTick();
     expect(
-      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+      find(
+        s.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:local",
+      ),
     ).toBeDefined();
     expect(
-      find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+      find(
+        s.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:server",
+      ),
     ).toBeUndefined();
     Object.assign(navigator, { onLine: true });
     listener("online")(new Event("online"));
     await vi.waitFor(() =>
       expect(
-        find(s.container, (n) => n.props.title === "TAKO:g2:easy:server"),
+        find(
+          s.container,
+          (n) => n.props["data-seed-code"] === "TAKO:g2:easy:server",
+        ),
       ).toBeDefined(),
     );
     s.account.value = undefined;
     await nextTick();
     expect(
-      find(s.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+      find(
+        s.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:local",
+      ),
     ).toBeDefined();
   });
   it("rejects late history from the previous account and clearly reports retrieval errors", async () => {
@@ -2048,7 +2095,10 @@ describe("history and results dialog", () => {
     pending[3]({ plays: [] });
     await vi.waitFor(() =>
       expect(
-        find(s.container, (n) => n.props.title === "TAKO:g2:easy:new"),
+        find(
+          s.container,
+          (n) => n.props["data-seed-code"] === "TAKO:g2:easy:new",
+        ),
       ).toBeDefined(),
     );
     pending[0]({ plays: [record("old")] });
@@ -2056,7 +2106,10 @@ describe("history and results dialog", () => {
     await nextTick();
     await nextTick();
     expect(
-      find(s.container, (n) => n.props.title === "TAKO:g2:easy:old"),
+      find(
+        s.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:old",
+      ),
     ).toBeUndefined();
     const failed = setup(
       vi.fn(async () => {
@@ -2071,7 +2124,10 @@ describe("history and results dialog", () => {
       ).toBeDefined(),
     );
     expect(
-      find(failed.container, (n) => n.props.title === "TAKO:g2:easy:local"),
+      find(
+        failed.container,
+        (n) => n.props["data-seed-code"] === "TAKO:g2:easy:local",
+      ),
     ).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import { SuperOutbox } from "../core/super-outbox";
 import { isComplete } from "../core/rules";
 import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
+import UiIcon from "./UiIcon.vue";
 
 const props = defineProps<{
   open: boolean;
@@ -37,6 +38,30 @@ const remote = ref<HistoryPlay[]>([]);
 const localSupers = ref<HistoryPlay[]>([]);
 const busy = ref(false);
 const message = ref("");
+const copyMessage = ref("");
+const dateFormat = new Intl.DateTimeFormat("ja-JP", {
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+async function copySeed(seedCode: string): Promise<void> {
+  const current = generation;
+  try {
+    await navigator.clipboard.writeText(seedCode);
+    if (current === generation) copyMessage.value = "シードをコピーしました。";
+  } catch {
+    if (current === generation)
+      copyMessage.value =
+        "コピーできませんでした。ブラウザのクリップボード権限を確認して再試行してください。";
+  }
+}
+watch(
+  () => [props.open, props.accountId, selected.value, online.value],
+  () => {
+    copyMessage.value = "";
+  },
+);
 let generation = 0;
 const records = computed(() =>
   online.value
@@ -302,29 +327,64 @@ onUnmounted(() => {
           <details :key="selected" class="history-recent">
             <summary>最近のプレイ（{{ view.recent.length }}件）</summary>
             <ul>
-              <li v-for="play in view.recent" :key="play.id">
-                <button
-                  type="button"
-                  class="history-seed"
-                  :title="play.seedCode"
-                  @click="emit('restore', play.seedCode)"
-                >
-                  <code>{{ play.seedCode }}</code></button
-                ><span v-if="play.completed"
-                  >{{ seconds(play.elapsedSeconds!) }} ·
-                  {{
-                    rankingScore({
-                      elapsedSeconds: play.elapsedSeconds!,
-                      mistakes: play.mistakes ?? 0,
-                      hintsUsed: play.hintsUsed ?? 0,
-                    })
-                  }}点 · ミス{{ play.mistakes }} · ヒント{{
-                    play.hintsUsed
-                  }}</span
-                ><span v-else>プレイ中</span>
+              <li
+                v-for="play in view.recent"
+                :key="play.id"
+                :data-seed-code="play.seedCode"
+              >
+                <div v-if="play.completed" class="history-record-result">
+                  <strong
+                    :aria-label="`タイム ${seconds(play.elapsedSeconds!)}`"
+                    ><UiIcon name="clock" />{{
+                      seconds(play.elapsedSeconds!)
+                    }}</strong
+                  >
+                  <strong
+                    ><UiIcon name="score" /><span class="sr-only">スコア </span>
+                    {{
+                      rankingScore({
+                        elapsedSeconds: play.elapsedSeconds!,
+                        mistakes: play.mistakes ?? 0,
+                        hintsUsed: play.hintsUsed ?? 0,
+                      })
+                    }}点</strong
+                  >
+                </div>
+                <strong v-else>プレイ中</strong>
+                <p class="history-record-meta">
+                  <time :datetime="new Date(play.playedAt).toISOString()">{{
+                    dateFormat.format(play.playedAt)
+                  }}</time>
+                  <template v-if="play.completed">
+                    · ミス{{ play.mistakes }} · ヒント{{
+                      play.hintsUsed
+                    }}</template
+                  >
+                </p>
+                <div class="dialog-actions history-record-actions">
+                  <button
+                    type="button"
+                    class="icon-button"
+                    aria-label="再挑戦"
+                    title="再挑戦"
+                    @click="emit('restore', play.seedCode)"
+                  >
+                    <UiIcon name="reset" />
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-button"
+                    aria-label="シードを共有（コピー）"
+                    title="シードを共有（コピー）"
+                    @click="copySeed(play.seedCode)"
+                  >
+                    <UiIcon name="share" />
+                  </button>
+                </div>
               </li>
             </ul>
           </details>
+          <p v-if="copyMessage" role="status">{{ copyMessage }}</p>
         </section>
       </div>
     </section>
