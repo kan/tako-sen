@@ -24,7 +24,7 @@ import {
 } from "../src/core/storage";
 import { generatePuzzle } from "../src/core/generator";
 import { SyncOutbox } from "../src/core/sync-outbox";
-import { analyzeOnlineHistory } from "../src/core/online-stats";
+import { compareRankingScores } from "../src/core/ranking-score";
 
 function storage(): KeyValueStorage {
   const values = new Map<string, string>();
@@ -111,9 +111,7 @@ describe("maximum hint disclosure", () => {
       mistakes: 0,
       maxHintStage: play.maxHintStage,
     }));
-    expect(analyzeOnlineHistory(online).puzzleBests[0].best.playId).toBe(
-      "unknown",
-    );
+    expect(online.sort(compareRankingScores)[0].playId).toBe("unknown");
   });
 });
 

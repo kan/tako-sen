@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { useAuth } from "@clerk/vue";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import GameName from "./GameName.vue";
-import { hintStageLabel } from "../core/hint-progress";
-import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
-import {
-  createCompletedPlayUpload,
-  type OnlinePlay,
-} from "../core/online-history";
-import { analyzeOnlineHistory } from "../core/online-stats";
+import { createCompletedPlayUpload } from "../core/online-history";
 import {
   RANKING_CONSENT_VERSION,
   validateGameName,
@@ -18,15 +12,12 @@ import {
   type AccountProfile,
 } from "../core/account-profile";
 import { SyncOutbox } from "../core/sync-outbox";
-import type { PuzzleDifficulty } from "../core/model";
 import type { PlayResult } from "../core/results";
 
 const props = defineProps<{
   plays: readonly PlayResult[];
   open: boolean;
   setupOnly?: boolean;
-  historyOpen?: boolean;
-  historyInert?: boolean;
 }>();
 const emit = defineEmits<{
   synced: [];
@@ -46,28 +37,6 @@ const profile = ref<AccountProfile | null>(null);
 const profileLoading = ref(false);
 const gameName = ref("");
 const consent = ref(false);
-const onlinePlays = ref<OnlinePlay[]>([]);
-const selectedDifficulty = ref<"all" | PuzzleDifficulty>("all");
-const selectedPeriod = ref<"all" | "7" | "30">("all");
-const searchQuery = ref("");
-const asOf = ref(Date.now());
-const historyView = computed(() =>
-  analyzeOnlineHistory(onlinePlays.value, {
-    difficulty:
-      selectedDifficulty.value === "all" ? undefined : selectedDifficulty.value,
-    since:
-      selectedPeriod.value === "all"
-        ? undefined
-        : asOf.value - Number(selectedPeriod.value) * 86400000,
-    query: searchQuery.value,
-  }),
-);
-const trendMaxSeconds = computed(() =>
-  Math.max(
-    1,
-    ...historyView.value.recentTrend.map((play) => play.elapsedSeconds),
-  ),
-);
 const busy = ref(false);
 const syncing = ref(false);
 const message = ref("");
@@ -83,13 +52,7 @@ watch(
     await nextTick();
     if (props.setupOnly) nameInputRef.value?.focus();
     else dialogRef.value?.focus();
-    void refresh();
-  },
-);
-watch(
-  () => props.historyOpen,
-  (open) => {
-    if (open) void refresh();
+    void loadProfile();
   },
 );
 
@@ -115,7 +78,6 @@ watch(
     profile.value = userId.value
       ? loadCachedProfile(userId.value, cacheStorage)
       : null;
-    onlinePlays.value = [];
     gameName.value = "";
     consent.value = false;
     message.value = "";
@@ -171,7 +133,6 @@ async function loadProfile(): Promise<void> {
     saveCachedProfile(accountId, data.profile, cacheStorage);
     emit("profile", data.profile?.displayName ?? "");
     emit("setupRequired", data.profile === null);
-    await refresh();
     if (current === epoch) await synchronize();
   } catch {
     if (current === epoch && !disposed)
@@ -221,23 +182,6 @@ async function registerProfile(): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
-  const accountId = userId.value;
-  if (!accountId) return;
-  const current = epoch;
-  try {
-    const response = await authenticatedFetch(accountId, "/api/plays");
-    if (!response.ok) throw new Error("History unavailable.");
-    const data: { plays: OnlinePlay[] } = await response.json();
-    if (current !== epoch || disposed) return;
-    onlinePlays.value = data.plays;
-    asOf.value = Date.now();
-  } catch {
-    if (current === epoch && !disposed)
-      message.value = "履歴を取得できません。プレイは続けられます。";
-  }
-}
-
 async function synchronize(): Promise<void> {
   const accountId = userId.value;
   if (!accountId || !profile.value || syncing.value || disposed) return;
@@ -277,7 +221,6 @@ async function synchronize(): Promise<void> {
       : "同期済み";
     if (sent) {
       emit("synced");
-      await refresh();
     }
   } catch (error) {
     if (current === epoch && !disposed)
@@ -310,7 +253,6 @@ async function deleteAccount(): Promise<void> {
     outbox.forget(accountId);
     saveCachedProfile(accountId, null, cacheStorage);
     if (userId.value !== accountId) return;
-    onlinePlays.value = [];
     profile.value = null;
     emit("profile", "");
     emit("synced");
@@ -338,30 +280,6 @@ onUnmounted(() => {
   window.removeEventListener("online", reconnect);
   clearInterval(retryTimer);
 });
-
-function formatDate(timestamp: number): string {
-  return new Intl.DateTimeFormat("ja-JP", {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).format(timestamp);
-}
-function isRanked(playId: string): boolean {
-  return onlinePlays.value.some(
-    (play) => play.playId === playId && play.isPublic,
-  );
-}
-function formatSeconds(seconds: number): string {
-  const rounded = Math.round(seconds);
-  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
-}
-function difficultyLabel(difficulty: PuzzleDifficulty): string {
-  return difficulty === "easy"
-    ? "初級"
-    : difficulty === "normal"
-      ? "中級"
-      : "上級";
-}
 </script>
 
 <template>
@@ -469,115 +387,4 @@ function difficultyLabel(difficulty: PuzzleDifficulty): string {
       </button>
     </section>
   </div>
-  <section v-if="historyOpen" class="stats-panel" :inert="historyInert">
-    <h3>オンライン履歴</h3>
-    <div class="stats-panel-body">
-      <p v-if="!isLoaded">ログイン状態を確認しています。</p>
-      <p v-else-if="!isSignedIn">ログインすると履歴を端末間で確認できます。</p>
-      <template v-else>
-        <button type="button" :disabled="busy" @click="refresh">
-          履歴を再取得
-        </button>
-        <template v-if="onlinePlays.length">
-          <p>
-            取得した直近
-            {{ onlinePlays.length }} 件（最大500件）から集計します。
-          </p>
-          <div class="online-history-filters">
-            <label>
-              期間
-              <select v-model="selectedPeriod">
-                <option value="all">すべて</option>
-                <option value="7">過去7日</option>
-                <option value="30">過去30日</option>
-              </select>
-            </label>
-            <label>
-              難易度
-              <select v-model="selectedDifficulty">
-                <option value="all">すべて</option>
-                <option value="easy">初級</option>
-                <option value="normal">中級</option>
-                <option value="hard">上級</option>
-              </select>
-            </label>
-            <label>
-              シード・問題 ID
-              <input v-model="searchQuery" type="search" autocomplete="off" />
-            </label>
-          </div>
-          <p aria-live="polite">
-            条件に合うクリア {{ historyView.count }} 件
-            <template v-if="historyView.averageSeconds !== undefined">
-              · 平均 {{ formatSeconds(historyView.averageSeconds) }}
-            </template>
-          </p>
-          <ul v-if="historyView.count" class="stats-list">
-            <li
-              v-for="group in historyView.byDifficulty"
-              :key="group.difficulty"
-            >
-              {{ difficultyLabel(group.difficulty) }}: {{ group.clears }} 件
-              <template v-if="group.averageSeconds !== undefined">
-                · 平均 {{ formatSeconds(group.averageSeconds) }} · 最速
-                {{ formatSeconds(group.bestSeconds ?? 0) }}
-              </template>
-            </li>
-          </ul>
-          <details v-if="historyView.puzzleBests.length">
-            <summary>
-              問題別自己ベスト（{{ historyView.puzzleBests.length }} 問）
-            </summary>
-            <ol class="ranking-list">
-              <li
-                v-for="entry in historyView.puzzleBests"
-                :key="entry.puzzleId"
-              >
-                <code>{{ entry.seedCode }}</code> ·
-                {{ rankingScore(entry.best) }}点 ·
-                {{ formatSeconds(entry.best.elapsedSeconds) }} · ヒント
-                {{ entry.best.hintsUsed }}回（{{ hintStageLabel(entry.best) }}）
-                · ミス {{ entry.best.mistakes }} · {{ entry.attempts }} 回挑戦
-              </li>
-            </ol>
-          </details>
-          <details v-if="historyView.recentTrend.length">
-            <summary>最近のクリア時間の推移</summary>
-            <ol class="online-history-trend">
-              <li v-for="play in historyView.recentTrend" :key="play.playId">
-                <span>{{ formatDate(play.completedAt) }}</span>
-                <span class="online-history-trend-track" aria-hidden="true">
-                  <span
-                    :style="{
-                      width: `${Math.max(4, (play.elapsedSeconds / trendMaxSeconds) * 100)}%`,
-                    }"
-                  ></span>
-                </span>
-                <span>{{ formatSeconds(play.elapsedSeconds) }}</span>
-              </li>
-            </ol>
-            <p>棒が短いほどクリア時間が短いことを示します。</p>
-          </details>
-          <details v-if="historyView.plays.length">
-            <summary>該当する履歴（{{ historyView.count }} 件）</summary>
-            <p>
-              時間は自己申告の参考記録です。ランキングには初回だけが反映されます。
-            </p>
-            <ol class="ranking-list">
-              <li v-for="play in historyView.plays" :key="play.playId">
-                {{ formatDate(play.completedAt) }} ·
-                <code>{{ play.seedCode }}</code> ·
-                {{ formatSeconds(play.elapsedSeconds) }} · ヒント
-                {{ play.hintsUsed }}回（{{ hintStageLabel(play) }}） · ミス
-                {{ play.mistakes }}
-                <span>{{
-                  isRanked(play.playId) ? "ランキング反映済み" : "個人履歴"
-                }}</span>
-              </li>
-            </ol>
-          </details>
-        </template>
-      </template>
-    </div>
-  </section>
 </template>

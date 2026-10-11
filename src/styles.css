@@ -344,37 +344,19 @@ input {
   flex-shrink: 0;
 }
 
-.screen-header {
-  margin-top: 20px;
-}
-
-.screen-header h2:focus {
-  outline: 2px solid #a44a2a;
-  outline-offset: 4px;
-}
-
 .screen-menu {
   display: grid;
   gap: 12px;
   margin-top: 20px;
 }
 
-.screen-menu button,
-.screen-header button {
+.screen-menu button {
   padding: 12px 16px;
   border: 2px solid #2a1b14;
   border-radius: 12px;
   background: #fffdf8;
   color: inherit;
   text-align: left;
-}
-
-.seed-panel > h3,
-.stats-panel > h3,
-.seed-panel > .auto-exclusions-settings,
-.seed-panel > .haptics-settings,
-.seed-panel > .sound-settings {
-  margin: 12px;
 }
 
 .auto-exclusions-settings p,
@@ -397,8 +379,7 @@ input {
   margin-top: 8px;
 }
 
-.account-controls button,
-.tutorial-trigger {
+.account-controls button {
   border: 2px solid #2a1b14;
   border-radius: 999px;
   padding: 4px 10px;
@@ -411,18 +392,6 @@ input {
 
 .game-name {
   overflow-wrap: anywhere;
-}
-
-.tutorial-trigger {
-  margin-left: 8px;
-}
-
-.tutorial-content {
-  line-height: 1.7;
-}
-
-.tutorial-content li + li {
-  margin-top: 8px;
 }
 
 .dialog-card.interactive-tutorial-card {
@@ -470,11 +439,6 @@ input {
   border-color: #1d4ed8;
 }
 
-.tutorial-board-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
 .name-emoji {
   font-family:
     "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
@@ -1006,25 +970,7 @@ h1 {
   outline-offset: 2px;
 }
 
-.seed-panel,
-.stats-panel {
-  margin: 16px 0;
-  border: 2px solid #2a1b14;
-  border-radius: 20px;
-  background: #fffdf8;
-  box-shadow: 0 3px 0 #2a1b14;
-}
-
-.seed-panel summary,
-.stats-panel summary {
-  padding: 12px 14px;
-  font-weight: 800;
-  cursor: pointer;
-  user-select: none;
-}
-
-.seed-panel-body,
-.stats-panel-body {
+.seed-panel-body {
   display: grid;
   gap: 10px;
   border-top: 2px solid rgb(42 27 20 / 18%);
@@ -1116,107 +1062,13 @@ h1 {
   font-size: 14px;
 }
 
-.stats-panel-body {
-  overflow-wrap: anywhere;
-}
-
-.online-history-filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.online-history-filters label {
-  display: grid;
-  gap: 4px;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.online-history-filters label:last-child {
-  grid-column: 1 / -1;
-}
-
-.online-history-filters select,
-.online-history-filters input {
-  min-width: 0;
-  border: 2px solid #2a1b14;
-  border-radius: 10px;
-  padding: 7px 9px;
-  background: #fff;
-  color: #2a1b14;
-}
-
-.stats-panel-body details {
-  border-top: 1px solid rgb(42 27 20 / 18%);
-}
-
-.stats-panel-body details summary {
-  padding: 8px 0;
-}
-
-.online-history-trend {
-  display: grid;
-  gap: 6px;
-  margin: 6px 0;
-  padding: 0;
-  list-style: none;
-}
-
-.online-history-trend li {
-  display: grid;
-  grid-template-columns: auto minmax(36px, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.online-history-trend-track {
-  display: block;
-  height: 12px;
-  border-radius: 999px;
-  background: #fff0d0;
-}
-
-.online-history-trend-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #e67e4c;
-}
-
-.stats-panel-body h2 {
-  margin: 16px 0 6px;
-  font-size: 16px;
-}
-
-.stats-list,
 .ranking-list {
   margin: 6px 0;
   padding-left: 24px;
 }
 
-.stats-list li,
 .ranking-list li {
   margin: 5px 0;
-}
-
-.recent-seed-link {
-  display: inline-block;
-  max-width: 100%;
-  border-radius: 10px;
-  padding: 6px 8px;
-  background: #fff7ec;
-  color: #2a1b14;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.recent-seed-link:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
 }
 
 .dialog-backdrop {

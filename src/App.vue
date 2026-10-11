@@ -147,8 +147,6 @@ const accountDialogOpen = ref(false);
 const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
 const tutorialFirstVisit = ref(false);
-type Screen = "play";
-const screen = ref<Screen>("play");
 const menuOpen = ref(false);
 const historyDialogOpen = ref(false);
 const weeklyRankingOpen = ref(false);
@@ -475,7 +473,7 @@ watch(activeDialog, async (dialog, previous) => {
     )
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
   } else if (previous) {
-    if (waitingToStart.value && screen.value === "play") focusReadyButton();
+    if (waitingToStart.value) focusReadyButton();
     else if (focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
     else menuButton.value?.focus();
     focusBeforeDialog = null;
@@ -576,13 +574,12 @@ function beginPlay(): void {
 
 function focusReadyButton(): void {
   void nextTick(() => {
-    if (!activeDialog.value && screen.value === "play")
-      readyButton.value?.focus();
+    if (!activeDialog.value) readyButton.value?.focus();
   });
 }
 
 async function navigateTo(
-  next: Screen | "history" | "weekly" | "settings" | "share",
+  next: "play" | "history" | "weekly" | "settings" | "share",
 ): Promise<void> {
   if (next === "settings" || next === "share") {
     cancelLongPress();
@@ -604,14 +601,13 @@ async function navigateTo(
     else weeklyRankingOpen.value = true;
     return;
   }
-  if (next === "play" && screen.value === "play" && menuOpen.value) {
+  if (next === "play" && menuOpen.value) {
     closeMenu();
     return;
   }
   cancelLongPress();
   pauseGame();
   resumeAfterMenu = false;
-  screen.value = next;
   toolsDialog.value = undefined;
   menuOpen.value = false;
   await nextTick();
@@ -665,7 +661,7 @@ function restoreHistorySeed(seedCode: string): void {
 
 function closeMenu(): void {
   menuOpen.value = false;
-  if (resumeAfterMenu && screen.value === "play") confirmReady();
+  if (resumeAfterMenu) confirmReady();
   resumeAfterMenu = false;
 }
 
@@ -1056,7 +1052,7 @@ function onSuperOpened(): void {
 }
 function onSuperClosed(): void {
   superDialogOpen.value = false;
-  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  if (resumeAfterMenu) void confirmReady();
   resumeAfterMenu = false;
 }
 
@@ -1575,7 +1571,7 @@ function onDailyRankingClosed(): void {
   if (returnToClearAfterRanking.value && isDaily.value && complete.value)
     showClearDialog.value = true;
   returnToClearAfterRanking.value = false;
-  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  if (resumeAfterMenu) void confirmReady();
   resumeAfterMenu = false;
 }
 
@@ -1628,13 +1624,13 @@ function closeLeaderboard(): void {
   if (returnToClearAfterPublicRanking.value && complete.value)
     showClearDialog.value = true;
   returnToClearAfterPublicRanking.value = false;
-  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  if (resumeAfterMenu) void confirmReady();
   resumeAfterMenu = false;
 }
 
 function closeWeeklyRanking(): void {
   weeklyRankingOpen.value = false;
-  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  if (resumeAfterMenu) void confirmReady();
   resumeAfterMenu = false;
 }
 
@@ -1756,15 +1752,8 @@ function formatElapsed(seconds: number): string {
 
 <template>
   <main class="app-shell" :inert="dailyRankingOpen || dailyPanelOpen">
-    <header
-      class="hero"
-      :inert="(screen === 'play' && waitingToStart) || !!activeDialog"
-    >
-      <section
-        v-show="screen === 'play'"
-        class="status-bar"
-        aria-label="プレイ状況"
-      >
+    <header class="hero" :inert="waitingToStart || !!activeDialog">
+      <section class="status-bar" aria-label="プレイ状況">
         <span role="img" :aria-label="`ミス ${state.mistakes} 回`" title="ミス"
           ><UiIcon name="mistake" />{{ state.mistakes }}</span
         >
@@ -1890,7 +1879,6 @@ function formatElapsed(seconds: number): string {
     </div>
 
     <section
-      v-show="screen === 'play'"
       class="play-area"
       :inert="waitingToStart || complete || !!activeDialog"
     >
@@ -1951,12 +1939,8 @@ function formatElapsed(seconds: number): string {
       </section>
     </section>
 
-    <div :class="{ 'play-footer': screen === 'play' }">
-      <section
-        v-show="screen === 'play'"
-        class="actions"
-        :inert="waitingToStart || !!activeDialog"
-      >
+    <div class="play-footer">
+      <section class="actions" :inert="waitingToStart || !!activeDialog">
         <button
           v-if="canShowHint(complete)"
           type="button"
@@ -1999,7 +1983,7 @@ function formatElapsed(seconds: number): string {
         </button>
       </section>
 
-      <div v-show="screen === 'play'" class="play-options">
+      <div class="play-options">
         <label
           v-if="!isSpecial"
           class="difficulty-select"
@@ -2024,8 +2008,6 @@ function formatElapsed(seconds: number): string {
           :play-id="playId"
           :complete="complete"
           :game-name="onlineGameName"
-          :play-screen="screen === 'play'"
-          :history-open="false"
           :modal-blocked="!!activeDialog"
           @start="startSuper"
           @pause="pauseGame"
@@ -2036,7 +2018,7 @@ function formatElapsed(seconds: number): string {
         />
 
         <DailyChallenge
-          v-if="onlineAuthEnabled && screen === 'play'"
+          v-if="onlineAuthEnabled"
           ref="dailyChallengeRef"
           :inert="!!activeDialog"
           :active-date="activeDailyDate"
@@ -2056,11 +2038,7 @@ function formatElapsed(seconds: number): string {
           @synced="rankingRevision += 1"
         />
       </div>
-      <p
-        v-if="screen === 'play' && nextPuzzleLoading"
-        class="play-footer-message"
-        role="status"
-      >
+      <p v-if="nextPuzzleLoading" class="play-footer-message" role="status">
         次の問題を選んでいます。
       </p>
     </div>
@@ -2271,8 +2249,6 @@ function formatElapsed(seconds: number): string {
       :plays="resultHistory.plays"
       :open="activeDialog === 'account'"
       :setup-only="accountSetupRequired"
-      :history-open="false"
-      :history-inert="!!activeDialog"
       @close="accountDialogOpen = false"
       @profile="onAccountProfile"
       @setup-required="onAccountSetupRequired"
@@ -2531,7 +2507,7 @@ function formatElapsed(seconds: number): string {
       @auto-exclusions-change="autoExclusionsEnabled = $event"
     />
     <div
-      v-if="screen === 'play' && waitingToStart && !activeDialog"
+      v-if="waitingToStart && !activeDialog"
       class="ready-overlay"
       role="presentation"
     >

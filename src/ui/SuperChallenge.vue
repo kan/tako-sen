@@ -33,7 +33,6 @@ import { puzzleId } from "../core/puzzle-identity";
 import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { trapDialogFocus } from "./dialog";
 import PublicLeaderboard from "./PublicLeaderboard.vue";
-import { rankingScore } from "../core/ranking-score";
 import {
   fetchSuperResponse,
   SuperConnectionError,
@@ -45,8 +44,6 @@ const props = defineProps<{
   playId?: string;
   complete: boolean;
   gameName: string;
-  playScreen: boolean;
-  historyOpen: boolean;
   modalBlocked: boolean;
 }>();
 const emit = defineEmits<{
@@ -595,27 +592,6 @@ function closeRanking(): void {
 async function fetchRanking(id: string): Promise<Response> {
   return request(`/api/super/ranking?puzzleId=${encodeURIComponent(id)}`);
 }
-const history = ref<
-  {
-    playId: string;
-    seedCode: string;
-    elapsedSeconds: number;
-    mistakes: number;
-    hintsUsed: number;
-  }[]
->([]);
-async function refreshHistory(): Promise<void> {
-  const id = account.value;
-  const generation = epoch;
-  if (!id) return;
-  try {
-    const data = await readBody(await request("/api/super/history"));
-    if (current(id, generation))
-      history.value = Array.isArray(data.plays) ? data.plays : [];
-  } catch {
-    if (current(id, generation)) message.value = "超級の履歴を取得できません。";
-  }
-}
 watch(
   () => [props.playId, props.puzzle],
   () => {
@@ -631,15 +607,6 @@ watch(
   },
 );
 watch(
-  () => props.historyOpen,
-  (open) => {
-    if (open) void refreshHistory();
-  },
-);
-watch(revision, () => {
-  if (props.historyOpen) void refreshHistory();
-});
-watch(
   account,
   () => {
     epoch += 1;
@@ -650,7 +617,6 @@ watch(
     preparation += 1;
     progress.value = undefined;
     progressOwner.value = undefined;
-    history.value = [];
     availableSave.value = false;
     excluded.clear();
     closeOffer();
@@ -694,7 +660,6 @@ watch(
       if (sharedCode.value && account.value === id && !props.modalBlocked)
         showOffer();
     });
-    if (props.historyOpen) void refreshHistory();
   },
   { immediate: true },
 );
@@ -752,7 +717,7 @@ defineExpose({
 </script>
 
 <template>
-  <section v-if="playScreen" class="super-entry" :inert="modalBlocked">
+  <section class="super-entry" :inert="modalBlocked">
     <button
       v-if="!isSignedIn"
       type="button"
@@ -816,36 +781,6 @@ defineExpose({
         再試行
       </button>
     </p>
-  </section>
-  <section
-    v-if="historyOpen && account"
-    class="stats-panel"
-    :inert="modalBlocked"
-  >
-    <h3>超級の履歴</h3>
-    <p v-if="!history.length">超級の完了記録はありません。</p>
-    <p v-else>
-      取得した {{ history.length }} 件 · 平均
-      {{
-        Math.round(
-          history.reduce((sum, p) => sum + p.elapsedSeconds, 0) /
-            history.length,
-        )
-      }}秒
-    </p>
-    <ul class="stats-list">
-      <li v-for="play in history" :key="play.playId">
-        <code>{{ play.seedCode }}</code> · {{ rankingScore(play) }}点 ·
-        {{ play.elapsedSeconds }}秒
-        <button
-          type="button"
-          :disabled="busy"
-          @click="openShared(play.seedCode)"
-        >
-          この超級を開く
-        </button>
-      </li>
-    </ul>
   </section>
   <div
     v-if="offerOpen"

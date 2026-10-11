@@ -9,9 +9,7 @@ import WeeklyLeaderboard from "../src/ui/WeeklyLeaderboard.vue";
 import { generateSuperPuzzle, encodeSuperSeed } from "../src/core/super-puzzle";
 import { puzzleId as identifyPuzzle } from "../src/core/puzzle-identity";
 import { loadSuperGame } from "../src/core/super-storage";
-import Tutorial from "../src/ui/Tutorial.vue";
 import InteractiveTutorial from "../src/ui/InteractiveTutorial.vue";
-import TutorialBoard from "../src/ui/TutorialBoard.vue";
 import App from "../src/App.vue";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
@@ -674,26 +672,6 @@ describe("board pointer input", () => {
     expect(cell(index).props.class).toContain("is-feedback-piece-place");
     expect(cell(index).props.class).not.toContain("is-holding");
     expect(cell(index).props.class).not.toContain("is-pressed");
-  });
-
-  it("renders the same SVG at the center of each tutorial piece cell", () => {
-    const container = root();
-    renderer.render(
-      h(TutorialBoard, { kind: "piece", after: false, label: "タコの例" }),
-      container,
-    );
-    const icon = find(container, (n) => n.tag === "image")!;
-    expect(icon.props).toMatchObject({
-      href: "/tako.svg",
-      x: 124,
-      y: 44,
-      width: "32",
-      height: "32",
-      preserveAspectRatio: "xMidYMid meet",
-    });
-    expect(find(container, (n) => n.tag === "svg")!.props["aria-label"]).toBe(
-      "タコの例",
-    );
   });
 
   it("shows the decorative shared octopus to the left of the menu title", async () => {
@@ -1561,151 +1539,6 @@ describe("play screen navigation", () => {
   });
 });
 
-describe("tutorial dialog", () => {
-  it("offers login only when configured and closes before handing off to login", async () => {
-    auth.user!.value = null;
-    const container = root();
-    const close = vi.fn();
-    renderer.render(
-      h(Tutorial, { open: true, onlineEnabled: true, onClose: close }),
-      container,
-    );
-    await nextTick();
-    for (let step = 0; step < 4; step++) {
-      (
-        find(container, (n) => n.tag === "button" && n.text.trim() === "次へ")!
-          .props.onClick as () => void
-      )();
-      await nextTick();
-    }
-    (
-      find(
-        container,
-        (n) => n.tag === "button" && n.text.trim() === "ログインして参加",
-      )!.props.onClick as () => void
-    )();
-    expect(close).toHaveBeenCalledOnce();
-    expect(request).not.toHaveBeenCalled();
-    auth.user!.value = "ui-account";
-    await nextTick();
-    expect(
-      find(
-        container,
-        (n) => n.tag === "button" && n.text.trim() === "ログインして参加",
-      ),
-    ).toBeUndefined();
-    expect(
-      find(container, (n) =>
-        n.text.includes("この環境ではオンライン機能は無効です"),
-      ),
-    ).toBeUndefined();
-  });
-
-  it("works before login, focuses on opening and each step, and resets on reopening", async () => {
-    const container = root();
-    const open = ref(true);
-    const close = vi.fn(() => {
-      open.value = false;
-    });
-    renderer.render(
-      h({
-        setup: () => () =>
-          h(Tutorial, {
-            open: open.value,
-            onlineEnabled: false,
-            onClose: close,
-          }),
-      }),
-      container,
-    );
-    await nextTick();
-    const dialog = () => find(container, (n) => n.props.role === "dialog")!;
-    const click = async (label: string) => {
-      const button = find(
-        container,
-        (n) => n.tag === "button" && n.text.trim() === label,
-      )!;
-      expect(button).toBeDefined();
-      (button.props.onClick as () => void)();
-      await nextTick();
-    };
-    expect(dialog().focus).toHaveBeenCalled();
-    const reminder = () =>
-      find(
-        container,
-        (n) =>
-          n.tag === "p" &&
-          n.text.trim() === "後から「遊び方」でいつでも読み直せます。",
-      );
-    expect(reminder()).toBeUndefined();
-    expect(
-      find(container, (n) => n.tag === "svg" && n.props.role === "img"),
-    ).toBeDefined();
-    for (let step = 0; step < 4; step++) await click("次へ");
-    expect(reminder()).toBeDefined();
-    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
-      "ランキングに参加",
-    );
-    expect(
-      find(container, (n) => n.text === "ログインして参加"),
-    ).toBeUndefined();
-    await click("戻る");
-    expect(reminder()).toBeUndefined();
-    expect(
-      find(
-        container,
-        (n) =>
-          n.tag === "svg" &&
-          String(n.props["aria-label"]).includes("青いエリアの候補"),
-      ),
-    ).toBeDefined();
-    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
-      "基本の定石",
-    );
-    await click("スキップ");
-    expect(close).toHaveBeenCalledOnce();
-    expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
-    open.value = true;
-    await nextTick();
-    await nextTick();
-    expect(find(container, (n) => n.props.id === "tutorial-title")?.text).toBe(
-      "タコを8匹置こう",
-    );
-    const backdrop = find(
-      container,
-      (n) => n.props.class === "dialog-backdrop",
-    )!;
-    (backdrop.props.onKeydown as (event: unknown) => void)({
-      key: "Escape",
-      preventDefault: vi.fn(),
-    });
-    await nextTick();
-    expect(close).toHaveBeenCalledTimes(2);
-  });
-
-  it("finishes the last page with the play action", async () => {
-    const container = root();
-    const close = vi.fn();
-    renderer.render(
-      h(Tutorial, { open: true, onlineEnabled: false, onClose: close }),
-      container,
-    );
-    await nextTick();
-    for (let step = 0; step < 4; step++) {
-      (
-        find(container, (n) => n.tag === "button" && n.text.trim() === "次へ")!
-          .props.onClick as () => void
-      )();
-      await nextTick();
-    }
-    (
-      find(container, (n) => n.tag === "button" && n.text.trim() === "遊ぶ")!
-        .props.onClick as () => void
-    )();
-    expect(close).toHaveBeenCalledOnce();
-  });
-});
-
 describe("interactive tutorial", () => {
   it("keeps the active game isolated and requires READY after reopening from the menu", async () => {
     vi.stubGlobal("HTMLElement", class {});
@@ -2274,8 +2107,6 @@ describe("super challenge flow", () => {
             playId,
             complete: false,
             gameName: "🐙タコ",
-            playScreen: true,
-            historyOpen: false,
             modalBlocked: false,
           }),
       }),
@@ -2367,8 +2198,6 @@ describe("super challenge flow", () => {
           puzzle,
           complete: false,
           gameName: state === "more-clears" ? "🐙タコ" : "",
-          playScreen: true,
-          historyOpen: false,
           modalBlocked: false,
           onOpened: opened,
           onClosed: closed,
@@ -2479,8 +2308,6 @@ describe("super challenge flow", () => {
             playId,
             complete: false,
             gameName: "🐙タコ",
-            playScreen: true,
-            historyOpen: false,
             modalBlocked: false,
             onStart: start,
             onPause: pause,
@@ -3074,43 +2901,43 @@ describe("account modal", () => {
     ).toBeDefined();
   });
 
-  it("shows online history separately without opening the account dialog", async () => {
+  it("does not fetch unused history when opening the account dialog", async () => {
     const container = root();
-    const historyOpen = ref(false);
+    const open = ref(false);
+    const profileUpdated = vi.fn();
     renderer.render(
       h({
         setup: () => () =>
           h(AccountHistory, {
             plays: [],
-            open: false,
-            historyOpen: historyOpen.value,
+            open: open.value,
+            onProfile: profileUpdated,
           }),
       }),
       container,
     );
-    await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith("/api/plays", expect.anything()),
-    );
-    request.mockClear();
-    historyOpen.value = true;
-    await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith("/api/plays", expect.anything()),
-    );
-    expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
-    expect(
-      find(container, (n) => n.tag === "h3" && n.text === "オンライン履歴"),
-    ).toBeDefined();
-    historyOpen.value = false;
+    await vi.waitFor(() => expect(profileUpdated).toHaveBeenCalledTimes(2));
+    open.value = true;
     await nextTick();
-    expect(
-      find(container, (n) => n.tag === "h3" && n.text === "オンライン履歴"),
-    ).toBeUndefined();
+    await vi.waitFor(() => expect(profileUpdated).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() =>
+      expect(find(container, (n) => n.props.role === "dialog")).toBeDefined(),
+    );
+    expect(request.mock.calls.some(([path]) => path === "/api/plays")).toBe(
+      false,
+    );
   });
   it("hides account controls when closed but continues syncing new clears", async () => {
     const container = root();
     const plays = ref<PlayResult[]>([]);
+    const synced = vi.fn();
     const app = renderer.createApp({
-      setup: () => () => h(AccountHistory, { plays: plays.value, open: false }),
+      setup: () => () =>
+        h(AccountHistory, {
+          plays: plays.value,
+          open: false,
+          onSynced: synced,
+        }),
     });
     app.mount(container);
     await vi.waitFor(() =>
@@ -3139,6 +2966,12 @@ describe("account modal", () => {
         ),
       ).toBe(true),
     );
+    await vi.waitFor(() => expect(synced).toHaveBeenCalledOnce());
+    expect(
+      request.mock.calls.some(
+        ([path, init]) => path === "/api/plays" && init?.method !== "POST",
+      ),
+    ).toBe(false);
     expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
     app.unmount();
   });
