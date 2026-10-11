@@ -11,6 +11,7 @@ import {
   type TechniqueId,
 } from "./logical";
 import { hasContradiction } from "./solver";
+import { hasPlainRegions, solveStepsFast } from "./difficulty-fast";
 
 export type DifficultyRating = "easy" | "normal" | "hard" | "unsupported";
 
@@ -32,6 +33,8 @@ export interface PuzzleDifficultyAnalysis {
   readonly steps: readonly LogicalSolveStep[];
 }
 
+// difficulty-fast.ts tries the techniques in this order without reading this
+// table. Change both together; see the note at the top of logical.ts.
 const TECHNIQUE_PRIORITY: Readonly<Record<TechniqueId, number>> = {
   contradiction: 99,
   "missing-exclusion": 0,
@@ -52,7 +55,25 @@ const TECHNIQUES: readonly TechniqueId[] = [
   "missing-exclusion",
 ];
 
+/**
+ * Solves the puzzle with the supported techniques, always taking the easiest
+ * move, and rates it by the hardest technique that was needed. The app and
+ * the generators always start from the puzzle's own givens, and those steps
+ * come from the array-based solver in difficulty-fast.ts. The move-based
+ * analysis below is its reference in the equivalence test, and also handles
+ * a given state and boards with unusual region ids.
+ */
 export function analyzePuzzleDifficulty(
+  puzzle: Puzzle,
+  initialState?: PlayerState,
+): PuzzleDifficultyAnalysis {
+  if (initialState || !hasPlainRegions(puzzle))
+    return analyzePuzzleDifficultyByMoves(puzzle, initialState);
+  const { steps, solved } = solveStepsFast(puzzle);
+  return summarize(steps, solved);
+}
+
+export function analyzePuzzleDifficultyByMoves(
   puzzle: Puzzle,
   initialState: PlayerState = createInitialPlayerState(0, puzzle.givens ?? []),
 ): PuzzleDifficultyAnalysis {
@@ -85,7 +106,13 @@ export function analyzePuzzleDifficulty(
     });
   }
 
-  const solved = isComplete(puzzle, state);
+  return summarize(steps, isComplete(puzzle, state));
+}
+
+function summarize(
+  steps: readonly LogicalSolveStep[],
+  solved: boolean,
+): PuzzleDifficultyAnalysis {
   const techniqueCounts = createTechniqueCounts(steps);
   const usedTechniques = TECHNIQUES.filter(
     (technique) => techniqueCounts[technique] > 0,

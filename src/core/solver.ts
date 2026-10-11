@@ -79,6 +79,14 @@ export function solvePuzzle(
   });
   const columnUsed = new Uint8Array(size);
   const regionUsed = new Uint8Array(regionSlots.size);
+  // Fixed pieces claim their column and region before the search starts, so a
+  // branch that collides with a fixed piece in a later row ends at once
+  // instead of when the search reaches that row. The order in which solutions
+  // are found does not change.
+  for (const piece of fixedPieces) {
+    columnUsed[piece % size] = 1;
+    regionUsed[regionSlotByCell[piece]] = 1;
+  }
   const solutions: number[][] = [];
   const chosen: number[] = [];
   search(0);
@@ -103,6 +111,15 @@ export function solvePuzzle(
     // Rows are filled in order with one piece each, so only the piece in the
     // previous row can touch a cell of this row.
     const previousCol = row === 0 ? -2 : chosen[row - 1] % size;
+    if (rowFixed.has(row)) {
+      const index = candidatesByRow[row][0];
+      const col = index % size;
+      if (col - previousCol <= 1 && previousCol - col <= 1) return;
+      chosen.push(index);
+      search(row + 1);
+      chosen.pop();
+      return;
+    }
     const candidates = candidatesByRow[row];
     for (let i = 0; i < candidates.length; i += 1) {
       const index = candidates[i];

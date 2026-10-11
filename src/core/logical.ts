@@ -9,6 +9,13 @@ import {
 import { exclusionsFromPiece, regionLineExclusions } from "./shortcuts";
 import { hasContradiction } from "./solver";
 
+// The move finders below serve the hints. difficulty-fast.ts re-implements
+// the same techniques to rate boards, and the generators keep or reject
+// boards by that rating. When a technique, its order or its tie-breaking
+// changes here, change it there as well and run
+// tests/solver-analysis-equivalence.test.ts: a difference changes the boards
+// of every generator version, which the frozen hashes then report.
+
 export type TechniqueId =
   | "contradiction"
   | "single-candidate"
