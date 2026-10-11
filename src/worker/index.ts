@@ -9,6 +9,7 @@ import {
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 import { listLeaderboard } from "./leaderboard";
+import { listWeeklyRanking } from "./weekly-ranking";
 import { listRankedPuzzleCandidates } from "./next-puzzle";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 import {
@@ -45,6 +46,26 @@ const maxWebhookBytes = 65536;
 export default {
   async fetch(request, env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    if (pathname === "/api/weekly-ranking") {
+      if (request.method !== "GET")
+        return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+      const params = new URL(request.url).searchParams;
+      const difficulty = params.get("difficulty");
+      const metric = params.get("metric");
+      if (
+        (difficulty !== "easy" &&
+          difficulty !== "normal" &&
+          difficulty !== "hard") ||
+        (metric !== "clears" && metric !== "time")
+      )
+        return json({ error: "invalid_ranking_filter" }, 400);
+      try {
+        return json(await listWeeklyRanking(env.DB, difficulty, metric));
+      } catch {
+        console.error(JSON.stringify({ event: "weekly_ranking_read_failure" }));
+        return json({ error: "service_unavailable" }, 503);
+      }
+    }
     const superReads = [
       "/api/super/progress",
       "/api/super/candidates",

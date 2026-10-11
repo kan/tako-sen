@@ -246,6 +246,63 @@ input {
   color: #655447;
 }
 
+.weekly-ranking-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.weekly-difficulty-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weekly-metric-switch {
+  display: inline-flex;
+  margin: 0;
+  padding: 3px;
+  min-width: 0;
+  border: 2px solid #2a1b14;
+  border-radius: 999px;
+  background: #fffdf8;
+  font-size: 14px;
+}
+
+.weekly-metric-switch label {
+  position: relative;
+  cursor: pointer;
+}
+
+.weekly-metric-switch span {
+  display: inline-grid;
+  place-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.weekly-metric-switch input:checked + span {
+  background: #ffcf70;
+  font-weight: 800;
+}
+
+.weekly-metric-switch input:focus-visible + span {
+  outline: 3px solid #2026d2;
+  outline-offset: 1px;
+}
+
+.weekly-ranking-filters select {
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 2px solid #2a1b14;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: inherit;
+}
+
 .dialog-actions.history-record-actions {
   grid-column: 2;
   grid-row: 1;

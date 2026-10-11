@@ -5,6 +5,7 @@ import PublicLeaderboard from "../src/ui/PublicLeaderboard.vue";
 import DailyChallenge from "../src/ui/DailyChallenge.vue";
 import SuperChallenge from "../src/ui/SuperChallenge.vue";
 import HistoryDialog from "../src/ui/HistoryDialog.vue";
+import WeeklyLeaderboard from "../src/ui/WeeklyLeaderboard.vue";
 import { generateSuperPuzzle, encodeSuperSeed } from "../src/core/super-puzzle";
 import { puzzleId as identifyPuzzle } from "../src/core/puzzle-identity";
 import { loadSuperGame } from "../src/core/super-storage";
@@ -1482,6 +1483,15 @@ describe("play screen navigation", () => {
     await click("メニューを開く");
     expect(game().elapsedMs).toBe(5000);
     expect(game().state).toEqual(markedState);
+    await click("週間ランキング");
+    now += 60000;
+    await click("週間ランキングを閉じる");
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeUndefined();
+    expect(game().elapsedMs).toBe(5000);
+    expect(game().state).toEqual(markedState);
+    await click("メニューを開く");
     await click("シード・共有");
     const shareDialog = find(
       container,
@@ -1875,6 +1885,115 @@ describe("interactive tutorial", () => {
     expect(localStorage.getItem("tako-sen.results.v2")).toBeNull();
     await click("通常プレイへ");
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("weekly ranking dialog", () => {
+  it("loads public rankings, switches metric and difficulty, highlights self and closes with Escape", async () => {
+    const close = vi.fn();
+    const container = root();
+    request.mockImplementation(async () =>
+      Response.json({
+        start: Date.parse("2026-10-11T15:00:00Z"),
+        end: Date.parse("2026-10-18T15:00:00Z"),
+        entries: [
+          { rank: 1, displayName: "🐙タコ", clears: 5, averageSeconds: 12.25 },
+        ],
+      }),
+    );
+    renderer.render(
+      h(WeeklyLeaderboard, { open: true, gameName: "🐙タコ", onClose: close }),
+      container,
+    );
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props.class === "ranking-time")?.text,
+      ).toBe("5クリア"),
+    );
+    expect(find(container, (n) => n.props.class === "ranking-you")?.text).toBe(
+      "あなた",
+    );
+    expect(
+      find(
+        container,
+        (n) =>
+          n.tag === "select" &&
+          n.props["aria-label"] === "週間ランキングの集計",
+      ),
+    ).toBeUndefined();
+    expect(
+      find(
+        find(container, (n) => n.props.class === "weekly-difficulty-label")!,
+        (n) => n.tag === "svg",
+      ),
+    ).toBeDefined();
+    expect(
+      find(container, (n) => n.props.class === "weekly-metric-switch")?.tag,
+    ).toBe("fieldset");
+    const select = (label: string) =>
+      find(container, (n) => n.props["aria-label"] === label)!;
+    (
+      find(container, (n) => n.tag === "input" && n.props.value === "time")!
+        .props["onUpdate:modelValue"] as (s: string) => void
+    )("time");
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.props.class === "ranking-time")?.text,
+      ).toBe("12.3秒"),
+    );
+    expect(String(request.mock.calls.at(-1)![0])).toContain("metric=time");
+    (
+      select("週間ランキングの難易度").props["onUpdate:modelValue"] as (
+        s: string,
+      ) => void
+    )("hard");
+    await vi.waitFor(() =>
+      expect(String(request.mock.calls.at(-1)![0])).toContain(
+        "difficulty=hard",
+      ),
+    );
+    const dialog = find(container, (n) => n.props.role === "dialog")!;
+    (dialog.props.onKeydown as (e: unknown) => void)({
+      key: "Escape",
+      preventDefault: vi.fn(),
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it("ignores stale filter responses and shows retrieval failures rather than local or old rankings", async () => {
+    const pending: ((r: Response) => void)[] = [];
+    request.mockImplementation(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    );
+    const container = root();
+    renderer.render(h(WeeklyLeaderboard, { open: true }), container);
+    expect(pending).toHaveLength(1);
+    (
+      find(container, (n) => n.tag === "input" && n.props.value === "time")!
+        .props["onUpdate:modelValue"] as (s: string) => void
+    )("time");
+    await nextTick();
+    pending[1](new Response("", { status: 503 }));
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) =>
+          n.text.includes("週間ランキングを取得できません"),
+        ),
+      ).toBeDefined(),
+    );
+    pending[0](
+      Response.json({
+        start: 0,
+        end: 1,
+        entries: [
+          { rank: 1, displayName: "🐙古い", clears: 10, averageSeconds: 1 },
+        ],
+      }),
+    );
+    await nextTick();
+    await nextTick();
+    expect(
+      find(container, (n) => n.props.class === "ranking-time"),
+    ).toBeUndefined();
   });
 });
 

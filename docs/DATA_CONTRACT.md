@@ -2,6 +2,14 @@
 
 本書は API・同期実装が満たすべき契約を定める。第2段階として、非公開の完了履歴 API と開発用 D1 を導入した。ゲームルールの正本は [`DESIGN.md`](./DESIGN.md) とする。
 
+## 週間プレイヤーランキング
+
+- `GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|time` は未ログインでも閲覧可能な読み取り専用API。無効な条件は400、GET以外は405、DB障害は503。応答は `Cache-Control: no-store`。
+- 応答は `{ start, end, entries }`。`start` / `end` は日本時間の現在週（月曜0時〜翌月曜0時）のUTC epochミリ秒。各行は `{ rank, displayName, clears, averageSeconds }` のみで、最大100人。アカウントID・シード・個別履歴は返さない。
+- 現在時刻までに完了した `completed_plays` の `ranking_eligible = 1` かつ通常 `g1` / `g2` の記録を対象とし、現在の公開同意が有効なプロフィールだけを公開する。問題別の初回公開フラグ `is_public` は使わず、過去の別週でクリア済みの問題も今週クリアすれば対象とする。同意前の記録を再公開しない。
+- 同一アカウント・問題ID・週は最も早い `completed_at` の試行を1件だけ採用し、同時刻は `play_id` 順で決定する。その試行の難易度に集計し、異なる難易度コードで同一盤面を再クリアしても二重に数えない。平均タイムは採用試行の単純平均で、週内の対象問題が5つ以上の参加者のみ順位付けする。丸め前の平均で比較し、同値は同順位。
+- `0010_weekly_ranking_index.sql` は対象週の時刻範囲と必要列をカバーする部分索引を追加するだけで、履歴・同意・問題別順位を変更しない。
+
 ## 問題の同一性と再現
 
 - 表示用シードコード `TAKO:<generatorVersion>:<difficulty>:<seed>` は再生成の入力であり、問題IDではない。同じシードでも Generator の版が違えば別の入力となる。

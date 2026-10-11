@@ -14,6 +14,7 @@ import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
 import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
+import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import { parseSuperSeed } from "./core/super-puzzle";
 import type { SavedSuperGame } from "./core/super-storage";
 import SharePuzzle from "./ui/SharePuzzle.vue";
@@ -150,6 +151,7 @@ type Screen = "play";
 const screen = ref<Screen>("play");
 const menuOpen = ref(false);
 const historyDialogOpen = ref(false);
+const weeklyRankingOpen = ref(false);
 const toolsDialog = ref<"settings" | "share">();
 const toolsDialogRef = ref<HTMLElement>();
 const historyAccountId = computed(() =>
@@ -276,6 +278,7 @@ const activeDialog = computed<
   | "ranking"
   | "super"
   | "history"
+  | "weekly"
   | "settings"
   | "share"
   | undefined
@@ -289,6 +292,7 @@ const activeDialog = computed<
   if (accountDialogOpen.value) return "account";
   if (publicRankingOpen.value) return "ranking";
   if (historyDialogOpen.value) return "history";
+  if (weeklyRankingOpen.value) return "weekly";
   if (toolsDialog.value) return toolsDialog.value;
   if (menuOpen.value) return "menu";
   return undefined;
@@ -466,6 +470,7 @@ watch(activeDialog, async (dialog, previous) => {
       dialog !== "tutorial" &&
       dialog !== "super" &&
       dialog !== "ranking" &&
+      dialog !== "weekly" &&
       dialog !== "history"
     )
       (dialog === "hint" ? hintDialogRef.value : clearDialogRef.value)?.focus();
@@ -577,7 +582,7 @@ function focusReadyButton(): void {
 }
 
 async function navigateTo(
-  next: Screen | "history" | "settings" | "share",
+  next: Screen | "history" | "weekly" | "settings" | "share",
 ): Promise<void> {
   if (next === "settings" || next === "share") {
     cancelLongPress();
@@ -587,12 +592,16 @@ async function navigateTo(
     toolsDialog.value = next;
     return;
   }
-  if (next === "history") {
+  if (next === "history" || next === "weekly") {
+    const wasRunning = menuOpen.value
+      ? resumeAfterMenu
+      : timer.value.status === "running";
     cancelLongPress();
     pauseGame();
-    resumeAfterMenu = false;
+    resumeAfterMenu = next === "weekly" && wasRunning;
     menuOpen.value = false;
-    historyDialogOpen.value = true;
+    if (next === "history") historyDialogOpen.value = true;
+    else weeklyRankingOpen.value = true;
     return;
   }
   if (next === "play" && screen.value === "play" && menuOpen.value) {
@@ -1623,6 +1632,12 @@ function closeLeaderboard(): void {
   resumeAfterMenu = false;
 }
 
+function closeWeeklyRanking(): void {
+  weeklyRankingOpen.value = false;
+  if (resumeAfterMenu && screen.value === "play") void confirmReady();
+  resumeAfterMenu = false;
+}
+
 function onDialogKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -1861,6 +1876,9 @@ function formatElapsed(seconds: number): string {
           </button>
           <button type="button" @click="showCurrentRanking">
             {{ isDaily ? "今日のランキング" : "この問題のランキング" }}
+          </button>
+          <button type="button" @click="navigateTo('weekly')">
+            週間ランキング
           </button>
           <button type="button" @click="navigateTo('settings')">設定</button>
           <button type="button" @click="navigateTo('share')">
@@ -2220,6 +2238,13 @@ function formatElapsed(seconds: number): string {
         </div>
       </section>
     </div>
+
+    <WeeklyLeaderboard
+      :open="activeDialog === 'weekly'"
+      :game-name="onlineGameName"
+      :revision="rankingRevision"
+      @close="closeWeeklyRanking"
+    />
 
     <HistoryDialog
       :open="activeDialog === 'history'"
