@@ -122,6 +122,62 @@ describe("optional synthesized sound effects", () => {
     player.play("clear");
     expect(preceding.disconnect).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    "play",
+    "stop",
+    "mute",
+    "dispose",
+    "background",
+    "late",
+    "new-cue",
+  ] as const)(
+    "handles a pending CLEAR resume without stale playback: %s",
+    async (action) => {
+      const device = audioDevice();
+      device.context.state = "suspended";
+      let resume!: () => void;
+      device.context.resume.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resume = resolve;
+          }),
+      );
+      let foreground = true;
+      let now = 100;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      const player = createSoundEffects(
+        () => device.audio,
+        () => foreground,
+      );
+      player.setEnabled(true);
+      expect(player.play("clear")).toBe(false);
+      const pending = player.unlock();
+      expect(device.oscillators).toHaveLength(0);
+      if (action === "stop") player.stop();
+      if (action === "mute") player.setEnabled(false);
+      if (action === "dispose") player.dispose();
+      if (action === "background") foreground = false;
+      if (action === "late") now += 1001;
+      device.context.state = "running";
+      if (action === "new-cue") player.play("piece-place");
+      resume();
+      await pending;
+      await Promise.resolve();
+      expect(device.oscillators).toHaveLength(
+        action === "play" || action === "new-cue" ? 1 : 0,
+      );
+      if (action === "play")
+        expect(
+          device.oscillators[0].frequency.setValueAtTime,
+        ).toHaveBeenCalledTimes(4);
+      if (action === "new-cue")
+        expect(
+          device.oscillators[0].frequency.setValueAtTime,
+        ).toHaveBeenCalledTimes(2);
+      player.dispose();
+      vi.restoreAllMocks();
+    },
+  );
   it("stops on mute/background and closes on disposal without later playback", async () => {
     const device = audioDevice();
     let foreground = true;

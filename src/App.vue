@@ -181,6 +181,8 @@ const boardElement = ref<HTMLElement>();
 const restoreSeedCode = ref("");
 const seedMessage = ref("");
 const showClearDialog = ref(false);
+let clearBackdropPressed = false;
+let clearDialogPointerStarted = false;
 const clearElapsedSeconds = ref<number | undefined>();
 const clearDialogMessage = ref("");
 const playId = ref<string>();
@@ -540,6 +542,8 @@ watch(complete, (isCompleteNow, wasComplete) => {
   if (isCompleteNow && !wasComplete) {
     finalizePlay();
     clearDialogMessage.value = "";
+    clearBackdropPressed = false;
+    clearDialogPointerStarted = false;
     showClearDialog.value = true;
     vibrateForFeedback(navigator, "clear", hapticsEnabled.value);
   }
@@ -1505,7 +1509,37 @@ function applyHintExclusions(): void {
 }
 
 function closeClearDialog(): void {
+  clearBackdropPressed = false;
+  clearDialogPointerStarted = false;
   showClearDialog.value = false;
+}
+
+function onClearBackdropPointerDown(event: PointerEvent): void {
+  clearDialogPointerStarted = event.isPrimary && event.button === 0;
+  clearBackdropPressed =
+    clearDialogPointerStarted && event.target === event.currentTarget;
+}
+
+function onClearDialogClickCapture(event: MouseEvent): void {
+  // タッチのclickはpointerup後の描画で、新しい×ボタンへ届く場合がある。
+  // ダイアログ内で始まっていないポインター操作だけを遮断し、キー操作は残す。
+  if (event.detail > 0 && !clearDialogPointerStarted) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  clearDialogPointerStarted = false;
+}
+
+function cancelClearDialogPointer(): void {
+  clearBackdropPressed = false;
+  clearDialogPointerStarted = false;
+}
+
+function onClearBackdropClick(event: MouseEvent): void {
+  // クリアしたpointerupに続くclickで、表示直後の結果を閉じない。
+  const pressed = clearBackdropPressed;
+  clearBackdropPressed = false;
+  if (pressed && event.target === event.currentTarget) closeClearDialog();
 }
 
 function showDailyRankingFromClear(): void {
@@ -2282,7 +2316,10 @@ function formatElapsed(seconds: number): string {
       v-if="activeDialog === 'clear'"
       class="dialog-backdrop clear-backdrop"
       role="presentation"
-      @click.self="closeClearDialog"
+      @pointerdown="onClearBackdropPointerDown"
+      @pointercancel="cancelClearDialogPointer"
+      @click.capture="onClearDialogClickCapture"
+      @click="onClearBackdropClick"
     >
       <div class="clear-confetti" aria-hidden="true">
         <span

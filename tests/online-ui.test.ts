@@ -1024,67 +1024,144 @@ describe("sound effects", () => {
     (blur as () => void)();
     expect(device.oscillators[0].disconnect).toHaveBeenCalledTimes(1);
   });
-  it("plays only CLEAR on the last piece and never replays it on restoring the clear", async () => {
-    const { device, constructor } = setup();
-    localStorage.setItem("tako-sen:sound-enabled", "1");
-    const container = root();
-    renderer.render(h(App), container);
-    await nextTick();
-    const saved = game();
-    const target = saved.puzzle.solution.find(
-      (cell: number) => !(saved.puzzle.givens ?? []).includes(cell),
-    );
-    renderer.render(null, container);
-    saved.state.pieces = saved.puzzle.solution.filter(
-      (cell: number) => cell !== target,
-    );
-    saved.state.excluded = [];
-    localStorage.setItem("tako-sen.current-game.v2", JSON.stringify(saved));
-    renderer.render(h(App), container);
-    await nextTick();
-    await click(container, "OK");
-    let now = Date.now();
-    vi.spyOn(Date, "now").mockImplementation(() => now);
-    let ready!: () => void;
-    vi.stubGlobal("window", {
-      ...window,
-      setTimeout: vi.fn((callback: () => void, delay?: number) => {
-        if (delay === LONG_PRESS_MS) ready = callback as () => void;
-        return 1;
-      }),
-    });
-    const event = {
-      isPrimary: true,
-      button: 0,
-      pointerId: 1,
-      clientX: 14 + (target % 8) * 40 + 20,
-      clientY: 104 + Math.floor(target / 8) * 40 + 20,
-      currentTarget: { setPointerCapture: vi.fn() },
-      preventDefault: vi.fn(),
-    };
-    (
-      find(container, (n) => n.props.class === "board")!.props
-        .onPointerdown as (event: unknown) => void
-    )(event);
-    ready();
-    now += LONG_PRESS_MS;
-    (
-      find(container, (n) => n.props.class === "board")!.props.onPointerup as (
-        event: unknown,
-      ) => void
-    )(event);
-    await nextTick();
-    expect(device.oscillators).toHaveLength(1);
-    expect(
-      device.oscillators[0].frequency.setValueAtTime,
-    ).toHaveBeenCalledTimes(4);
-    expect(game().state.pieces).toHaveLength(8);
-    renderer.render(null, container);
-    renderer.render(h(App), container);
-    await nextTick();
-    expect(constructor).toHaveBeenCalledTimes(1);
-    expect(device.oscillators).toHaveLength(1);
-  });
+  it.each([false, true])(
+    "plays only CLEAR on the last piece (resume pending: %s) and never replays it on restoring the clear",
+    async (resumePending) => {
+      const { device, constructor } = setup();
+      localStorage.setItem("tako-sen:sound-enabled", "1");
+      const container = root();
+      renderer.render(h(App), container);
+      await nextTick();
+      const saved = game();
+      const target = saved.puzzle.solution.find(
+        (cell: number) => !(saved.puzzle.givens ?? []).includes(cell),
+      );
+      renderer.render(null, container);
+      saved.state.pieces = saved.puzzle.solution.filter(
+        (cell: number) => cell !== target,
+      );
+      saved.state.excluded = [];
+      localStorage.setItem("tako-sen.current-game.v2", JSON.stringify(saved));
+      renderer.render(h(App), container);
+      await nextTick();
+      await click(container, "OK");
+      let now = Date.now();
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      let ready!: () => void;
+      vi.stubGlobal("window", {
+        ...window,
+        setTimeout: vi.fn((callback: () => void, delay?: number) => {
+          if (delay === LONG_PRESS_MS) ready = callback as () => void;
+          return 1;
+        }),
+      });
+      const event = {
+        isPrimary: true,
+        button: 0,
+        pointerId: 1,
+        clientX: 14 + (target % 8) * 40 + 20,
+        clientY: 104 + Math.floor(target / 8) * 40 + 20,
+        currentTarget: { setPointerCapture: vi.fn() },
+        preventDefault: vi.fn(),
+      };
+      (
+        find(container, (n) => n.props.class === "board")!.props
+          .onPointerdown as (event: unknown) => void
+      )(event);
+      ready();
+      now += LONG_PRESS_MS;
+      let resume!: () => void;
+      if (resumePending) {
+        device.context.state = "suspended";
+        device.context.resume.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              resume = resolve;
+            }),
+        );
+      }
+      (
+        find(container, (n) => n.props.class === "board")!.props
+          .onPointerup as (event: unknown) => void
+      )(event);
+      if (resumePending) {
+        expect(device.oscillators).toHaveLength(0);
+        device.context.state = "running";
+        resume();
+      }
+      for (let tick = 0; tick < 6; tick++) await nextTick();
+      await nextTick();
+      expect(device.oscillators).toHaveLength(1);
+      expect(
+        device.oscillators[0].frequency.setValueAtTime,
+      ).toHaveBeenCalledTimes(4);
+      expect(game().state.pieces).toHaveLength(8);
+      const backdrop = find(
+        container,
+        (n) => n.props.class === "dialog-backdrop clear-backdrop",
+      )!;
+      expect(backdrop).toBeDefined();
+      const captureClick = (detail: number) => {
+        const event = {
+          detail,
+          preventDefault: vi.fn(),
+          stopImmediatePropagation: vi.fn(),
+        };
+        (backdrop.props.onClickCapture as (e: unknown) => void)(event);
+        return event;
+      };
+      // タッチの遅延clickが表示直後の閉じる・次へボタンに届いても遮断する。
+      const strayClick = captureClick(1);
+      expect(strayClick.preventDefault).toHaveBeenCalledOnce();
+      expect(strayClick.stopImmediatePropagation).toHaveBeenCalledOnce();
+      // キーボード・支援技術のactivationはpointerdownを要求しない。
+      expect(captureClick(0).stopImmediatePropagation).not.toHaveBeenCalled();
+      const backgroundEvent = {
+        target: backdrop,
+        currentTarget: backdrop,
+        isPrimary: true,
+        button: 0,
+      };
+      const clickBackdrop = () =>
+        (backdrop.props.onClick as (e: unknown) => void)(backgroundEvent);
+      // pointerupで現れた背景へclickだけが届いても結果を閉じない。
+      clickBackdrop();
+      await nextTick();
+      expect(
+        find(container, (n) => n.props.class === "dialog-card clear-card"),
+      ).toBeDefined();
+      // カード内から背景へのドラッグも閉じる操作ではない。
+      (backdrop.props.onPointerdown as (e: unknown) => void)({
+        ...backgroundEvent,
+        target: {},
+      });
+      clickBackdrop();
+      await nextTick();
+      expect(
+        find(container, (n) => n.props.class === "dialog-card clear-card"),
+      ).toBeDefined();
+      (backdrop.props.onPointerdown as (e: unknown) => void)(backgroundEvent);
+      (backdrop.props.onPointercancel as () => void)();
+      clickBackdrop();
+      await nextTick();
+      expect(
+        find(container, (n) => n.props.class === "dialog-card clear-card"),
+      ).toBeDefined();
+      // 表示後に背景を押して離した場合は閉じる。
+      (backdrop.props.onPointerdown as (e: unknown) => void)(backgroundEvent);
+      expect(captureClick(1).stopImmediatePropagation).not.toHaveBeenCalled();
+      clickBackdrop();
+      await nextTick();
+      expect(
+        find(container, (n) => n.props.class === "dialog-card clear-card"),
+      ).toBeUndefined();
+      renderer.render(null, container);
+      renderer.render(h(App), container);
+      await nextTick();
+      expect(constructor).toHaveBeenCalledTimes(1);
+      expect(device.oscillators).toHaveLength(1);
+    },
+  );
 });
 
 describe("play screen navigation", () => {

@@ -60,6 +60,7 @@ export function createSoundEffects(
   let context: AudioContext | undefined;
   let resuming: Promise<boolean> | undefined;
   let lastExclusionTime = -Infinity;
+  let playbackGeneration = 0;
   const voices = new Set<{ oscillator: OscillatorNode; gain: GainNode }>();
 
   function cleanup(voice: {
@@ -80,6 +81,7 @@ export function createSoundEffects(
   }
 
   function stop(): void {
+    playbackGeneration += 1;
     for (const voice of voices) {
       try {
         voice.oscillator.stop();
@@ -96,7 +98,7 @@ export function createSoundEffects(
     if (!value) stop();
   }
 
-  // ユーザー操作内から呼ぶ。resume中の操作音はキューに溜めず、後から再生しない。
+  // ユーザー操作内から呼ぶ。resume要求はawaitより前に行う。
   function unlock(): Promise<boolean> {
     if (!enabled || disposed || !isForeground()) return Promise.resolve(false);
     try {
@@ -118,8 +120,26 @@ export function createSoundEffects(
 
   function play(kind: SoundEffectKind): boolean {
     if (!enabled || disposed || !isForeground()) return false;
-    void unlock(); // contextの生成・resume要求自体は同期的に行う。
-    if (!context || context.state !== "running") return false;
+    const unlocked = unlock(); // contextの生成・resume要求自体は同期的に行う。
+    if (!context || context.state !== "running") {
+      if (kind === "clear" && context?.state === "suspended") {
+        // 通常操作音は溜めないが、一度きりのクリア音は短いresume待ちを許す。
+        // ミュート・画面離脱・次の再生で取り消し、遅れて突然鳴らさない。
+        stop();
+        const generation = playbackGeneration;
+        const requestedAt = Date.now();
+        void unlocked.then((ready) => {
+          if (
+            ready &&
+            generation === playbackGeneration &&
+            Date.now() - requestedAt <= 1000
+          )
+            play("clear");
+        });
+      }
+      return false;
+    }
+    playbackGeneration += 1;
     const now = context.currentTime;
     // ドラッグ中の×や一括配置で音を重ねすぎない。
     if (kind === "excluded-add" && now - lastExclusionTime < 0.045)
