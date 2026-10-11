@@ -426,6 +426,15 @@ describe("board pointer input", () => {
     expect(
       find(difficultyControl, (n) => n.tag === "select")?.props["aria-label"],
     ).toBe("次の問題の難易度");
+    (
+      find(difficultyControl, (n) => n.tag === "select")!.props[
+        "onUpdate:modelValue"
+      ] as (value: string) => void
+    )("random");
+    await nextTick();
+    expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe(
+      "random",
+    );
     expect(
       find(
         difficultyControl,
@@ -589,6 +598,58 @@ describe("board pointer input", () => {
     )();
     await nextTick();
     expect(saved().puzzle.difficulty).toBe("normal");
+    expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe(
+      "random",
+    );
+    renderer.render(null, container);
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(saved().puzzle.difficulty).toBe("normal");
+    random.mockReturnValue(0);
+    await (
+      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+        .onClick as () => Promise<void>
+    )();
+    await nextTick();
+    expect(saved().puzzle.difficulty).toBe("easy");
+    expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe(
+      "random",
+    );
+  });
+
+  it("preserves a fixed selection across reload without changing the current board", async () => {
+    const { container, saved } = await setup();
+    const before = saved();
+    const select = find(
+      container,
+      (n) => n.tag === "select" && n.props["aria-label"] === "難易度",
+    )!;
+    (select.props["onUpdate:modelValue"] as (value: string) => void)("normal");
+    await nextTick();
+    expect(saved().puzzle).toEqual(before.puzzle);
+    renderer.render(null, container);
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(saved().puzzle).toEqual(before.puzzle);
+    await (
+      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+        .onClick as () => Promise<void>
+    )();
+    await nextTick();
+    expect(saved().puzzle.difficulty).toBe("normal");
+  });
+
+  it("migrates the existing board difficulty only when the selection is not saved", async () => {
+    const { container, saved } = await setup();
+    const previous = saved();
+    renderer.render(null, container);
+    previous.puzzle.difficulty = "hard";
+    localStorage.setItem("tako-sen.current-game.v2", JSON.stringify(previous));
+    localStorage.setItem("tako-sen:difficulty-selection", "");
+    renderer.render(h(App), container);
+    await nextTick();
+    expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe("hard");
+    expect(saved().puzzle).toEqual(previous.puzzle);
   });
 
   it("renders placed pieces with the shared decorative SVG instead of emoji", async () => {
@@ -1447,8 +1508,18 @@ describe("play screen navigation", () => {
     ).toBeDefined();
     expect(game().state).toEqual(markedState);
     const oldPlayId = game().playId;
+    (
+      find(
+        container,
+        (n) => n.tag === "select" && n.props["aria-label"] === "難易度",
+      )!.props["onUpdate:modelValue"] as (value: string) => void
+    )("random");
+    await nextTick();
     updateCode(encodePuzzleSeed({ ...game().puzzle, generatorVersion: "g1" }));
     await click("復元");
+    expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe(
+      "random",
+    );
     expect(game().puzzle.generatorVersion).toBe("g1");
     expect(
       find(container, (n) => n.props["aria-labelledby"] === "seed-share-title"),

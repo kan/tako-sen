@@ -69,6 +69,8 @@ import {
 import {
   loadAutoExclusionsEnabled,
   saveAutoExclusionsEnabled,
+  loadDifficultySelection,
+  saveDifficultySelection,
 } from "./core/settings";
 import { hintStageLabel, maximumHintStage } from "./core/hint-progress";
 import { rankingScore } from "./core/ranking-score";
@@ -395,12 +397,16 @@ onMounted(() => {
   }
   soundEffects.setEnabled(soundEnabled.value);
   const saved = loadGame();
+  selectedDifficulty.value = loadDifficultySelection(
+    localStorage,
+    saved?.puzzle.difficulty ?? puzzle.value.difficulty ?? "easy",
+  );
+  saveDifficultySelection(localStorage, selectedDifficulty.value);
   resultHistory.value = loadResultHistory();
   if (saved) {
     puzzle.value = saved.puzzle;
     state.value = saved.state;
     difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
-    selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
     playId.value = saved.playId;
     timer.value = restoreTimer(
       saved.timer,
@@ -489,6 +495,10 @@ watch(autoExclusionsEnabled, (enabled) => {
     localStorage,
     enabled,
   );
+});
+
+watch(selectedDifficulty, (selection) => {
+  saveDifficultySelection(localStorage, selection);
 });
 
 function onSoundPreferenceChange(): void {
@@ -971,7 +981,6 @@ function startDaily(
   dailyReadyMessage.value = "";
   puzzle.value = dailyPuzzle;
   difficultyAnalysis.value = analyzePuzzleDifficulty(dailyPuzzle);
-  selectedDifficulty.value = "hard";
   state.value =
     saved?.state ?? createInitialPlayerState(undefined, dailyPuzzle.givens);
   playId.value = dailyPlayId;
@@ -1052,7 +1061,6 @@ function leaveDaily(): void {
   puzzle.value = saved.puzzle;
   state.value = saved.state;
   difficultyAnalysis.value = analyzePuzzleDifficulty(saved.puzzle);
-  selectedDifficulty.value = saved.puzzle.difficulty ?? "easy";
   playId.value = saved.playId;
   timer.value = restoreTimer(
     saved.timer,
@@ -1123,7 +1131,6 @@ function restoreSeed(code: string): boolean {
   cancelPendingNextPuzzle();
   clearSharedPuzzleUrl();
 
-  selectedDifficulty.value = parsed.difficulty;
   const generated = generatePuzzleWithAnalysis({
     version: parsed.version,
     seed: parsed.seed,
@@ -1183,7 +1190,6 @@ async function openSharedPuzzleFromUrl(
     cancelPendingNextPuzzle();
     puzzle.value = shared;
     difficultyAnalysis.value = analyzePuzzleDifficulty(shared);
-    selectedDifficulty.value = shared.difficulty ?? "easy";
     state.value = createInitialPlayerState(undefined, shared.givens);
     hint.value = undefined;
     hintStage.value = 1;
