@@ -419,11 +419,37 @@ describe("consented automatic first-clear ranking", () => {
       hintsUsed: 0,
       mistakes: 0,
     });
-    expect((await call("plays", "POST", upload)).status).toBe(201);
-    expect((await call("plays", "POST", upload)).status).toBe(200);
+    // 登録の応答に、その問題のランキングを自分の記録込みで返す。再送でも同じ。
+    const ownEntry = [
+      expect.objectContaining({ rank: 1, displayName: "HTTPタコ" }),
+    ];
+    const created = await call("plays", "POST", upload);
+    expect(created.status).toBe(201);
+    expect(await created.json()).toEqual({
+      status: "created",
+      entries: ownEntry,
+    });
+    const resent = await call("plays", "POST", upload);
+    expect(resent.status).toBe(200);
+    expect(await resent.json()).toEqual({
+      status: "duplicate",
+      entries: ownEntry,
+    });
     expect(
       (await call("plays", "POST", { ...upload, mistakes: 1 })).status,
     ).toBe(409);
+    // 同意が無効になったアカウントには、登録済みの記録の再送にも応答しない。
+    const consent = (version: number | null) =>
+      platform.env.DB.prepare(
+        "UPDATE leaderboard_profiles SET consent_version = ? WHERE account_id = ?",
+      )
+        .bind(version, "http")
+        .run();
+    await consent(null);
+    const refused = await call("plays", "POST", upload);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: "profile_required" });
+    await consent(1);
     expect(
       (await call(`plays/${upload.playId}/publication`, "DELETE")).status,
     ).toBe(404);

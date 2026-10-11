@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { useAuth } from "@clerk/vue";
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 import GameName from "./GameName.vue";
 import { trapDialogFocus } from "./dialog";
 import { createCompletedPlayUpload } from "../core/online-history";
@@ -12,6 +19,7 @@ import {
   type AccountProfile,
 } from "../core/account-profile";
 import { SyncOutbox } from "../core/sync-outbox";
+import type { SyncedRanking } from "../core/leaderboard";
 import type { PlayResult } from "../core/results";
 
 const props = defineProps<{
@@ -20,7 +28,10 @@ const props = defineProps<{
   setupOnly?: boolean;
 }>();
 const emit = defineEmits<{
-  synced: [];
+  /** 送信に成功した。最後に送った記録の問題のランキングが応答にあれば添える。 */
+  synced: [ranking?: SyncedRanking];
+  /** 記録の送信中かどうか。送信中は、送信後に届くランキングを待てる。 */
+  sending: [active: boolean];
   profile: [name: string];
   setupRequired: [required: boolean];
   close: [];
@@ -197,6 +208,8 @@ async function synchronize(): Promise<void> {
   }
   syncing.value = true;
   syncMessage.value = "同期中…";
+  emit("sending", true);
+  let ranking: SyncedRanking | undefined;
   try {
     const sent = await outbox.drain(
       accountId,
@@ -213,6 +226,23 @@ async function synchronize(): Promise<void> {
           throw new Error(
             response.status === 409 ? "conflict" : "upload_failed",
           );
+        // 記録は登録済みなので、ランキングを読めなくても送信は成功とする。
+        const body = (await response.json().catch(() => null)) as {
+          entries?: unknown;
+        } | null;
+        // 形が想定と違う応答は使わない。画面は従来どおり取得し直す。
+        const entries = body?.entries;
+        ranking =
+          Array.isArray(entries) &&
+          entries.every(
+            (entry) =>
+              entry !== null &&
+              typeof entry === "object" &&
+              typeof entry.displayName === "string" &&
+              Number.isSafeInteger(entry.rank),
+          )
+            ? { puzzleId: upload.puzzleId, entries }
+            : undefined;
       },
     );
     if (current !== epoch || disposed) return;
@@ -220,7 +250,7 @@ async function synchronize(): Promise<void> {
       ? `未送信 ${outbox.count(accountId)} 件`
       : "同期済み";
     if (sent) {
-      emit("synced");
+      emit("synced", ranking);
     }
   } catch (error) {
     if (current === epoch && !disposed)
@@ -229,6 +259,7 @@ async function synchronize(): Promise<void> {
         : `未送信 ${outbox.count(accountId)} 件 · 再接続後に自動再送します`;
   } finally {
     syncing.value = false;
+    emit("sending", false);
     if (current === epoch && outbox.persistenceFailed)
       syncMessage.value +=
         " · 未送信データを端末に保存できません。この画面を閉じると再送できない場合があります。";
@@ -275,6 +306,8 @@ onMounted(() => {
     void synchronize();
   }, 30000);
 });
+// 破棄後の emit は届かないので、送信中の表示が残らないよう破棄の前に解除する。
+onBeforeUnmount(() => emit("sending", false));
 onUnmounted(() => {
   disposed = true;
   window.removeEventListener("online", reconnect);

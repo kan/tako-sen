@@ -479,31 +479,43 @@ export default {
       if (request.method === "GET") {
         return json({ plays: await listCompletedPlays(env.DB, accountId) });
       }
-      if (!(await getAccountProfile(env.DB, accountId)))
-        return json({ error: "profile_required" }, 403);
-      if (
-        !request.headers.get("Content-Type")?.startsWith("application/json")
-      ) {
-        return json({ error: "unsupported_media_type" }, 415);
-      }
+      // An account without consent gets 403 whatever it sends, even a resend
+      // of a play stored before it lost consent. The profile is read while
+      // the upload is parsed and verified, and awaited before any answer.
+      const consented = getAccountProfile(env.DB, accountId).then(Boolean);
+      const refuse = async (error: string, status: number) =>
+        (await consented)
+          ? json({ error }, status)
+          : json({ error: "profile_required" }, 403);
+      if (!request.headers.get("Content-Type")?.startsWith("application/json"))
+        return refuse("unsupported_media_type", 415);
       let submitted: unknown;
       try {
         submitted = JSON.parse(await readLimitedBody(request, maxBodyBytes));
       } catch {
-        return json({ error: "invalid_body" }, 400);
+        return refuse("invalid_body", 400);
       }
       let play;
       try {
         play = await verifyCompletedPlayUpload(submitted);
       } catch {
-        return json({ error: "invalid_play" }, 400);
+        return refuse("invalid_play", 400);
       }
+      if (!(await consented)) return json({ error: "profile_required" }, 403);
       const outcome = await saveCompletedPlay(env.DB, accountId, play, true);
       if (outcome === "profile_required")
         return json({ error: "profile_required" }, 403);
-      return outcome === "conflict"
-        ? json({ error: "play_id_conflict" }, 409)
-        : json({ status: outcome }, outcome === "created" ? 201 : 200);
+      if (outcome === "conflict")
+        return json({ error: "play_id_conflict" }, 409);
+      // The client shows this board's ranking right after a clear; returning
+      // it here saves a second request. The record is stored either way.
+      const entries = await listLeaderboard(env.DB, play.puzzleId).catch(
+        () => undefined,
+      );
+      return json(
+        { status: outcome, entries },
+        outcome === "created" ? 201 : 200,
+      );
     } catch (error) {
       if (error instanceof SuperApiError)
         return json(

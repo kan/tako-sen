@@ -72,7 +72,11 @@ vi.mock("../src/core/puzzle-identity", async (importOriginal) => {
   };
 });
 vi.mock("../src/core/online-history", () => ({
-  createCompletedPlayUpload: async (play: PlayResult) => ({ playId: play.id }),
+  // 問題IDは下の puzzleId のモックと同じ規則で作る。
+  createCompletedPlayUpload: async (play: PlayResult) => ({
+    playId: play.id,
+    puzzleId: `p1:${play.seedCode.split(":").slice(3).join(":")}`,
+  }),
 }));
 
 // A small Vue host exercises component lifecycle without introducing a DOM dependency.
@@ -367,6 +371,92 @@ describe("board pointer input", () => {
     };
     return { container, saved, cell, send, tap };
   }
+
+  it.each(["returned", "missing", "failed", "slow"] as const)(
+    "waits for the upload and uses its ranking instead of fetching twice: %s",
+    async (upload) => {
+      auth.user!.value = "ui-account";
+      const own = {
+        rank: 1,
+        displayName: "🐙タコ",
+        elapsedSeconds: 1,
+        hintsUsed: 0,
+        maxHintStage: 0,
+        mistakes: 0,
+      };
+      let finishUpload = (): void => {};
+      const uploading = new Promise<void>((resolve) => {
+        finishUpload = resolve;
+      });
+      request.mockImplementation(async (path: string, init?: RequestInit) => {
+        if (path === "/api/profile")
+          return Response.json({
+            profile: { displayName: "🐙タコ", consentVersion: 1 },
+          });
+        if (path === "/api/plays" && init?.method === "POST") {
+          await uploading;
+          if (upload === "failed") throw new TypeError("Failed to fetch");
+          return Response.json(
+            upload === "returned" || upload === "slow"
+              ? { status: "created", entries: [own] }
+              : { status: "created" },
+          );
+        }
+        return Response.json(
+          path === "/api/plays" ? { plays: [] } : { entries: [own] },
+        );
+      });
+      const { container, saved, send } = await setup();
+      await vi.waitFor(() =>
+        expect(request).toHaveBeenCalledWith("/api/profile", expect.anything()),
+      );
+      for (let i = 0; i < 5; i += 1) await nextTick();
+      let now = Date.now();
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      for (const index of saved().puzzle.solution as number[]) {
+        send("onPointerdown", index);
+        now += LONG_PRESS_MS;
+        send("onPointerup", index);
+        await nextTick();
+      }
+      const rankingRequests = () =>
+        request.mock.calls.filter(([path]) =>
+          String(path).startsWith("/api/leaderboards/"),
+        ).length;
+      const preview = () =>
+        find(container, (n) => n.props.class === "public-ranking-entries");
+      await vi.waitFor(() =>
+        expect(
+          request.mock.calls.some(
+            ([path, init]) => path === "/api/plays" && init?.method === "POST",
+          ),
+        ).toBe(true),
+      );
+      for (let i = 0; i < 5; i += 1) await nextTick();
+      // 送信中は取得せず、取得中の表示のまま待つ。
+      expect(rankingRequests()).toBe(0);
+      expect(preview()).toBeUndefined();
+      expect(
+        find(container, (n) => n.text === "ランキングを取得しています。"),
+      ).toBeDefined();
+
+      if (upload === "slow") {
+        // 送信が長引いたら、待つのをやめて1回だけ取得する。
+        await vi.waitFor(() => expect(preview()).toBeDefined(), {
+          timeout: 5000,
+        });
+        expect(rankingRequests()).toBe(1);
+      }
+      finishUpload();
+      await vi.waitFor(() => expect(preview()).toBeDefined());
+      expect(find(preview()!, (n) => n.text === "あなた")).toBeDefined();
+      // 応答にランキングがあれば取得しない。無い時と送信の失敗時は1回だけ取得する。
+      // 長引いた送信が終わった後も、応答のランキングを使い、取得し直さない。
+      for (let i = 0; i < 5; i += 1) await nextTick();
+      expect(rankingRequests()).toBe(upload === "returned" ? 0 : 1);
+    },
+    10000,
+  );
 
   it("keeps a cleared board unchanged after the result dialog is closed", async () => {
     const { container, saved, cell, send, tap } = await setup();

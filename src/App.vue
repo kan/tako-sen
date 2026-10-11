@@ -21,7 +21,7 @@ import SharePuzzle from "./ui/SharePuzzle.vue";
 import GameName from "./ui/GameName.vue";
 import UiIcon from "./ui/UiIcon.vue";
 import { rankingPreview } from "./ui/ranking-preview";
-import type { LeaderboardEntry } from "./core/leaderboard";
+import type { LeaderboardEntry, SyncedRanking } from "./core/leaderboard";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
 import {
@@ -319,23 +319,63 @@ const displayedElapsedSeconds = computed(
 const clearRankingEntries = ref<(LeaderboardEntry & { isSelf: boolean })[]>([]);
 const clearRankingMessage = ref("");
 let clearRankingGeneration = 0;
+// 通常問題のクリア直後は、記録の送信の応答で届くランキングを使う。送信前に取得
+// しても自分の記録がまだ載っていないので、送信中はその完了を待つ。待つのは
+// ダイアログを開いた時の1回だけで、上限を過ぎたら送信を待たずに取得する。
+const CLEAR_RANKING_WAIT_MS = 3000;
+let normalPlaySending = false;
+let syncedRanking: SyncedRanking | undefined;
+let clearRankingWaitTimer: number | undefined;
+let clearRankingWaiting = false;
+let clearRankingWaited = false;
+const clearRankingRetry = ref(0);
+function stopWaitingForUpload(): void {
+  if (!clearRankingWaiting) return;
+  clearRankingWaited = true;
+  clearRankingRetry.value += 1;
+}
+function onNormalPlaySending(active: boolean): void {
+  normalPlaySending = active;
+  if (!active) stopWaitingForUpload();
+}
 watch(
   () => [
     activeDialog.value,
     puzzle.value,
     rankingRevision.value,
+    clearRankingRetry.value,
     onlineGameName.value,
     onlineAuth?.userId.value,
     onlineAuth?.isSignedIn.value,
   ],
   async () => {
     const generation = ++clearRankingGeneration;
+    // 届いたランキングと待ちの状態は、この1回の実行だけで使い切る。
+    const synced = syncedRanking;
+    const waited = clearRankingWaited;
+    syncedRanking = undefined;
+    clearRankingWaited = false;
+    clearRankingWaiting = false;
+    window.clearTimeout(clearRankingWaitTimer);
     clearRankingEntries.value = [];
     clearRankingMessage.value = "ランキングを取得しています。";
     if (activeDialog.value !== "clear") return;
+    const special = isSpecial.value;
     try {
       const id = await puzzleId(puzzle.value);
-      const special = isSpecial.value;
+      if (generation !== clearRankingGeneration) return;
+      if (!special && synced?.puzzleId === id) {
+        showClearRanking(synced.entries, false);
+        return;
+      }
+      if (!special && normalPlaySending && !waited) {
+        clearRankingWaiting = true;
+        clearRankingWaitTimer = window.setTimeout(
+          stopWaitingForUpload,
+          CLEAR_RANKING_WAIT_MS,
+        );
+        return;
+      }
       const token = special ? await onlineAuth?.getToken.value() : undefined;
       if (special && !token) {
         if (generation === clearRankingGeneration)
@@ -358,26 +398,32 @@ watch(
       };
       if (generation !== clearRankingGeneration || !Array.isArray(data.entries))
         return;
-      clearRankingEntries.value = rankingPreview(
-        data.entries.map((entry) => ({
-          ...entry,
-          isSelf: special
-            ? !!entry.isSelf
-            : !!onlineAuth?.isSignedIn.value &&
-              !!onlineGameName.value &&
-              entry.displayName === onlineGameName.value,
-        })),
-        (entry) => entry.isSelf,
-      );
-      clearRankingMessage.value = clearRankingEntries.value.length
-        ? ""
-        : "あなたの公開ランキング記録はありません。";
+      showClearRanking(data.entries, special);
     } catch {
       if (generation === clearRankingGeneration)
         clearRankingMessage.value = "ランキングを取得できません。";
     }
   },
 );
+function showClearRanking(
+  entries: readonly (LeaderboardEntry & { isSelf?: boolean })[],
+  special: boolean,
+): void {
+  clearRankingEntries.value = rankingPreview(
+    entries.map((entry) => ({
+      ...entry,
+      isSelf: special
+        ? !!entry.isSelf
+        : !!onlineAuth?.isSignedIn.value &&
+          !!onlineGameName.value &&
+          entry.displayName === onlineGameName.value,
+    })),
+    (entry) => entry.isSelf,
+  );
+  clearRankingMessage.value = clearRankingEntries.value.length
+    ? ""
+    : "あなたの公開ランキング記録はありません。";
+}
 const contradictionCells = computed(() =>
   hint.value?.kind === "move" &&
   hint.value.move.technique === "contradiction" &&
@@ -448,6 +494,7 @@ onMounted(() => {
 onUnmounted(() => {
   nextPuzzleRequest += 1;
   window.clearTimeout(prepareNextPuzzleTimer);
+  window.clearTimeout(clearRankingWaitTimer);
   soundEffects.dispose();
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   window.removeEventListener("pagehide", suspendGame);
@@ -672,7 +719,8 @@ function closeMenu(): void {
   resumeAfterMenu = false;
 }
 
-function onNormalPlaysSynced(): void {
+function onNormalPlaysSynced(ranking?: SyncedRanking): void {
+  syncedRanking = ranking;
   rankingRevision.value += 1;
   // A normal completion, not its first board action, now credits the right.
   void superChallengeRef.value?.refreshProgress();
@@ -2349,6 +2397,7 @@ function formatElapsed(seconds: number): string {
       @profile="onAccountProfile"
       @setup-required="onAccountSetupRequired"
       @synced="onNormalPlaysSynced"
+      @sending="onNormalPlaySending"
     />
 
     <div
