@@ -9,6 +9,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // CI runs D1 and generator tests beside the CPU-heavy audit; several take 3-5s there.
+    testTimeout: 30000,
     testTransformMode: { web: ["**/tests/online-ui.test.ts"] },
   },
 });
