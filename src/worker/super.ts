@@ -1,7 +1,12 @@
 import { type SuperProgress, type SuperEntry } from "../core/super-progress";
 import { RANKING_CONSENT_VERSION } from "../core/account-profile";
-import { parseSuperSeed, generateSuperPuzzle } from "../core/super-puzzle";
-import { parsePuzzleSeedCode } from "../core/puzzle-code";
+import {
+  SUPER_GENERATOR_VERSION,
+  SuperSeedError,
+  generateSuperPuzzle,
+  parseSuperSeedCode,
+} from "../core/super-puzzle";
+import { parsePuzzleSeedCode, seedCodePrefix } from "../core/puzzle-code";
 import { puzzleId } from "../core/puzzle-identity";
 import {
   restoreSharedPuzzleSnapshot,
@@ -190,8 +195,10 @@ export async function prepareSuperPuzzle(
   now: number,
 ): Promise<SharedPuzzleSnapshot> {
   await ensureProgress(db, accountId);
-  const seed = parseSuperSeed(seedCode);
-  if (seed === undefined) throw new SuperApiError(400, "invalid_seed");
+  const code = parseSuperSeedCode(seedCode);
+  // The code is stored as written and candidates are chosen by its prefix.
+  if (!code || seedCode !== seedCode.trim())
+    throw new SuperApiError(400, "invalid_seed");
   const existing = await db
     .prepare("SELECT snapshot_json FROM super_puzzles WHERE seed_code = ?")
     .bind(seedCode)
@@ -213,15 +220,23 @@ export async function prepareSuperPuzzle(
     )
     .bind(accountId, minute - 1)
     .run();
-  const puzzle = generateSuperPuzzle(seed);
+  let puzzle;
+  try {
+    puzzle = generateSuperPuzzle(code.seed, code.version);
+  } catch (error) {
+    // super-v2 has seeds that reach no hard board; the client draws another.
+    if (error instanceof SuperSeedError)
+      throw new SuperApiError(400, "invalid_seed");
+    throw error;
+  }
   const snapshot: SharedPuzzleSnapshot = {
     id: await puzzleId(puzzle),
     size: 10,
     regions: puzzle.regions,
     givens: puzzle.givens ?? [],
-    seed,
+    seed: code.seed,
     difficulty: "hard",
-    generatorVersion: "super-v1",
+    generatorVersion: code.version,
   };
   await db
     .prepare(
@@ -361,10 +376,13 @@ export async function completeSuperAttempt(
     return completeSuperAttempt(db, accountId, completion, now);
   return "completed";
 }
+/** Boards of earlier versions stay playable by code, but are not offered. */
+const CURRENT_SUPER_CODES = `${seedCodePrefix(SUPER_GENERATOR_VERSION)}%`;
 export const SUPER_CANDIDATES_SQL = `SELECT f.puzzle_id AS puzzleId, p.seed_code AS seedCode, COUNT(*) AS players
     FROM super_first_scores f JOIN super_puzzles p ON p.puzzle_id = f.puzzle_id
     JOIN leaderboard_profiles n ON n.account_id = f.account_id AND n.consent_version = 1
-    WHERE NOT EXISTS (SELECT 1 FROM super_attempts a WHERE a.account_id = ? AND a.puzzle_id = f.puzzle_id AND a.completed_at IS NOT NULL)
+    WHERE p.seed_code LIKE ?
+    AND NOT EXISTS (SELECT 1 FROM super_attempts a WHERE a.account_id = ? AND a.puzzle_id = f.puzzle_id AND a.completed_at IS NOT NULL)
     GROUP BY f.puzzle_id ORDER BY players DESC, RANDOM() LIMIT 30`;
 export const SUPER_RANKING_SQL = `WITH ranked AS (
     SELECT a.account_id, p.display_name, a.elapsed_seconds, a.mistakes, a.hints_used, a.max_hint_stage,
@@ -380,7 +398,7 @@ export async function listSuperCandidates(
 ): Promise<RankedPuzzleCandidate[]> {
   const result = await db
     .prepare(SUPER_CANDIDATES_SQL)
-    .bind(accountId)
+    .bind(CURRENT_SUPER_CODES, accountId)
     .all<RankedPuzzleCandidate>();
   return result.results;
 }

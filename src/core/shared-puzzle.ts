@@ -5,7 +5,7 @@ import { puzzleId } from "./puzzle-identity";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
-import { SUPER_GENERATOR_VERSION, isSuperSeed } from "./super-puzzle";
+import { isSuperSeed, isSuperVersion } from "./super-puzzle";
 
 export interface SharedPuzzleSnapshot {
   readonly id: string;
@@ -73,7 +73,7 @@ export async function restoreSharedPuzzleSnapshot(
         !(
           (snapshot.generatorVersion === DAILY_GENERATOR_VERSION &&
             isDailyDate(snapshot.seed)) ||
-          (snapshot.generatorVersion === SUPER_GENERATOR_VERSION &&
+          (isSuperVersion(snapshot.generatorVersion) &&
             isSuperSeed(snapshot.seed))
         )))
   ) {

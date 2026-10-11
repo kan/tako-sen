@@ -73,6 +73,26 @@ export function g3Spec(difficulty: PuzzleDifficulty): BoardSpec {
   };
 }
 
+/**
+ * super-v2: a 10×10 hard board built directly at that size. A 10×10 board
+ * has far more solutions to remove, so each step tries the most promising of
+ * several moves and a stalled attempt starts over. Every value here decides
+ * the boards of super-v2; a later version needs its own spec.
+ */
+export const SUPER_V2_SPEC: BoardSpec = {
+  size: 10,
+  version: "super-v2",
+  difficulty: "hard",
+  shape: { minSize: 3, maxSize: 18, maxAspect: 3, minFill: 0.4 },
+  singleton: false,
+  hardMinDepletion: 2,
+  attempts: 16,
+  uniqueBudget: 1200,
+  refineBudget: 400,
+  proposals: 6,
+  stallLimit: 150,
+};
+
 /** `maxAttempts` is not read: the seed code alone must decide the board. */
 export function generateG3(options: GenerateOptions = {}): GeneratedPuzzle {
   return generateBoard(
@@ -90,6 +110,25 @@ export function generateG3(options: GenerateOptions = {}): GeneratedPuzzle {
  * techniques, and throws when no attempt gets that far.
  */
 export function generateBoard(seed: string, spec: BoardSpec): GeneratedPuzzle {
+  const found = searchBoard(seed, spec);
+  if (found) return found;
+  throw new Error(`Failed to generate a solvable puzzle for seed: ${seed}`);
+}
+
+/** Only a board that meets every condition of the spec, for the versions
+ * that promise their difficulty and shapes. */
+export function generateExactBoard(
+  seed: string,
+  spec: BoardSpec,
+): GeneratedPuzzle | undefined {
+  const found = searchBoard(seed, spec);
+  return found?.distance === 0 ? found : undefined;
+}
+
+function searchBoard(
+  seed: string,
+  spec: BoardSpec,
+): (GeneratedPuzzle & { readonly distance: number }) | undefined {
   let closest: (GeneratedPuzzle & { readonly distance: number }) | undefined;
   for (let attempt = 0; attempt < spec.attempts; attempt += 1) {
     const random = createWideSeededRandom(
@@ -129,8 +168,7 @@ export function generateBoard(seed: string, spec: BoardSpec): GeneratedPuzzle {
     )
       closest = refined;
   }
-  if (closest) return closest;
-  throw new Error(`Failed to generate a solvable puzzle for seed: ${seed}`);
+  return closest;
 }
 
 /**

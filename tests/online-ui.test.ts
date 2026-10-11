@@ -66,7 +66,7 @@ vi.mock("../src/core/puzzle-identity", async (importOriginal) => {
   return {
     ...actual,
     puzzleId: async (puzzle: Puzzle) =>
-      puzzle.generatorVersion === "super-v1"
+      puzzle.generatorVersion?.startsWith("super-")
         ? actual.puzzleId(puzzle)
         : `p1:${puzzle.seed}`,
   };
@@ -2459,7 +2459,7 @@ describe("super challenge flow", () => {
             regions: generated.regions,
             givens: generated.givens,
             difficulty: "hard",
-            generatorVersion: "super-v1",
+            generatorVersion: generated.generatorVersion,
           },
         });
       if (path === "/api/super/start") {

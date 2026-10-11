@@ -9,8 +9,12 @@ import { isComplete } from "../core/rules";
 import { maximumHintStage } from "../core/hint-progress";
 import {
   encodeSuperSeed,
+  SuperSeedError,
   generateSuperPuzzle,
+  isSuperPuzzleOf,
+  isSuperVersion,
   parseSuperSeed,
+  parseSuperSeedCode,
 } from "../core/super-puzzle";
 import {
   hasSuperRight,
@@ -58,7 +62,7 @@ const { userId, isLoaded, isSignedIn, getToken } = useAuth();
 const account = computed(() =>
   isLoaded.value && isSignedIn.value && props.gameName ? userId.value : null,
 );
-const isSuper = computed(() => props.puzzle.generatorVersion === "super-v1");
+const isSuper = computed(() => isSuperVersion(props.puzzle.generatorVersion));
 const progress = ref<SuperProgress>();
 const progressOwner = ref<string>();
 const active = ref<{ accountId: string; session: SuperSession }>();
@@ -342,6 +346,34 @@ function onKeydown(event: KeyboardEvent): void {
     closeOffer();
   } else trapDialogFocus(event, dialog.value);
 }
+/** super-v2 has seeds that reach no hard board, so a few are tried. */
+function generateFreshSuper(): { seedCode: string; puzzle: Puzzle } {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const seed = crypto.randomUUID();
+    try {
+      return {
+        seedCode: encodeSuperSeed(seed),
+        puzzle: generateSuperPuzzle(seed),
+      };
+    } catch (error) {
+      if (!(error instanceof SuperSeedError)) throw error;
+    }
+  }
+  throw new Error("超級の盤面を作れませんでした。もう一度お試しください。");
+}
+/** The board a code names, or undefined when it names none. */
+async function rebuildSuper(
+  seedCode: string,
+): Promise<{ seedCode: string; puzzle: Puzzle; identity: string } | undefined> {
+  const code = parseSuperSeedCode(seedCode);
+  if (!code) return undefined;
+  try {
+    const puzzle = generateSuperPuzzle(code.seed, code.version);
+    return { seedCode, puzzle, identity: await puzzleId(puzzle) };
+  } catch {
+    return undefined;
+  }
+}
 async function prepare(seedCode?: string): Promise<void> {
   if (busy.value) return;
   if (!account.value) {
@@ -376,32 +408,20 @@ async function prepare(seedCode?: string): Promise<void> {
       } catch {
         if (!preparing()) return;
       }
-      seedCode = candidate?.seedCode ?? encodeSuperSeed(crypto.randomUUID());
+      seedCode = candidate?.seedCode;
     }
-    if (candidate && parseSuperSeed(seedCode) === undefined) {
-      candidate = undefined;
-      seedCode = encodeSuperSeed(crypto.randomUUID());
-    }
-    let seed = parseSuperSeed(seedCode);
-    if (seed === undefined) throw new Error("超級のシードを復元できません。");
-    let generated;
-    try {
-      generated = generateSuperPuzzle(seed);
-    } catch (error) {
-      if (!candidate) throw error;
-      candidate = undefined;
-      seedCode = encodeSuperSeed(crypto.randomUUID());
-      seed = parseSuperSeed(seedCode)!;
-      generated = generateSuperPuzzle(seed);
-    }
-    let identity = await puzzleId(generated);
-    if (candidate && identity !== candidate.puzzleId) {
+    let board = seedCode ? await rebuildSuper(seedCode) : undefined;
+    if (!preparing()) return;
+    if (seedCode && !board && !candidate)
+      throw new Error("超級のシードを復元できません。");
+    // A candidate that cannot be rebuilt as recorded gives way to a new board.
+    if (!board || (candidate && board.identity !== candidate.puzzleId)) {
+      const fresh = generateFreshSuper();
+      board = { ...fresh, identity: await puzzleId(fresh.puzzle) };
       if (!preparing()) return;
-      seedCode = encodeSuperSeed(crypto.randomUUID());
-      seed = parseSuperSeed(seedCode)!;
-      generated = generateSuperPuzzle(seed);
-      identity = await puzzleId(generated);
     }
+    const { puzzle: generated, identity } = board;
+    seedCode = board.seedCode;
     const data = await readBody(
       await request("/api/super/prepare", { seedCode }),
     );
@@ -409,8 +429,7 @@ async function prepare(seedCode?: string): Promise<void> {
     if (!preparing()) return;
     if (
       (await puzzleId(verified)) !== identity ||
-      verified.seed !== seed ||
-      verified.generatorVersion !== "super-v1"
+      !isSuperPuzzleOf(verified, seedCode)
     )
       throw new Error("超級の盤面を確認できません。");
     if (!preparing()) return;
@@ -492,11 +511,7 @@ function saveCurrent(
   playId: string,
   timer: SavedPlayTimer,
 ): boolean {
-  if (
-    !active.value ||
-    puzzle.generatorVersion !== "super-v1" ||
-    parseSuperSeed(active.value.session.seedCode) !== puzzle.seed
-  )
+  if (!active.value || !isSuperPuzzleOf(puzzle, active.value.session.seedCode))
     return false;
   const ok = saveSuperGame(
     active.value.accountId,

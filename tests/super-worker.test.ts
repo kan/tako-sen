@@ -392,6 +392,51 @@ describe("super challenge server", () => {
       status: 403,
     });
   });
+  it("keeps super-v1 codes playable and ranked without offering them as candidates", async () => {
+    const db = platform.env.DB;
+    const seed = "super-regression:0";
+    const legacy = await prepareSuperPuzzle(
+      db,
+      "creator",
+      encodeSuperSeed(seed, "super-v1"),
+      now,
+    );
+    expect(legacy).toMatchObject({ generatorVersion: "super-v1", seed });
+    expect(legacy.givens).toHaveLength(2);
+    expect(legacy.id).not.toBe(snapshot.id);
+    expect(snapshot).toMatchObject({
+      generatorVersion: "super-v2",
+      givens: [],
+    });
+    await account("legacyplayer");
+    const playId = crypto.randomUUID();
+    await startSuperAttempt(
+      db,
+      "legacyplayer",
+      { playId, puzzleId: legacy.id, entry: "shared", cycle: 0 },
+      now,
+    );
+    expect(
+      await completeSuperAttempt(
+        db,
+        "legacyplayer",
+        {
+          ...completion(playId),
+          puzzleId: legacy.id,
+          pieces: generateSuperPuzzle(seed, "super-v1").solution,
+        },
+        now,
+      ),
+    ).toBe("completed");
+    expect(await listSuperRanking(db, "creator", legacy.id)).toHaveLength(1);
+    expect(await listSuperCandidates(db, "creator")).not.toContainEqual(
+      expect.objectContaining({ puzzleId: legacy.id }),
+    );
+    for (const code of ["TAKO:super-v3:hard:seed", ` ${seedCode}`])
+      await expect(
+        prepareSuperPuzzle(db, "creator", code, now),
+      ).rejects.toMatchObject({ status: 400 });
+  });
   it("limits new shared starts without blocking same-ID retries", async () => {
     const db = platform.env.DB;
     await account("limited");
@@ -503,7 +548,14 @@ describe("super challenge server", () => {
       /SEARCH f USING COVERING INDEX super_first_scores_puzzle \(puzzle_id=\?\)/,
     );
     expect(ranking).not.toMatch(/SCAN (f|p|a)\b/);
-    expect(await explainQueryPlan(db, SUPER_CANDIDATES_SQL, "creator")).toMatch(
+    expect(
+      await explainQueryPlan(
+        db,
+        SUPER_CANDIDATES_SQL,
+        "TAKO:super-v2:%",
+        "creator",
+      ),
+    ).toMatch(
       /SEARCH a USING INDEX super_attempts_completed_puzzle \(account_id=\? AND puzzle_id=\?\)/,
     );
   });

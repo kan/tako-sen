@@ -53,6 +53,32 @@ describe("super account-local game storage", () => {
     ).toBe(true);
     expect(loadSuperGame("a", storage)?.game.timer.elapsedMs).toBe(5000);
   });
+  it("keeps a super-v1 save and rejects a board whose version differs from its code", () => {
+    const { storage } = store();
+    const legacy = generateSuperPuzzle(puzzle.seed, "super-v1");
+    const legacySession = {
+      ...session,
+      seedCode: encodeSuperSeed(puzzle.seed, "super-v1"),
+    };
+    const playId = crypto.randomUUID();
+    const timer = { waitingToStart: true, elapsedMs: 0, hasStarted: false };
+    const save = (account: string, s: SuperSession, p: typeof puzzle) =>
+      saveSuperGame(
+        account,
+        s,
+        p,
+        createInitialPlayerState(0, p.givens),
+        playId,
+        timer,
+        storage,
+      );
+    expect(save("a", legacySession, legacy)).toBe(true);
+    expect(loadSuperGame("a", storage)?.game.puzzle).toEqual(legacy);
+    save("b", legacySession, puzzle);
+    expect(loadSuperGame("b", storage)).toBeUndefined();
+    save("c", session, legacy);
+    expect(loadSuperGame("c", storage)).toBeUndefined();
+  });
   it("rejects corrupted saves and reports quota or silent write failures", () => {
     const { storage, values } = store();
     const key = "tako-sen.super-game.v1:a";

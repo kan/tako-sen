@@ -1,7 +1,7 @@
 import type { Puzzle, PlayerState } from "./model";
 import type { SavedPlayTimer } from "./play-timer";
 import type { SuperEntry } from "./super-progress";
-import { parseSuperSeed } from "./super-puzzle";
+import { isSuperPuzzleOf, parseSuperSeed } from "./super-puzzle";
 import { loadGame, saveGame, type KeyValueStorage } from "./storage";
 
 export interface SuperSession {
@@ -85,9 +85,8 @@ export function loadSuperGame(
     });
     if (
       !game ||
-      game.puzzle.generatorVersion !== "super-v1" ||
       game.puzzle.size !== 10 ||
-      game.puzzle.seed !== parseSuperSeed(session.seedCode) ||
+      !isSuperPuzzleOf(game.puzzle, session.seedCode) ||
       !game.playId ||
       !/^[0-9a-f-]{36}$/i.test(game.playId) ||
       (game.timer.hasStarted && !session.claimed)

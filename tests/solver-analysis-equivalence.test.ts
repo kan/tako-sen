@@ -107,8 +107,11 @@ const puzzles: Puzzle[] = [
     difficulty: "easy",
     maxAttempts: 0,
   }),
-  generateSuperPuzzle("equivalence"),
-  generateSuperPuzzle("equivalence:1"),
+  ...["super-v1", "super-v2"].flatMap((version) =>
+    ["equivalence", "equivalence:1", "equivalence:2"].map((seed) =>
+      generateSuperPuzzle(seed, version),
+    ),
+  ),
 ];
 
 describe("solver and analysis equivalence", () => {
