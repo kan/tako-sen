@@ -3,6 +3,7 @@ import {
   type GenerateOptions,
   type GeneratedPuzzle,
 } from "../core/generator";
+import type { PuzzleDifficulty } from "../core/model";
 
 export interface WorkerRequest {
   readonly id: number;
@@ -31,6 +32,38 @@ const pending = new Map<number, PendingGeneration>();
 /** Whether generation can run without blocking input on the main thread. */
 export function canGenerateInBackground(): boolean {
   return typeof Worker !== "undefined" && !workerFailed;
+}
+
+const FRESH_SEEDS = 3;
+
+/**
+ * A new board of the current generator version for a random seed. A
+ * generator stops after a fixed number of attempts so that a seed code always
+ * decides the same board: for a rare seed it then returns a board rated
+ * differently from the request, or throws. A new game is not tied to a seed,
+ * so another one is drawn. After the last seed a differently rated board is
+ * accepted rather than failing; an abort is passed on without retrying.
+ */
+export async function generateFreshInBackground(
+  difficulty: PuzzleDifficulty,
+  signal?: AbortSignal,
+): Promise<GeneratedPuzzle> {
+  let rated: GeneratedPuzzle | undefined;
+  let failure: unknown;
+  for (let tries = 0; tries < FRESH_SEEDS; tries += 1) {
+    try {
+      rated = await generateInBackground(
+        { seed: `game-${crypto.randomUUID()}`, difficulty },
+        signal,
+      );
+      if (rated.analysis.rating === difficulty) return rated;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      failure = error;
+    }
+  }
+  if (rated) return rated;
+  throw failure;
 }
 
 /**

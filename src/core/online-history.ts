@@ -50,6 +50,8 @@ export async function createCompletedPlayUpload(
   if (
     !code ||
     play.seedCode.length > 512 ||
+    // Stored codes are matched by their prefix, so none may carry padding.
+    play.seedCode !== play.seedCode.trim() ||
     code.version !== play.generatorVersion ||
     code.difficulty !== play.difficulty
   ) {

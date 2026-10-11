@@ -39,6 +39,7 @@ import {
 } from "./core/generator";
 import {
   canGenerateInBackground,
+  generateFreshInBackground,
   generateInBackground,
 } from "./ui/puzzle-generation";
 import {
@@ -145,6 +146,7 @@ const soundStorageKey = "tako-sen:sound-enabled";
 const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
 const nextPuzzleLoading = ref(false);
+const nextPuzzleMessage = ref("");
 const offeredPuzzleIds = new Set<string>();
 let nextPuzzleRequest = 0;
 const onlineGameName = ref("");
@@ -927,6 +929,7 @@ async function newGame(): Promise<void> {
   }
   const request = ++nextPuzzleRequest;
   nextPuzzleLoading.value = true;
+  nextPuzzleMessage.value = "";
   const difficulty = resolveDifficultySelection(
     selectedDifficulty.value,
     Math.random,
@@ -936,15 +939,20 @@ async function newGame(): Promise<void> {
     next =
       (await preparedNextPuzzle?.next) ?? (await loadNextPuzzle(difficulty));
   } catch {
-    // Worker での生成に失敗しても、下のその場の生成で次の問題へ進める。
+    // 別のシードでも作れなかった。下で知らせる。
   }
   if (request !== nextPuzzleRequest) return;
-  const { generated, recommendedId } = next ?? {
-    generated: generatePuzzleWithAnalysis({
-      seed: `game-${crypto.randomUUID()}`,
-      difficulty,
-    }),
-  };
+  if (!next) {
+    // 今の盤面を残し、もう一度押せるようにする。ボタンはプレイ画面とクリア
+    // ダイアログの両方にあるので、どちらにも表示する。
+    nextPuzzleLoading.value = false;
+    nextPuzzleMessage.value =
+      "新しい問題を作れませんでした。もう一度お試しください。";
+    if (showClearDialog.value)
+      clearDialogMessage.value = nextPuzzleMessage.value;
+    return;
+  }
+  const { generated, recommendedId } = next;
   if (recommendedId) offeredPuzzleIds.add(recommendedId);
   nextPuzzleLoading.value = false;
   activeDailyDate.value = undefined;
@@ -991,10 +999,7 @@ async function loadNextPuzzle(
   throwIfAborted(preparing);
   return (
     ranked ?? {
-      generated: await generateInBackground(
-        { seed: `game-${crypto.randomUUID()}`, difficulty },
-        preparing,
-      ),
+      generated: await generateFreshInBackground(difficulty, preparing),
     }
   );
 }
@@ -1283,14 +1288,20 @@ function restoreSeed(code: string): boolean {
     return false;
   }
 
+  let generated: GeneratedPuzzle;
+  try {
+    generated = generatePuzzleWithAnalysis({
+      version: parsed.version,
+      seed: parsed.seed,
+      difficulty: parsed.difficulty,
+    });
+  } catch {
+    // 生成器は決まった試行回数で打ち切るので、盤面にならないシードがあり得る。
+    seedMessage.value = "このシードからは問題を作れません。";
+    return false;
+  }
   cancelPendingNextPuzzle();
   clearSharedPuzzleUrl();
-
-  const generated = generatePuzzleWithAnalysis({
-    version: parsed.version,
-    seed: parsed.seed,
-    difficulty: parsed.difficulty,
-  });
   puzzle.value = generated.puzzle;
   difficultyAnalysis.value = generated.analysis;
   state.value = createInitialPlayerState(undefined, puzzle.value.givens);
@@ -2184,6 +2195,13 @@ function formatElapsed(seconds: number): string {
       </div>
       <p v-if="nextPuzzleLoading" class="play-footer-message" role="status">
         次の問題を選んでいます。
+      </p>
+      <p
+        v-else-if="nextPuzzleMessage"
+        class="play-footer-message"
+        role="status"
+      >
+        {{ nextPuzzleMessage }}
       </p>
     </div>
 

@@ -14,7 +14,12 @@ export function encodePuzzleSeed(
 ): string {
   const version = puzzle.generatorVersion ?? "g1";
   const difficulty = puzzle.difficulty ?? "easy";
-  return `${CODE_PREFIX}:${version}:${difficulty}:${encodeURIComponent(puzzle.seed)}`;
+  return `${seedCodePrefix(version)}${difficulty}:${encodeURIComponent(puzzle.seed)}`;
+}
+
+/** What every seed code of one generator version starts with. */
+export function seedCodePrefix(version: string): string {
+  return `${CODE_PREFIX}:${version}:`;
 }
 
 export function parsePuzzleSeedCode(code: string): PuzzleSeedCode | undefined {

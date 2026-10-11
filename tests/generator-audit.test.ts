@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { generatePuzzleWithAnalysis } from "../src/core/generator";
 import {
+  g3Spec,
+  openingPlacements,
+  shapeViolations,
+} from "../src/core/generator-g3";
+import {
   BOARD_SIZE,
   type Puzzle,
   type PuzzleDifficulty,
@@ -114,8 +119,6 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
       const geometries = new Set<string>();
       const solutions = new Set<string>();
       const shapes = new Set<string>();
-      let curatedMatches = 0;
-      const ratings: Record<string, number> = {};
       const samples =
         fullAudit && difficulty === "easy"
           ? [
@@ -144,14 +147,10 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
           errors: [],
         });
         assertConnectedRegions(puzzle, context);
-        expect(puzzle.givens?.length ?? 0, context).toBeLessThanOrEqual(1);
-        for (const given of puzzle.givens ?? [])
-          expect(puzzle.solution, context).toContain(given);
-        // 公開初期配置がなくてもRegionだけで唯一解を持つことを独立に確認する。
-        const solved = solvePuzzle(
-          { ...puzzle, givens: [] },
-          { maxSolutions: 2 },
-        );
+        // g3は事前設置を置かない。Regionだけで唯一解を持つことを独立に確認する。
+        expect(puzzle.givens, context).toEqual([]);
+        expect(puzzle.generatorVersion, context).toBe("g3");
+        const solved = solvePuzzle(puzzle, { maxSolutions: 2 });
         expect(solved.status, context).toBe("unique");
         expect(
           [...solved.solutions[0]].sort((a, b) => a - b),
@@ -159,22 +158,40 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
         ).toEqual([...puzzle.solution].sort((a, b) => a - b));
         expect(analysis.solved, context).toBe(true);
         expect(analysis.stalled, context).toBe(false);
-        expect(analysis.rating, context).not.toBe("unsupported");
-        // 指定難易度と実際の評価が違うフォールバックは仕様上許される。
-        ratings[analysis.rating] = (ratings[analysis.rating] ?? 0) + 1;
+        // 指定難易度に届かない盤面を返すフォールバックは仕様上あり得るが、
+        // この固定コーパスでは1件も起きないことを確かめる。
+        expect(analysis.rating, context).toBe(difficulty);
+        // 確定マスを減らす: 1マスRegionは初級のちょうど1個だけで、ほかは3マス以上。
+        const sizes = Array<number>(BOARD_SIZE).fill(0);
+        for (const region of puzzle.regions) sizes[region] += 1;
+        const single = sizes.flatMap((size, id) => (size === 1 ? [id] : []));
+        expect(single.length, context).toBe(difficulty === "easy" ? 1 : 0);
+        expect(
+          sizes.filter((size) => size === 2),
+          context,
+        ).toEqual([]);
+        expect(
+          shapeViolations(puzzle, g3Spec(difficulty).shape, single[0]),
+          context,
+        ).toBe(0);
+        // 初級は見てすぐ置けるタコが1匹だけで、その後は定石が要る。
+        expect(openingPlacements(analysis), context).toBe(
+          difficulty === "easy" ? 1 : 0,
+        );
+        const depletions = analysis.techniqueCounts["region-depletion"];
+        const multiRegion = analysis.techniqueCounts["multi-region-line"];
+        if (difficulty === "hard")
+          expect(depletions, context).toBeGreaterThanOrEqual(2);
+        else expect(depletions, context).toBe(0);
+        if (difficulty === "normal")
+          expect(multiRegion, context).toBeGreaterThan(0);
+        if (difficulty === "easy") expect(multiRegion, context).toBe(0);
         expect(
           generatePuzzleWithAnalysis({ seed, difficulty }),
           context,
         ).toEqual(generated);
         geometries.add(geometrySignature(puzzle));
         shapes.add(shapeSignature(puzzle));
-        const curated = generatePuzzleWithAnalysis({
-          seed,
-          difficulty,
-          maxAttempts: 0,
-        });
-        if (geometrySignature(curated.puzzle) === geometrySignature(puzzle))
-          curatedMatches++;
         solutions.add(
           JSON.stringify([...puzzle.solution].sort((a, b) => a - b)),
         );
@@ -184,10 +201,6 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
       expect(geometries.size).toBeGreaterThanOrEqual(minimumDiversity);
       expect(shapes.size).toBeGreaterThanOrEqual(minimumDiversity);
       expect(solutions.size).toBeGreaterThanOrEqual(samples.length / 2);
-      expect(curatedMatches).toBeLessThanOrEqual(samples.length / 8);
-      expect(ratings[difficulty] ?? 0).toBeGreaterThanOrEqual(
-        Math.ceil(samples.length * (difficulty === "easy" ? 0.95 : 0.75)),
-      );
       durations.sort((a, b) => a - b);
       console.info("generator audit", {
         difficulty,
@@ -196,8 +209,6 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
         duplicateRate: (samples.length - geometries.size) / samples.length,
         uniqueSolutions: solutions.size,
         uniqueShapesIgnoringRotationAndReflection: shapes.size,
-        curatedMatches,
-        ratings,
         generationMs: {
           median: Math.round(durations[Math.floor(durations.length / 2)]),
           p95: Math.round(durations[Math.floor(durations.length * 0.95)]),
@@ -208,10 +219,12 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
     300000,
   );
 
+  // g2は試行なしでcurated盤面を返す。旧版の復元経路として残す。
   it.each(difficulties)(
-    "validates the curated fallback with no random attempts for %s",
+    "validates the g2 curated fallback with no random attempts for %s",
     (difficulty) => {
       const generated = generatePuzzleWithAnalysis({
+        version: "g2",
         seed: "audit-curated",
         difficulty,
         maxAttempts: 0,
@@ -225,6 +238,7 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
       expect(generated.analysis.solved).toBe(true);
       expect(
         generatePuzzleWithAnalysis({
+          version: "g2",
           seed: "audit-curated",
           difficulty,
           maxAttempts: 0,

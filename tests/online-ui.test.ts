@@ -1574,7 +1574,7 @@ describe("play screen navigation", () => {
     ).toBeUndefined();
     const restoreInput = find(
       container,
-      (n) => n.props.placeholder === "TAKO:g2:easy:...",
+      (n) => n.props.placeholder === "TAKO:g3:easy:...",
     )!;
     const updateCode = restoreInput.props["onUpdate:modelValue"] as (
       value: string,

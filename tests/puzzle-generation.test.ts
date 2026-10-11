@@ -128,6 +128,65 @@ describe("background puzzle generation", () => {
     expect(second.posted).toHaveLength(1);
   });
 
+  describe("fresh boards", () => {
+    const board = (rating: string) => ({ analysis: { rating } });
+    // 返信するたびに次の要求が送られるのを待つ。
+    async function reply(worker: FakeWorker, index: number, data: object) {
+      await vi.waitFor(() =>
+        expect(worker.posted.length).toBeGreaterThan(index),
+      );
+      worker.emit("message", { id: worker.posted[index].id, ...data });
+    }
+
+    it("draws another seed when a board is rated differently or fails", async () => {
+      vi.stubGlobal("Worker", FakeWorker);
+      const { generateFreshInBackground } = await load();
+      const result = generateFreshInBackground("hard");
+      const [worker] = FakeWorker.instances;
+      await reply(worker, 0, { generated: board("normal") });
+      await reply(worker, 1, { error: "no board" });
+      await reply(worker, 2, { generated: board("hard") });
+      expect(await result).toEqual(board("hard"));
+      const seeds = worker.posted.map(
+        (message) => (message.options as { seed: string }).seed,
+      );
+      expect(new Set(seeds).size).toBe(3);
+      expect(seeds.every((seed) => seed.startsWith("game-"))).toBe(true);
+    });
+
+    it("accepts a differently rated board after the last seed", async () => {
+      vi.stubGlobal("Worker", FakeWorker);
+      const { generateFreshInBackground } = await load();
+      const result = generateFreshInBackground("hard");
+      const [worker] = FakeWorker.instances;
+      await reply(worker, 0, { generated: board("normal") });
+      await reply(worker, 1, { error: "no board" });
+      await reply(worker, 2, { generated: board("easy") });
+      expect(await result).toEqual(board("easy"));
+      expect(worker.posted).toHaveLength(3);
+    });
+
+    it("fails when no seed gives a board, and passes an abort on at once", async () => {
+      vi.stubGlobal("Worker", FakeWorker);
+      const { generateFreshInBackground } = await load();
+      const failing = generateFreshInBackground("easy");
+      const [worker] = FakeWorker.instances;
+      for (let i = 0; i < 3; i += 1) await reply(worker, i, { error: "none" });
+      await expect(failing).rejects.toThrow("none");
+      expect(worker.posted).toHaveLength(3);
+
+      const controller = new AbortController();
+      const aborted = generateFreshInBackground("easy", controller.signal);
+      await vi.waitFor(() => expect(worker.posted).toHaveLength(4));
+      controller.abort();
+      await expect(aborted).rejects.toBe(controller.signal.reason);
+      // 中断の後は、別のシードを引き直さない。
+      expect(
+        FakeWorker.instances.flatMap((instance) => instance.posted),
+      ).toHaveLength(4);
+    });
+  });
+
   it("falls back when the worker cannot be created", async () => {
     vi.stubGlobal(
       "Worker",

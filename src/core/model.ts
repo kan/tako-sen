@@ -99,6 +99,21 @@ export function regionCells(
   return cells;
 }
 
+/**
+ * The cells sharing an edge with `index`: above, below, left, right. The g3
+ * generator draws random moves from lists built in this order, so changing
+ * it would change every board generated from g3 on.
+ */
+export function orthogonalNeighbors(index: number, size: number): number[] {
+  const { row, col } = cellCoord(index, size);
+  const neighbors: number[] = [];
+  if (row > 0) neighbors.push(cellIndex(row - 1, col, size));
+  if (row < size - 1) neighbors.push(cellIndex(row + 1, col, size));
+  if (col > 0) neighbors.push(cellIndex(row, col - 1, size));
+  if (col < size - 1) neighbors.push(cellIndex(row, col + 1, size));
+  return neighbors;
+}
+
 export function allCells(size = BOARD_SIZE): number[] {
   return Array.from({ length: size * size }, (_, index) => index);
 }

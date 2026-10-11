@@ -18,7 +18,7 @@ async function clear(
   at = week.start + 1000,
   difficulty = "easy",
   eligible = 1,
-  version = "g2",
+  version = "g3",
 ): Promise<void> {
   await platform.env.DB.prepare(
     `INSERT INTO completed_plays
@@ -61,7 +61,8 @@ beforeAll(async () => {
   await clear("beta", "b0", 1, week.start - 1);
   for (let i = 0; i < 5; i++) {
     await clear("alpha", `a${i}`, 50 + i * 10);
-    await clear("gamma", `g${i}`, 70);
+    // 旧版の盤面の記録も、新しい版の記録と同じ重みで数える。
+    await clear("gamma", `g${i}`, 70, undefined, undefined, undefined, "g2");
     if (i < 4) await clear("beta", `b${i}`, 10);
   }
   await clear("alpha", "a0", 1, week.start + 2000); // faster replay must not replace first

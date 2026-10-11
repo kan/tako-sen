@@ -4,6 +4,11 @@ import {
   type WeeklyRanking,
 } from "../core/weekly-ranking";
 import type { PuzzleDifficulty } from "../core/model";
+import { GENERATOR_VERSIONS } from "../core/generator";
+
+// Every ordinary generator version counts; daily and super boards do not.
+// The names are constants of this codebase, so they are inlined.
+const ORDINARY_VERSIONS = GENERATOR_VERSIONS.map((v) => `'${v}'`).join(", ");
 
 // Search only this week's eligible ordinary clears via the covering index.
 // Replays count once per account/puzzle/week, using the earliest completed
@@ -17,7 +22,7 @@ export function weeklyRankingSql(metric: WeeklyMetric): string {
     FROM completed_plays c
     WHERE c.ranking_eligible = 1
       AND c.completed_at >= ?2 AND c.completed_at < ?3 AND c.completed_at <= ?4
-      AND c.generator_version IN ('g1', 'g2')
+      AND c.generator_version IN (${ORDINARY_VERSIONS})
   ), totals AS (
     SELECT account_id, COUNT(*) AS clears, AVG(elapsed_seconds) AS average_seconds
     FROM trials WHERE attempt = 1 AND difficulty = ?1 GROUP BY account_id

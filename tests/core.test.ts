@@ -77,11 +77,14 @@ describe("complete solver", () => {
   });
 
   it("uses puzzle givens as solver constraints", () => {
+    // 事前設置を持つのは旧版のcurated盤面だけ。
     const puzzle = generatePuzzleWithAnalysis({
+      version: "g2",
       seed: "easy-a",
       difficulty: "easy",
       maxAttempts: 0,
     }).puzzle;
+    expect(puzzle.givens).toHaveLength(1);
     const result = solvePuzzle(puzzle);
     expect(result.status).toBe("unique");
     expect(result.solutions[0]).toEqual(
@@ -574,7 +577,7 @@ describe("generator", () => {
     const parsed = parsePuzzleSeedCode(encodePuzzleSeed(original));
 
     expect(parsed).toEqual({
-      version: "g2",
+      version: "g3",
       difficulty: "normal",
       seed: "restore-seed",
     });
@@ -613,7 +616,9 @@ describe("generator", () => {
   });
 
   it("uses difficulty analysis to select an easy puzzle when a matching candidate exists", () => {
+    // maxAttemptsは旧版だけが読むので、以下の4件は版を明示する。
     const generated = generatePuzzleWithAnalysis({
+      version: "g2",
       seed: "probe2",
       difficulty: "easy",
       maxAttempts: 200,
@@ -624,6 +629,7 @@ describe("generator", () => {
   it("generates beginner puzzles from constrained singleton regions", () => {
     for (const seed of ["easy-a", "easy-b", "easy-c"]) {
       const generated = generatePuzzleWithAnalysis({
+        version: "g2",
         seed,
         difficulty: "easy",
         maxAttempts: 80,
@@ -640,6 +646,7 @@ describe("generator", () => {
   it("varies beginner shapes while keeping them easy", () => {
     const generated = ["easy-var-a", "easy-var-b", "easy-var-c"].map((seed) =>
       generatePuzzleWithAnalysis({
+        version: "g2",
         seed,
         difficulty: "easy",
         maxAttempts: 80,
@@ -666,6 +673,7 @@ describe("generator", () => {
 
   it("uses difficulty analysis to select a hard puzzle when a matching candidate exists", () => {
     const generated = generatePuzzleWithAnalysis({
+      version: "g2",
       seed: "probe1",
       difficulty: "hard",
       maxAttempts: 200,

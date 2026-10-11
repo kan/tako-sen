@@ -3,10 +3,11 @@ import { getPlatformProxy } from "wrangler";
 import { registerAccountProfile } from "../src/worker/profile";
 import { saveCompletedPlay } from "../src/worker/history";
 import {
+  CURRENT_SEED_CODES,
   listRankedPuzzleCandidates,
   RANKED_PUZZLE_CANDIDATES_SQL,
 } from "../src/worker/next-puzzle";
-import { LEADERBOARD_SQL } from "../src/worker/leaderboard";
+import { LEADERBOARD_SQL, listLeaderboard } from "../src/worker/leaderboard";
 import worker from "../src/worker/index";
 import { explainQueryPlan, migrateTestDatabase } from "./migrations";
 
@@ -44,8 +45,8 @@ beforeAll(async () => {
       {
         playId: crypto.randomUUID(),
         puzzleId,
-        seedCode: `TAKO:g2:easy:${seed}`,
-        generatorVersion: "g2",
+        seedCode: `TAKO:g3:easy:${seed}`,
+        generatorVersion: "g3",
         difficulty: "easy",
         startedAt: 1000,
         completedAt: 61000,
@@ -67,9 +68,13 @@ describe("ranked puzzle candidates", () => {
       db,
       RANKED_PUZZLE_CANDIDATES_SQL,
       "easy",
+      CURRENT_SEED_CODES,
       "requester",
     );
-    expect(candidatePlan).toContain("completed_plays_public_difficulty");
+    // 版の条件を足しても、公開記録は索引だけで読める。
+    expect(candidatePlan).toMatch(
+      /SEARCH c USING COVERING INDEX completed_plays_public_difficulty/,
+    );
     expect(candidatePlan).toContain("completed_plays_account_puzzle");
     expect(candidatePlan).toMatch(
       /SEARCH own USING COVERING INDEX completed_plays_account_puzzle \(account_id=\? AND puzzle_id=\?\)/,
@@ -80,17 +85,48 @@ describe("ranked puzzle candidates", () => {
     expect(rankingPlan).toMatch(/SEARCH (c|f).*puzzle_id=/);
     expect(rankingPlan).not.toContain("first_ranked_plays");
   });
+  it("offers only boards of the current generator version", async () => {
+    const db = platform.env.DB;
+    const oldId = `p1:${"e".repeat(64)}`;
+    // 旧版の盤面は記録が多くても候補にしない。ランキング自体は残る。
+    for (const account of ["owner-a", "owner-b", "owner-c"])
+      await saveCompletedPlay(
+        db,
+        account,
+        {
+          playId: crypto.randomUUID(),
+          puzzleId: oldId,
+          seedCode: "TAKO:g2:easy:old",
+          generatorVersion: "g2",
+          difficulty: "easy",
+          startedAt: 1000,
+          completedAt: 61000,
+          elapsedSeconds: 60,
+          hintsUsed: 0,
+          mistakes: 0,
+          maxHintStage: 0,
+        },
+        true,
+      );
+    expect(await listLeaderboard(db, oldId)).toHaveLength(3);
+    const offered = await listRankedPuzzleCandidates(db, "requester", "easy");
+    expect(offered.map((candidate) => candidate.puzzleId)).not.toContain(oldId);
+    expect(offered.length).toBeGreaterThan(0);
+    expect(
+      offered.every((candidate) => candidate.seedCode.startsWith("TAKO:g3:")),
+    ).toBe(true);
+  });
   it("returns popular boards without the requester's completed board", async () => {
     const db = platform.env.DB;
     expect(await listRankedPuzzleCandidates(db, "requester", "easy")).toEqual([
       {
         puzzleId: firstId,
-        seedCode: "TAKO:g2:easy:first",
+        seedCode: "TAKO:g3:easy:first",
         players: 2,
       },
       {
         puzzleId: secondId,
-        seedCode: "TAKO:g2:easy:second",
+        seedCode: "TAKO:g3:easy:second",
         players: 1,
       },
     ]);
@@ -103,8 +139,8 @@ describe("ranked puzzle candidates", () => {
       {
         playId: crypto.randomUUID(),
         puzzleId: firstId,
-        seedCode: "TAKO:g2:easy:first",
-        generatorVersion: "g2",
+        seedCode: "TAKO:g3:easy:first",
+        generatorVersion: "g3",
         difficulty: "easy",
         startedAt: 1000,
         completedAt: 61000,
@@ -138,8 +174,8 @@ describe("ranked puzzle candidates", () => {
         {
           playId: crypto.randomUUID(),
           puzzleId,
-          seedCode: `TAKO:g2:hard:${puzzleId}`,
-          generatorVersion: "g2",
+          seedCode: `TAKO:g3:hard:${puzzleId}`,
+          generatorVersion: "g3",
           difficulty: "hard",
           startedAt: 1000,
           completedAt: 61000,
