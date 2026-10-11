@@ -1,8 +1,5 @@
-import {
-  initialSuperProgress,
-  type SuperProgress,
-  type SuperEntry,
-} from "../core/super-progress";
+import { type SuperProgress, type SuperEntry } from "../core/super-progress";
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import { parseSuperSeed, generateSuperPuzzle } from "../core/super-puzzle";
 import { parsePuzzleSeedCode } from "../core/puzzle-code";
 import { puzzleId } from "../core/puzzle-identity";
@@ -88,45 +85,51 @@ export function parseSuperCompletion(value: unknown): SuperCompletion {
   }
 }
 
+interface ProgressRow {
+  cycle: number;
+  count: number;
+  offer_pending: number;
+}
+// Reads only while the account's consent is current, so every route that goes
+// through the progress row refuses accounts without it.
+function selectProgress(
+  db: D1Database,
+  accountId: string,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT s.cycle, s.count, s.offer_pending FROM super_progress s
+    JOIN leaderboard_profiles p ON p.account_id = s.account_id AND p.consent_version = ?
+    WHERE s.account_id = ?`,
+    )
+    .bind(RANKING_CONSENT_VERSION, accountId);
+}
+function toProgress(row: ProgressRow | null | undefined): SuperProgress {
+  if (!row) throw new SuperApiError(403, "profile_required");
+  return {
+    cycle: row.cycle,
+    count: row.count,
+    offerPending: row.offer_pending === 1,
+  };
+}
+/** Creates the row for a consenting account and reads it in one round trip. */
 async function ensureProgress(
   db: D1Database,
   accountId: string,
-): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO super_progress(account_id)
-    SELECT account_id FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1
-    ON CONFLICT(account_id) DO NOTHING`,
-    )
-    .bind(accountId)
-    .run();
-  if (
-    !(await db
-      .prepare("SELECT 1 FROM super_progress WHERE account_id = ?")
-      .bind(accountId)
-      .first())
-  )
-    throw new SuperApiError(403, "profile_required");
-}
-export async function getSuperProgress(
-  db: D1Database,
-  accountId: string,
 ): Promise<SuperProgress> {
-  await ensureProgress(db, accountId);
-  const row = await db
-    .prepare(
-      "SELECT cycle, count, offer_pending FROM super_progress WHERE account_id = ?",
-    )
-    .bind(accountId)
-    .first<{ cycle: number; count: number; offer_pending: number }>();
-  return row
-    ? {
-        cycle: row.cycle,
-        count: row.count,
-        offerPending: row.offer_pending === 1,
-      }
-    : initialSuperProgress();
+  const [, selected] = await db.batch<ProgressRow>([
+    db
+      .prepare(
+        `INSERT INTO super_progress(account_id)
+    SELECT account_id FROM leaderboard_profiles WHERE account_id = ? AND consent_version = ?
+    ON CONFLICT(account_id) DO NOTHING`,
+      )
+      .bind(accountId, RANKING_CONSENT_VERSION),
+    selectProgress(db, accountId),
+  ]);
+  return toProgress(selected.results[0]);
 }
+export const getSuperProgress = ensureProgress;
 export async function recordSuperEvent(
   db: D1Database,
   accountId: string,
@@ -164,7 +167,7 @@ export async function recordSuperEvent(
   if (!row) throw new SuperApiError(429, "rate_limited");
   if (row.cycle !== event.cycle || row.seed_code !== event.seedCode)
     throw new SuperApiError(409, "play_id_conflict");
-  return getSuperProgress(db, accountId);
+  return toProgress(await selectProgress(db, accountId).first<ProgressRow>());
 }
 export async function deferSuperProgress(
   db: D1Database,
@@ -178,7 +181,7 @@ export async function deferSuperProgress(
     )
     .bind(accountId, cycle)
     .run();
-  return getSuperProgress(db, accountId);
+  return toProgress(await selectProgress(db, accountId).first<ProgressRow>());
 }
 export async function prepareSuperPuzzle(
   db: D1Database,
@@ -358,18 +361,25 @@ export async function completeSuperAttempt(
     return completeSuperAttempt(db, accountId, completion, now);
   return "completed";
 }
+export const SUPER_CANDIDATES_SQL = `SELECT f.puzzle_id AS puzzleId, p.seed_code AS seedCode, COUNT(*) AS players
+    FROM super_first_scores f JOIN super_puzzles p ON p.puzzle_id = f.puzzle_id
+    JOIN leaderboard_profiles n ON n.account_id = f.account_id AND n.consent_version = 1
+    WHERE NOT EXISTS (SELECT 1 FROM super_attempts a WHERE a.account_id = ? AND a.puzzle_id = f.puzzle_id AND a.completed_at IS NOT NULL)
+    GROUP BY f.puzzle_id ORDER BY players DESC, RANDOM() LIMIT 30`;
+export const SUPER_RANKING_SQL = `WITH ranked AS (
+    SELECT a.account_id, p.display_name, a.elapsed_seconds, a.mistakes, a.hints_used, a.max_hint_stage,
+      RANK() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used) AS rank,
+      ROW_NUMBER() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used, p.display_name) AS place
+    FROM super_first_scores f JOIN super_attempts a ON a.account_id = f.account_id AND a.play_id = f.play_id
+    JOIN leaderboard_profiles p ON p.account_id = f.account_id AND p.consent_version = 1
+    WHERE f.puzzle_id = ?)
+    SELECT * FROM ranked WHERE place <= 100 OR account_id = ? ORDER BY place LIMIT 101`;
 export async function listSuperCandidates(
   db: D1Database,
   accountId: string,
 ): Promise<RankedPuzzleCandidate[]> {
   const result = await db
-    .prepare(
-      `SELECT f.puzzle_id AS puzzleId, p.seed_code AS seedCode, COUNT(*) AS players
-    FROM super_first_scores f JOIN super_puzzles p ON p.puzzle_id = f.puzzle_id
-    JOIN leaderboard_profiles n ON n.account_id = f.account_id AND n.consent_version = 1
-    WHERE NOT EXISTS (SELECT 1 FROM super_attempts a WHERE a.account_id = ? AND a.puzzle_id = f.puzzle_id AND a.completed_at IS NOT NULL)
-    GROUP BY f.puzzle_id ORDER BY players DESC, RANDOM() LIMIT 30`,
-    )
+    .prepare(SUPER_CANDIDATES_SQL)
     .bind(accountId)
     .all<RankedPuzzleCandidate>();
   return result.results;
@@ -394,27 +404,15 @@ export async function listSuperRanking(
   id: string,
 ): Promise<DailyLeaderboardEntry[]> {
   if (!identity.test(id)) throw new SuperApiError(400, "invalid_puzzle_id");
-  const rows = await db
-    .prepare(
-      `WITH ranked AS (
-    SELECT a.account_id, p.display_name, a.elapsed_seconds, a.mistakes, a.hints_used, a.max_hint_stage,
-      RANK() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used) AS rank,
-      ROW_NUMBER() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used, p.display_name) AS place
-    FROM super_first_scores f JOIN super_attempts a ON a.account_id = f.account_id AND a.play_id = f.play_id
-    JOIN leaderboard_profiles p ON p.account_id = f.account_id AND p.consent_version = 1
-    WHERE f.puzzle_id = ?)
-    SELECT * FROM ranked WHERE place <= 100 OR account_id = ? ORDER BY place LIMIT 101`,
-    )
-    .bind(id, accountId)
-    .all<{
-      account_id: string;
-      display_name: string;
-      elapsed_seconds: number;
-      mistakes: number;
-      hints_used: number;
-      max_hint_stage: DailyLeaderboardEntry["maxHintStage"];
-      rank: number;
-    }>();
+  const rows = await db.prepare(SUPER_RANKING_SQL).bind(id, accountId).all<{
+    account_id: string;
+    display_name: string;
+    elapsed_seconds: number;
+    mistakes: number;
+    hints_used: number;
+    max_hint_stage: DailyLeaderboardEntry["maxHintStage"];
+    rank: number;
+  }>();
   return rows.results.map((r) => ({
     rank: r.rank,
     displayName: r.display_name,

@@ -72,6 +72,8 @@ const message = ref("");
 const syncMessage = ref("");
 let failures = 0;
 let nextRetryAt = 0;
+// 進捗を最後に取得できた時刻。0 はこのアカウントで未取得。
+let refreshedAt = 0;
 let refreshing: Promise<boolean> | undefined;
 const revision = ref(0);
 const dialog = ref<HTMLElement>();
@@ -240,6 +242,7 @@ async function fetchProgress(): Promise<boolean> {
       applyProgress(data.progress, id);
       failures = 0;
       nextRetryAt = 0;
+      refreshedAt = Date.now();
       syncMessage.value = "";
       return true;
     }
@@ -248,7 +251,9 @@ async function fetchProgress(): Promise<boolean> {
   }
   return false;
 }
-async function retry(force = false): Promise<void> {
+// 未送信の記録は毎回送る（無ければ通信しない）。進捗の再取得は、今回送信した、
+// 前回失敗した、未取得、最後の取得から staleAfter 以上たった、のどれかの時だけ行う。
+async function retry(force = false, staleAfter = 0): Promise<void> {
   const id = account.value;
   const generation = epoch;
   if (
@@ -276,7 +281,12 @@ async function retry(force = false): Promise<void> {
       emit("synced");
       message.value = "";
     }
-    if (current(id, generation)) await refresh();
+    const due =
+      sent > 0 ||
+      failures > 0 ||
+      refreshedAt === 0 ||
+      Date.now() - refreshedAt >= staleAfter;
+    if (due && current(id, generation)) await refresh();
   } catch (error) {
     if (current(id, generation)) syncFailed(error);
   } finally {
@@ -612,6 +622,7 @@ watch(
     epoch += 1;
     failures = 0;
     nextRetryAt = 0;
+    refreshedAt = 0;
     syncMessage.value = "";
     refreshing = undefined;
     preparation += 1;
@@ -673,20 +684,32 @@ function onOffline(): void {
     message.value = "超級はオンライン復帰後に再開できます。";
   }
 }
-function onOnline(): void {
+function sync(staleAfter: number): void {
   const reconnected = !connected.value && navigator.onLine !== false;
   connected.value = navigator.onLine !== false;
-  void retry(reconnected);
+  void retry(reconnected, reconnected ? 0 : staleAfter);
+}
+function onOnline(): void {
+  sync(0);
+}
+const refreshInterval = 30000;
+// 定期実行は未送信分の再送だけを行い、送るものが無ければ通信しない。
+function onTimer(): void {
+  sync(Infinity);
+}
+// 画面へ戻った時は他の端末での変化を取り込む。短い間隔の往復では取得しない。
+function onReturn(): void {
+  sync(refreshInterval);
 }
 function onVisible(): void {
-  if (document.visibilityState === "visible") void retry();
+  if (document.visibilityState === "visible") onReturn();
 }
 onMounted(() => {
   window.addEventListener("offline", onOffline);
   window.addEventListener("online", onOnline);
-  window.addEventListener("focus", onOnline);
+  window.addEventListener("focus", onReturn);
   document.addEventListener("visibilitychange", onVisible);
-  retryTimer = setInterval(onOnline, 30000);
+  retryTimer = setInterval(onTimer, refreshInterval);
 });
 onUnmounted(() => {
   disposed = true;
@@ -694,7 +717,7 @@ onUnmounted(() => {
   if (retryTimer) clearInterval(retryTimer);
   window.removeEventListener("offline", onOffline);
   window.removeEventListener("online", onOnline);
-  window.removeEventListener("focus", onOnline);
+  window.removeEventListener("focus", onReturn);
   document.removeEventListener("visibilitychange", onVisible);
 });
 defineExpose({

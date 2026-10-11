@@ -81,6 +81,15 @@ export default {
     ];
     const isSuper =
       superReads.includes(pathname) || superWrites.includes(pathname);
+    // These begin by creating or reading the progress row, which refuses
+    // accounts without consent. Every other super route is checked below.
+    const superWithProgress = [
+      "/api/super/progress",
+      "/api/super/event",
+      "/api/super/defer",
+      "/api/super/prepare",
+      "/api/super/start",
+    ];
     if (pathname.startsWith("/api/leaderboards/")) {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -227,7 +236,10 @@ export default {
       if (!accountId) return json({ error: "unauthorized" }, 401);
 
       if (isSuper) {
-        if (!(await getAccountProfile(env.DB, accountId)))
+        if (
+          !superWithProgress.includes(pathname) &&
+          !(await getAccountProfile(env.DB, accountId))
+        )
           return json({ error: "profile_required" }, 403);
         if (pathname === "/api/super/progress")
           return json({ progress: await getSuperProgress(env.DB, accountId) });

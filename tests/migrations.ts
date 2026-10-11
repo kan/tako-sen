@@ -1,6 +1,19 @@
 import { readFileSync } from "node:fs";
 import { unstable_splitSqlQuery } from "wrangler";
 
+/** The plan of a query as one string, for asserting which indexes it uses. */
+export async function explainQueryPlan(
+  db: D1Database,
+  sql: string,
+  ...values: unknown[]
+): Promise<string> {
+  const plan = await db
+    .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+    .bind(...values)
+    .all<{ detail: string }>();
+  return plan.results.map((row) => row.detail).join("\n");
+}
+
 export async function migrateTestDatabase(
   db: D1Database,
   beforeAutomaticRanking?: () => Promise<void>,
@@ -18,6 +31,7 @@ export async function migrateTestDatabase(
     "0008_ranking_query_indexes.sql",
     "0009_super_clear_credit.sql",
     "0010_weekly_ranking_index.sql",
+    "0011_super_query_indexes.sql",
   ]) {
     if (file === "0004_automatic_ranking.sql") await beforeAutomaticRanking?.();
     if (file === "0005_hint_stage.sql") await beforeHintStage?.();

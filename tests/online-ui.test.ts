@@ -2193,6 +2193,78 @@ describe("super challenge flow", () => {
       find(container, (n) => n.text.includes("通信が不安定")),
     ).toBeUndefined();
   });
+  it("stops periodic progress reads once nothing is owed and refreshes on return after the interval", async () => {
+    auth.user!.value = "ui-account";
+    let now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const progress = { cycle: 0, count: 3, offerPending: false };
+    request.mockImplementation(async () => Response.json({ progress }));
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    const controller = ref<InstanceType<typeof SuperChallenge>>();
+    const playId = crypto.randomUUID();
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(SuperChallenge, {
+            ref: controller,
+            puzzle: { ...puzzle, size: 8 },
+            playId,
+            complete: false,
+            gameName: "🐙タコ",
+            modalBlocked: false,
+          }),
+      }),
+      root(),
+    );
+    await vi.waitFor(() =>
+      expect(
+        localStorage.getItem("tako-sen.super-progress.v1:ui-account"),
+      ).toBe(JSON.stringify(progress)),
+    );
+    const tick = intervals.mock.calls.find(
+      ([, delay]) => delay === 30000,
+    )![0] as () => void;
+    const returned: string = "focus";
+    const focus = vi
+      .mocked(window.addEventListener)
+      .mock.calls.find(([name]) => name === returned)![1] as EventListener;
+    const settled = async () => {
+      for (let i = 0; i < 5; i += 1) await nextTick();
+    };
+    await settled();
+    const loaded = request.mock.calls.length;
+
+    now += 5000;
+    focus(new Event("focus"));
+    await settled();
+    expect(request).toHaveBeenCalledTimes(loaded);
+    now += 30000;
+    tick();
+    await settled();
+    expect(request).toHaveBeenCalledTimes(loaded);
+
+    focus(new Event("focus"));
+    await vi.waitFor(() =>
+      expect(request.mock.calls.length).toBeGreaterThan(loaded),
+    );
+    await settled();
+    const refreshed = request.mock.calls.length;
+
+    // 未送信の記録が残っている間は、定期的な再試行を続ける。
+    request.mockRejectedValue(new TypeError("Failed to fetch"));
+    controller.value!.captureNormalTrial(playId, "TAKO:g2:easy:queued");
+    await vi.waitFor(() =>
+      expect(request.mock.calls.length).toBeGreaterThan(refreshed),
+    );
+    await settled();
+    const failed = request.mock.calls.length;
+    request.mockImplementation(async () => Response.json({ progress }));
+    now += 30000;
+    tick();
+    await vi.waitFor(() =>
+      expect(request.mock.calls.length).toBeGreaterThan(failed),
+    );
+  });
   it.each(["anonymous", "profile-required", "more-clears"] as const)(
     "opens an explanation rather than login/setup or a disabled entry: %s",
     async (state) => {

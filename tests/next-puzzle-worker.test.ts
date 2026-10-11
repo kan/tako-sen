@@ -8,7 +8,7 @@ import {
 } from "../src/worker/next-puzzle";
 import { LEADERBOARD_SQL } from "../src/worker/leaderboard";
 import worker from "../src/worker/index";
-import { migrateTestDatabase } from "./migrations";
+import { explainQueryPlan, migrateTestDatabase } from "./migrations";
 
 const auth = vi.hoisted(() => ({ account: null as string | null }));
 vi.mock("@clerk/backend", () => ({
@@ -63,24 +63,19 @@ afterAll(async () => platform?.dispose());
 describe("ranked puzzle candidates", () => {
   it("uses indexed difficulty, completed-board exclusion and ranking lookup", async () => {
     const db = platform.env.DB;
-    const candidates = await db
-      .prepare(`EXPLAIN QUERY PLAN ${RANKED_PUZZLE_CANDIDATES_SQL}`)
-      .bind("easy", "requester")
-      .all<{ detail: string }>();
-    const candidatePlan = candidates.results
-      .map((row) => row.detail)
-      .join("\n");
+    const candidatePlan = await explainQueryPlan(
+      db,
+      RANKED_PUZZLE_CANDIDATES_SQL,
+      "easy",
+      "requester",
+    );
     expect(candidatePlan).toContain("completed_plays_public_difficulty");
     expect(candidatePlan).toContain("completed_plays_account_puzzle");
     expect(candidatePlan).toMatch(
       /SEARCH own USING COVERING INDEX completed_plays_account_puzzle \(account_id=\? AND puzzle_id=\?\)/,
     );
     expect(candidatePlan).not.toContain("first_ranked_plays");
-    const ranking = await db
-      .prepare(`EXPLAIN QUERY PLAN ${LEADERBOARD_SQL}`)
-      .bind(firstId)
-      .all<{ detail: string }>();
-    const rankingPlan = ranking.results.map((row) => row.detail).join("\n");
+    const rankingPlan = await explainQueryPlan(db, LEADERBOARD_SQL, firstId);
     expect(rankingPlan).not.toContain("SCAN c");
     expect(rankingPlan).toMatch(/SEARCH (c|f).*puzzle_id=/);
     expect(rankingPlan).not.toContain("first_ranked_plays");

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { migrateTestDatabase } from "./migrations";
+import { explainQueryPlan, migrateTestDatabase } from "./migrations";
 import { registerAccountProfile } from "../src/worker/profile";
 import { deleteAccountHistory } from "../src/worker/history";
 import { encodeSuperSeed, generateSuperPuzzle } from "../src/core/super-puzzle";
@@ -21,6 +21,8 @@ import {
   parseSuperEvent,
   parseSuperStart,
   parseSuperCompletion,
+  SUPER_CANDIDATES_SQL,
+  SUPER_RANKING_SQL,
   type SuperCompletion,
 } from "../src/worker/super";
 import worker from "../src/worker/index";
@@ -488,6 +490,49 @@ describe("super challenge server", () => {
     await expect(
       prepareSuperPuzzle(db, "no-profile", seedCode, now),
     ).rejects.toMatchObject({ status: 403 });
+  });
+  it("reads rankings and candidates through the puzzle and completion indexes", async () => {
+    const db = platform.env.DB;
+    const ranking = await explainQueryPlan(
+      db,
+      SUPER_RANKING_SQL,
+      snapshot.id,
+      "creator",
+    );
+    expect(ranking).toMatch(
+      /SEARCH f USING COVERING INDEX super_first_scores_puzzle \(puzzle_id=\?\)/,
+    );
+    expect(ranking).not.toMatch(/SCAN (f|p|a)\b/);
+    expect(await explainQueryPlan(db, SUPER_CANDIDATES_SQL, "creator")).toMatch(
+      /SEARCH a USING INDEX super_attempts_completed_puzzle \(account_id=\? AND puzzle_id=\?\)/,
+    );
+  });
+  it("creates progress on the first read and refuses accounts without consent", async () => {
+    const db = platform.env.DB;
+    await account("progressfirst");
+    const initial = { cycle: 0, count: 0, offerPending: false };
+    expect(await getSuperProgress(db, "progressfirst")).toEqual(initial);
+    expect(await getSuperProgress(db, "progressfirst")).toEqual(initial);
+    const refused = { status: 403, code: "profile_required" };
+    await expect(getSuperProgress(db, "noconsent")).rejects.toMatchObject(
+      refused,
+    );
+    // 行の作成後に同意が無効になっても、進捗の行を扱う処理は通さない。
+    await db
+      .prepare(
+        "UPDATE leaderboard_profiles SET consent_version = NULL WHERE account_id = ?",
+      )
+      .bind("progressfirst")
+      .run();
+    await expect(getSuperProgress(db, "progressfirst")).rejects.toMatchObject(
+      refused,
+    );
+    await expect(
+      recordSuperEvent(db, "progressfirst", event(), now),
+    ).rejects.toMatchObject(refused);
+    await expect(
+      deferSuperProgress(db, "progressfirst", 0),
+    ).rejects.toMatchObject(refused);
   });
   it("protects API ownership, methods, Origin and body validation", async () => {
     const env = {
