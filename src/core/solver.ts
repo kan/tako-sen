@@ -64,9 +64,24 @@ export function solvePuzzle(
     return candidates;
   });
 
+  // The search runs thousands of times per generated puzzle, so it works on
+  // flat arrays. Region ids are mapped to slots because unvalidated input may
+  // carry arbitrary ids.
+  const regionSlots = new Map<number | undefined, number>();
+  const regionSlotByCell = Array.from({ length: size * size }, (_, index) => {
+    const region: number | undefined = puzzle.regions[index];
+    let slot = regionSlots.get(region);
+    if (slot === undefined) {
+      slot = regionSlots.size;
+      regionSlots.set(region, slot);
+    }
+    return slot;
+  });
+  const columnUsed = new Uint8Array(size);
+  const regionUsed = new Uint8Array(regionSlots.size);
   const solutions: number[][] = [];
   const chosen: number[] = [];
-  search(0, new Set(), new Set(), chosen);
+  search(0);
 
   return {
     status:
@@ -78,37 +93,31 @@ export function solvePuzzle(
     solutions,
   };
 
-  function search(
-    row: number,
-    columns: Set<number>,
-    regions: Set<number>,
-    partial: number[],
-  ): void {
+  function search(row: number): void {
     if (solutions.length >= maxSolutions) return;
     if (row === size) {
-      solutions.push([...partial].sort((a, b) => a - b));
+      solutions.push([...chosen].sort((a, b) => a - b));
       return;
     }
 
-    for (const index of candidatesByRow[row]) {
-      const { col } = cellCoord(index, size);
-      const region = puzzle.regions[index];
-      if (
-        index < 0 ||
-        index >= size * size ||
-        columns.has(col) ||
-        regions.has(region)
-      )
-        continue;
-      if (partial.some((piece) => isAdjacent(piece, index, size))) continue;
+    // Rows are filled in order with one piece each, so only the piece in the
+    // previous row can touch a cell of this row.
+    const previousCol = row === 0 ? -2 : chosen[row - 1] % size;
+    const candidates = candidatesByRow[row];
+    for (let i = 0; i < candidates.length; i += 1) {
+      const index = candidates[i];
+      const col = index % size;
+      const regionSlot = regionSlotByCell[index];
+      if (columnUsed[col] || regionUsed[regionSlot]) continue;
+      if (col - previousCol <= 1 && previousCol - col <= 1) continue;
 
-      columns.add(col);
-      regions.add(region);
-      partial.push(index);
-      search(row + 1, columns, regions, partial);
-      partial.pop();
-      regions.delete(region);
-      columns.delete(col);
+      columnUsed[col] = 1;
+      regionUsed[regionSlot] = 1;
+      chosen.push(index);
+      search(row + 1);
+      chosen.pop();
+      regionUsed[regionSlot] = 0;
+      columnUsed[col] = 0;
     }
   }
 }

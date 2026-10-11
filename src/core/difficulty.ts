@@ -6,10 +6,11 @@ import {
 import { addExcludedMarks, placePiece } from "./player";
 import { isComplete } from "./rules";
 import {
-  findLogicalMoves,
+  findLogicalMovesOf,
   type LogicalMove,
   type TechniqueId,
 } from "./logical";
+import { hasContradiction } from "./solver";
 
 export type DifficultyRating = "easy" | "normal" | "hard" | "unsupported";
 
@@ -61,8 +62,8 @@ export function analyzePuzzleDifficulty(
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
     if (isComplete(puzzle, state)) break;
-    const move = easiestMove(findLogicalMoves(puzzle, state));
-    if (!move || move.technique === "contradiction") break;
+    const move = findEasiestMove(puzzle, state);
+    if (!move) break;
 
     const beforeExcluded = state.excluded.size;
     const beforePieces = state.pieces.size;
@@ -131,11 +132,34 @@ function classifyDifficulty(
   return "easy";
 }
 
-function easiestMove(moves: readonly LogicalMove[]): LogicalMove | undefined {
-  return [...moves].sort((a, b) => {
-    const priorityDiff =
-      TECHNIQUE_PRIORITY[a.technique] - TECHNIQUE_PRIORITY[b.technique];
-    if (priorityDiff !== 0) return priorityDiff;
-    return a.focusCells[0] - b.focusCells[0];
-  })[0];
+// Techniques grouped by ascending priority. Contradiction is checked first and
+// ends the analysis, so it has no tier.
+const TIERED_TECHNIQUES = TECHNIQUES.filter(
+  (technique) => technique !== "contradiction",
+);
+const TECHNIQUE_TIERS: readonly (readonly TechniqueId[])[] = [
+  ...new Set(TIERED_TECHNIQUES.map((t) => TECHNIQUE_PRIORITY[t])),
+]
+  .sort((a, b) => a - b)
+  .map((priority) =>
+    TIERED_TECHNIQUES.filter((t) => TECHNIQUE_PRIORITY[t] === priority),
+  );
+
+/**
+ * The move with the lowest technique priority, then the lowest first focus
+ * cell: the first element of findLogicalMoves sorted by those keys. Tiers are
+ * searched in order so that the costly techniques run only when no easier
+ * move exists.
+ */
+export function findEasiestMove(
+  puzzle: Pick<Puzzle, "size" | "regions">,
+  state: PlayerState,
+): LogicalMove | undefined {
+  if (hasContradiction(puzzle, state)) return undefined;
+  for (const tier of TECHNIQUE_TIERS) {
+    const moves = findLogicalMovesOf(puzzle, state, tier);
+    if (moves.length > 0)
+      return moves.sort((a, b) => a.focusCells[0] - b.focusCells[0])[0];
+  }
+  return undefined;
 }

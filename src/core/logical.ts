@@ -54,14 +54,22 @@ export function findLogicalMoves(
     ];
   }
 
-  return [
-    ...findRegionLineMoves(puzzle, state),
-    ...findLineRegionMoves(puzzle, state),
-    ...findMultiRegionLineMoves(puzzle, state),
-    ...findRegionDepletionMoves(puzzle, state),
-    ...findMissingExclusionMoves(puzzle, state),
-    ...findSingleCandidates(puzzle, state),
-  ];
+  return MOVE_FINDERS.flatMap(([, find]) => find(puzzle, state));
+}
+
+/**
+ * The moves of the given techniques, in the same relative order as
+ * findLogicalMoves returns them. The caller must have ruled out a
+ * contradiction; this lets it skip the costly techniques it does not need.
+ */
+export function findLogicalMovesOf(
+  puzzle: Pick<Puzzle, "size" | "regions">,
+  state: PlayerState,
+  techniques: readonly TechniqueId[],
+): LogicalMove[] {
+  return MOVE_FINDERS.flatMap(([technique, find]) =>
+    techniques.includes(technique) ? find(puzzle, state) : [],
+  );
 }
 
 /** Removing one of these marks alone makes the current constraints solvable. */
@@ -418,6 +426,21 @@ function findMultiRegionLineMoves(
 
   return moves;
 }
+
+const MOVE_FINDERS: readonly (readonly [
+  TechniqueId,
+  (
+    puzzle: Pick<Puzzle, "size" | "regions">,
+    state: PlayerState,
+  ) => LogicalMove[],
+])[] = [
+  ["region-line", findRegionLineMoves],
+  ["line-region", findLineRegionMoves],
+  ["multi-region-line", findMultiRegionLineMoves],
+  ["region-depletion", findRegionDepletionMoves],
+  ["missing-exclusion", findMissingExclusionMoves],
+  ["single-candidate", findSingleCandidates],
+];
 
 function rowCandidates(
   puzzle: Pick<Puzzle, "size" | "regions">,
