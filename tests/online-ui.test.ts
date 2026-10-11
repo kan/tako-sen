@@ -2133,6 +2133,102 @@ describe("history and results dialog", () => {
 });
 
 describe("super challenge flow", () => {
+  it("retains cached progress and queued trials through connection loss, backs off and recovers on reconnect", async () => {
+    auth.user!.value = "ui-account";
+    const cached = { cycle: 0, count: 3, offerPending: false };
+    localStorage.setItem(
+      "tako-sen.super-progress.v1:ui-account",
+      JSON.stringify(cached),
+    );
+    let now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    request.mockRejectedValue(new TypeError("Failed to fetch"));
+    const controller = ref<InstanceType<typeof SuperChallenge>>();
+    const container = root();
+    const playId = crypto.randomUUID();
+    renderer.render(
+      h({
+        setup: () => () =>
+          h(SuperChallenge, {
+            ref: controller,
+            puzzle: { ...puzzle, size: 8 },
+            playId,
+            complete: false,
+            gameName: "🐙タコ",
+            playScreen: true,
+            historyOpen: false,
+            modalBlocked: false,
+          }),
+      }),
+      container,
+    );
+    await vi.waitFor(() => expect(request).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.text === "超級の記録を同期しています。"),
+      ).toBeUndefined(),
+    );
+    expect(
+      find(container, (n) => n.text.includes("通信が不安定")),
+    ).toBeUndefined();
+    expect(
+      JSON.parse(
+        localStorage.getItem("tako-sen.super-progress.v1:ui-account")!,
+      ),
+    ).toEqual(cached);
+    const calls = request.mock.calls.length;
+    controller.value!.captureNormalTrial(playId, "TAKO:g2:easy:queued");
+    await controller.value!.refreshProgress();
+    expect(request).toHaveBeenCalledTimes(calls);
+    const key = `tako-sen.super-outbox.v1:ui-account:event:${playId}`;
+    expect(JSON.parse(localStorage.getItem(key)!).acknowledged).toBe(false);
+    now += 30000;
+    await controller.value!.refreshProgress();
+    const second = request.mock.calls.length;
+    expect(second).toBeGreaterThan(calls);
+    await nextTick();
+    expect(
+      find(container, (n) => n.text.includes("通信が不安定")),
+    ).toBeDefined();
+    now += 30000;
+    await controller.value!.refreshProgress();
+    expect(request).toHaveBeenCalledTimes(second);
+    const listener = (event: string) =>
+      vi
+        .mocked(window.addEventListener)
+        .mock.calls.find(([name]) => name === event)![1] as EventListener;
+    Object.assign(navigator, { onLine: false });
+    listener("offline")(new Event("offline"));
+    request.mockImplementation(async () =>
+      Response.json({ progress: { ...cached, count: 4 } }),
+    );
+    Object.assign(navigator, { onLine: true });
+    listener("online")(new Event("online"));
+    await vi.waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(key)!).acknowledged).toBe(true),
+    );
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.text.includes("通信が不安定")),
+      ).toBeUndefined(),
+    );
+    expect(
+      JSON.parse(localStorage.getItem("tako-sen.super-progress.v1:ui-account")!)
+        .count,
+    ).toBe(4);
+    request.mockRejectedValueOnce(new TypeError("temporary loss"));
+    await controller.value!.refreshProgress();
+    await nextTick();
+    expect(
+      find(container, (n) => n.text.includes("通信が不安定")),
+    ).toBeUndefined();
+    now += 30000;
+    await controller.value!.refreshProgress();
+    await nextTick();
+    expect(
+      find(container, (n) => n.text.includes("通信が不安定")),
+    ).toBeUndefined();
+  });
   it.each(["anonymous", "profile-required", "more-clears"] as const)(
     "opens an explanation rather than login/setup or a disabled entry: %s",
     async (state) => {

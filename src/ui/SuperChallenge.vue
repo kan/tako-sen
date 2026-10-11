@@ -34,6 +34,11 @@ import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { trapDialogFocus } from "./dialog";
 import PublicLeaderboard from "./PublicLeaderboard.vue";
 import { rankingScore } from "../core/ranking-score";
+import {
+  fetchSuperResponse,
+  SuperConnectionError,
+  superRetryDelay,
+} from "./super-connection";
 
 const props = defineProps<{
   puzzle: Puzzle;
@@ -67,6 +72,10 @@ const connected = ref(navigator.onLine !== false);
 const offerOpen = ref(false);
 const rankingOpen = ref(false);
 const message = ref("");
+const syncMessage = ref("");
+let failures = 0;
+let nextRetryAt = 0;
+let refreshing: Promise<boolean> | undefined;
 const revision = ref(0);
 const dialog = ref<HTMLElement>();
 const entryButton = ref<HTMLElement>();
@@ -110,15 +119,17 @@ async function request(path: string, body?: unknown): Promise<Response> {
   const generation = epoch;
   if (!id || !current(id, generation))
     throw new Error("ログインとオンライン接続が必要です。");
-  const token = await getToken.value();
-  if (!token || !current(id, generation))
-    throw new Error("ログイン状態を確認してください。");
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(path, {
+    let token: string | null;
+    try {
+      token = await getToken.value();
+    } catch {
+      throw new SuperConnectionError("network");
+    }
+    if (!token || !current(id, generation))
+      throw new SuperConnectionError("auth");
+    const response = await fetchSuperResponse(path, {
       method: body === undefined ? "GET" : "POST",
-      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${token}`,
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -127,18 +138,13 @@ async function request(path: string, body?: unknown): Promise<Response> {
     });
     if (!current(id, generation))
       throw new Error("アカウントか接続状態が変わりました。");
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) emit("pause");
-      if (response.status === 403) emit("account");
-      throw new Error(
-        response.status === 429
-          ? "送信が混み合っています。少し待って再試行してください。"
-          : "通信・ログイン状態を確認して再試行してください。",
-      );
-    }
     return response;
-  } finally {
-    window.clearTimeout(timeout);
+  } catch (error) {
+    if (current(id, generation) && error instanceof SuperConnectionError) {
+      if (error.kind === "auth" || error.kind === "profile") emit("pause");
+      if (error.kind === "profile") emit("account");
+    }
+    throw error;
   }
 }
 async function readBody(response: Response): Promise<Record<string, unknown>> {
@@ -203,22 +209,58 @@ function captureNormalTrial(playId: string, seedCode: string): void {
       "超級のクリア数に必要な試行情報を保存できませんでした。通常プレイは続けられます。";
   }
 }
-async function refresh(): Promise<void> {
-  const id = account.value;
-  const generation = epoch;
-  if (!id || navigator.onLine === false) return;
+function syncFailed(error: unknown): void {
+  failures += 1;
+  nextRetryAt = Date.now() + superRetryDelay(failures);
+  // A brief connection hiccup should recover silently. Report it only when
+  // the next attempt also fails; keep the queued records in either case.
+  if (failures === 1) return;
+  const failure =
+    error instanceof SuperConnectionError
+      ? error
+      : new SuperConnectionError("invalid");
+  if (failure.kind === "auth" || failure.kind === "profile")
+    nextRetryAt = Infinity;
+  syncMessage.value = `${failure.message} 保存済みの進捗と未送信記録は保持しています。通常プレイは続けられます。`;
+}
+async function refresh(): Promise<boolean> {
+  if (refreshing) return refreshing;
+  const pending = fetchProgress();
+  refreshing = pending;
   try {
-    const data = await readBody(await request("/api/super/progress"));
-    if (current(id, generation)) applyProgress(data.progress, id);
-  } catch {
-    if (current(id, generation))
-      message.value = "超級の進行を取得できません。通常プレイは続けられます。";
+    return await pending;
+  } finally {
+    if (refreshing === pending) refreshing = undefined;
   }
 }
-async function retry(): Promise<void> {
+async function fetchProgress(): Promise<boolean> {
   const id = account.value;
   const generation = epoch;
-  if (!id || syncing.value || navigator.onLine === false) return;
+  if (!id || navigator.onLine === false) return false;
+  try {
+    const data = await readBody(await request("/api/super/progress"));
+    if (current(id, generation)) {
+      applyProgress(data.progress, id);
+      failures = 0;
+      nextRetryAt = 0;
+      syncMessage.value = "";
+      return true;
+    }
+  } catch (error) {
+    if (current(id, generation)) syncFailed(error);
+  }
+  return false;
+}
+async function retry(force = false): Promise<void> {
+  const id = account.value;
+  const generation = epoch;
+  if (
+    !id ||
+    syncing.value ||
+    navigator.onLine === false ||
+    (!force && Date.now() < nextRetryAt)
+  )
+    return;
   syncing.value = true;
   try {
     const sent = await outbox.flush(
@@ -238,12 +280,11 @@ async function retry(): Promise<void> {
       message.value = "";
     }
     if (current(id, generation)) await refresh();
-  } catch {
-    if (current(id, generation))
-      message.value =
-        "超級の未送信記録を保持しています。同じアカウントで再接続すると再送します。";
+  } catch (error) {
+    if (current(id, generation)) syncFailed(error);
   } finally {
     syncing.value = false;
+    if (!disposed && generation !== epoch && account.value) void retry();
   }
 }
 function showOffer(): void {
@@ -602,6 +643,10 @@ watch(
   account,
   () => {
     epoch += 1;
+    failures = 0;
+    nextRetryAt = 0;
+    syncMessage.value = "";
+    refreshing = undefined;
     preparation += 1;
     progress.value = undefined;
     progressOwner.value = undefined;
@@ -655,14 +700,18 @@ watch(
 );
 function onOffline(): void {
   connected.value = false;
+  if (account.value)
+    syncMessage.value =
+      "通信が切れています。保存済みの進捗と未送信記録は保持し、接続が戻ると再同期します。通常プレイは続けられます。";
   if (isSuper.value) {
     emit("pause");
     message.value = "超級はオンライン復帰後に再開できます。";
   }
 }
 function onOnline(): void {
+  const reconnected = !connected.value && navigator.onLine !== false;
   connected.value = navigator.onLine !== false;
-  void retry();
+  void retry(reconnected);
 }
 function onVisible(): void {
   if (document.visibilityState === "visible") void retry();
@@ -698,7 +747,7 @@ defineExpose({
   completeCurrent,
   openRanking,
   canPlay,
-  refreshProgress: refresh,
+  refreshProgress: retry,
 });
 </script>
 
@@ -757,6 +806,16 @@ defineExpose({
       <p v-if="syncing" role="status">超級の記録を同期しています。</p>
     </template>
     <p v-if="message" role="status">{{ message }}</p>
+    <p v-if="syncMessage" role="status">
+      {{ syncMessage
+      }}<button
+        type="button"
+        :disabled="syncing || !connected"
+        @click="retry(true)"
+      >
+        再試行
+      </button>
+    </p>
   </section>
   <section
     v-if="historyOpen && account"
@@ -852,6 +911,16 @@ defineExpose({
         現在の盤面から超級へ切り替えます。通常の進行は端末に保存します。
       </p>
       <p v-if="message" role="status">{{ message }}</p>
+      <p v-if="syncMessage" role="status">
+        {{ syncMessage
+        }}<button
+          type="button"
+          :disabled="syncing || !connected"
+          @click="retry(true)"
+        >
+          再試行
+        </button>
+      </p>
       <div class="dialog-actions">
         <SignInButton v-if="!isSignedIn"
           ><button type="button">ログイン</button></SignInButton
