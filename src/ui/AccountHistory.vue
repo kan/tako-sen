@@ -352,9 +352,6 @@ onUnmounted(() => {
           <p>
             ランキングは各問題の初回クリアのみ。再挑戦も個人履歴に自動保存します。
           </p>
-          <button type="button" :disabled="syncing" @click="synchronize">
-            同期を再試行
-          </button>
         </template>
         <button
           v-if="!setupOnly"
@@ -363,14 +360,6 @@ onUnmounted(() => {
           @click="signOut()"
         >
           ログアウト
-        </button>
-        <button
-          v-if="!setupOnly"
-          type="button"
-          :disabled="profileLoading"
-          @click="loadProfile"
-        >
-          オンライン設定を再確認
         </button>
       </template>
       <p v-else>

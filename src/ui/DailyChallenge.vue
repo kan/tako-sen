@@ -380,8 +380,15 @@ onUnmounted(() => {
           </div>
           <p v-if="message" role="alert">{{ message }}</p>
           <p v-if="status">{{ status.date }} · 10×10 · タコ10匹 · 上級</p>
-          <button v-if="!status" type="button" @click="openPanel">
-            再試行
+          <button
+            v-if="!status"
+            type="button"
+            class="icon-button retry-button"
+            aria-label="再試行"
+            title="再試行"
+            @click="openPanel"
+          >
+            <UiIcon name="reset" />
           </button>
           <button
             v-else-if="status.attempt !== 'completed'"

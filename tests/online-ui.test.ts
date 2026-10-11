@@ -1813,6 +1813,10 @@ describe("weekly ranking dialog", () => {
         ),
       ).toBeDefined(),
     );
+    expect(
+      find(container, (n) => n.props["aria-label"] === "再読み込み")!.props
+        .class,
+    ).toContain("icon-button");
     pending[0](
       Response.json({
         start: 0,
@@ -2076,6 +2080,10 @@ describe("history and results dialog", () => {
       ).toBeDefined(),
     );
     expect(
+      find(failed.container, (n) => n.props["aria-label"] === "再読み込み")!
+        .props.class,
+    ).toContain("icon-button");
+    expect(
       find(
         failed.container,
         (n) => n.props["data-seed-code"] === "TAKO:g2:easy:local",
@@ -2137,6 +2145,12 @@ describe("super challenge flow", () => {
     const second = request.mock.calls.length;
     expect(second).toBeGreaterThan(calls);
     await nextTick();
+    const retryButton = find(
+      container,
+      (n) => n.props["aria-label"] === "再試行",
+    )!;
+    expect(retryButton.props.class).toContain("icon-button");
+    expect(find(retryButton, (n) => n.tag === "svg")).toBeDefined();
     expect(
       find(container, (n) => n.text.includes("通信が不安定")),
     ).toBeDefined();
@@ -2920,6 +2934,10 @@ describe("account modal", () => {
     open.value = true;
     await nextTick();
     await vi.waitFor(() => expect(profileUpdated).toHaveBeenCalledTimes(3));
+    expect(find(container, (n) => n.text === "同期を再試行")).toBeUndefined();
+    expect(
+      find(container, (n) => n.text === "オンライン設定を再確認"),
+    ).toBeUndefined();
     await vi.waitFor(() =>
       expect(find(container, (n) => n.props.role === "dialog")).toBeDefined(),
     );

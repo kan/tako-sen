@@ -163,8 +163,17 @@ onUnmounted(() => {
         {{ dateFormat.format(data.end) }} 0:00（日本時間）
       </p>
       <p v-if="busy" role="status">週間ランキングを取得しています。</p>
-      <p v-else-if="message" role="status">
-        {{ message }} <button type="button" @click="refresh">再試行</button>
+      <p v-else-if="message" class="retry-status" role="status">
+        <span>{{ message }}</span>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="再読み込み"
+          title="再読み込み"
+          @click="refresh"
+        >
+          <UiIcon name="reset" />
+        </button>
       </p>
       <p v-else-if="data && !data.entries.length" role="status">
         今週の対象となる公開記録はありません。

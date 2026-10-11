@@ -775,10 +775,13 @@ defineExpose({
       {{ syncMessage
       }}<button
         type="button"
+        class="icon-button retry-button"
+        aria-label="再試行"
+        title="再試行"
         :disabled="syncing || !connected"
         @click="retry(true)"
       >
-        再試行
+        <UiIcon name="reset" />
       </button>
     </p>
   </section>
@@ -850,10 +853,13 @@ defineExpose({
         {{ syncMessage
         }}<button
           type="button"
+          class="icon-button retry-button"
+          aria-label="再試行"
+          title="再試行"
           :disabled="syncing || !connected"
           @click="retry(true)"
         >
-          再試行
+          <UiIcon name="reset" />
         </button>
       </p>
       <div class="dialog-actions">

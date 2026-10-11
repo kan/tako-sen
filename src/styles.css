@@ -1172,7 +1172,12 @@ h1 {
 }
 
 .dialog-close,
-.dialog-actions button {
+.dialog-actions button,
+.haptics-settings button,
+.sound-previews button,
+.account-card button,
+.retry-button,
+.retry-status button {
   border: 2px solid #2a1b14;
   border-radius: 999px;
   padding: 7px 12px;
@@ -1180,6 +1185,20 @@ h1 {
   color: #2a1b14;
   font-weight: 800;
   box-shadow: 0 2px 0 #2a1b14;
+}
+
+.retry-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.retry-status span {
+  min-width: 0;
+}
+
+.retry-status button {
+  flex-shrink: 0;
 }
 
 .dialog-close {

@@ -266,10 +266,17 @@ onUnmounted(() => {
           </button>
         </div>
         <p v-if="busy" role="status">成績を読み込んでいます。</p>
-        <p v-if="message" role="status">
-          {{ message }}
-          <button type="button" :disabled="busy" @click="refresh">
-            再読み込み
+        <p v-if="message" class="retry-status" role="status">
+          <span>{{ message }}</span>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="再読み込み"
+            title="再読み込み"
+            :disabled="busy"
+            @click="refresh"
+          >
+            <UiIcon name="reset" />
           </button>
         </p>
         <section
