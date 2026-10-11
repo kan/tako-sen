@@ -5,6 +5,7 @@ export async function migrateTestDatabase(
   db: D1Database,
   beforeAutomaticRanking?: () => Promise<void>,
   beforeHintStage?: () => Promise<void>,
+  beforeSuperClearCredit?: () => Promise<void>,
 ): Promise<void> {
   for (const file of [
     "0001_completed_plays.sql",
@@ -15,9 +16,12 @@ export async function migrateTestDatabase(
     "0006_daily_challenge.sql",
     "0007_super_challenge.sql",
     "0008_ranking_query_indexes.sql",
+    "0009_super_clear_credit.sql",
   ]) {
     if (file === "0004_automatic_ranking.sql") await beforeAutomaticRanking?.();
     if (file === "0005_hint_stage.sql") await beforeHintStage?.();
+    if (file === "0009_super_clear_credit.sql")
+      await beforeSuperClearCredit?.();
     const sql = readFileSync(
       new URL(`../migrations/${file}`, import.meta.url),
       "utf8",

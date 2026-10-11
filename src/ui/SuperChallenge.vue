@@ -63,6 +63,7 @@ const active = ref<{ accountId: string; session: SuperSession }>();
 const availableSave = ref(false);
 const busy = ref(false);
 const syncing = ref(false);
+const connected = ref(navigator.onLine !== false);
 const offerOpen = ref(false);
 const rankingOpen = ref(false);
 const message = ref("");
@@ -199,7 +200,7 @@ function captureNormalTrial(playId: string, seedCode: string): void {
     void retry();
   } catch {
     message.value =
-      "超級のプレイ回数を保存できませんでした。通常プレイは続けられます。";
+      "超級のクリア数に必要な試行情報を保存できませんでした。通常プレイは続けられます。";
   }
 }
 async function refresh(): Promise<void> {
@@ -312,7 +313,7 @@ async function prepare(seedCode?: string): Promise<void> {
       throw new Error("接続とログイン状態を確認してください。");
     const entry = seedCode ? "shared" : "earned";
     if (entry === "earned" && !hasSuperRight(progress.value))
-      throw new Error("通常プレイ10回で超級に挑戦できます。");
+      throw new Error("通常問題を10回クリアすると超級に挑戦できます。");
     const cycle = progress.value.cycle;
     let candidate: RankedPuzzleCandidate | undefined;
     if (!seedCode) {
@@ -653,12 +654,14 @@ watch(
   { immediate: true },
 );
 function onOffline(): void {
+  connected.value = false;
   if (isSuper.value) {
     emit("pause");
     message.value = "超級はオンライン復帰後に再開できます。";
   }
 }
 function onOnline(): void {
+  connected.value = navigator.onLine !== false;
   void retry();
 }
 function onVisible(): void {
@@ -695,27 +698,29 @@ defineExpose({
   completeCurrent,
   openRanking,
   canPlay,
+  refreshProgress: refresh,
 });
 </script>
 
 <template>
   <section v-if="playScreen" class="super-entry" :inert="modalBlocked">
-    <SignInButton v-if="!isSignedIn"
-      ><button
-        type="button"
-        class="icon-button super-challenge-button"
-        aria-label="超級 · ログインして挑戦"
-        title="超級 · ログインして挑戦"
-      >
-        <UiIcon name="super" /></button
-    ></SignInButton>
+    <button
+      v-if="!isSignedIn"
+      type="button"
+      class="icon-button super-challenge-button"
+      aria-label="超級 · ログインして挑戦"
+      title="超級 · ログインして挑戦"
+      @click="showOffer"
+    >
+      <UiIcon name="super" />
+    </button>
     <button
       v-else-if="!gameName"
       type="button"
       class="icon-button super-challenge-button"
       aria-label="超級 · 名前と公開ルールを設定"
       title="超級 · 名前と公開ルールを設定"
-      @click="emit('account')"
+      @click="showOffer"
     >
       <UiIcon name="super" />
     </button>
@@ -734,10 +739,10 @@ defineExpose({
             ? 'この端末の超級を再開'
             : right
               ? '超級に挑戦'
-              : `${label}回で超級に挑戦`
+              : `${label}回クリアで超級に挑戦`
         "
         type="button"
-        :disabled="busy || (!right && !(availableSave && !isSuper))"
+        :disabled="busy"
         @click="
           if (availableSave && !isSuper) {
             resumeSaved();
@@ -798,23 +803,75 @@ defineExpose({
       tabindex="-1"
       @keydown="onKeydown"
     >
-      <h2 id="super-offer-title">
-        {{
-          sharedCode ? "共有された超級に挑戦しますか？" : "超級に挑戦しますか？"
-        }}
-      </h2>
+      <div class="dialog-header">
+        <h2 id="super-offer-title">
+          {{
+            sharedCode
+              ? "共有された超級に挑戦しますか？"
+              : right
+                ? "超級に挑戦しますか？"
+                : "超級について"
+          }}
+        </h2>
+        <button
+          type="button"
+          class="dialog-close"
+          aria-label="超級の説明を閉じる"
+          @click="closeOffer"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
       <p v-if="sharedCode">
-        共有された10×10の超級です。挑戦権や通常プレイの回数は変わりません。
+        共有された10×10の超級です。挑戦権や通常問題のクリア数は変わりません。
       </p>
       <p v-else>
         10×10・タコ10匹の超級です。OKで開始するまで挑戦権は使いません。あとで挑戦することもできます。
       </p>
-      <p v-if="!complete">
+      <template v-if="!sharedCode && !right">
+        <p>初級・中級・上級より難しい、10×10のパズルに挑戦できます。</p>
+        <p>
+          ログインしてゲーム名とランキングの公開同意を設定した後、通常問題を合計10回クリアすると、1回分の挑戦権を獲得できます。
+        </p>
+        <p>
+          デイリー・超級・練習は加算しません。挑戦権は1回分だけ保留でき、保留中のクリアは次の分へ繰り越しません。
+        </p>
+        <p v-if="!isSignedIn">
+          まずログインしてください。未ログイン中のクリアは加算されません。
+        </p>
+        <p v-else-if="!gameName">ゲーム名と公開同意の設定が必要です。</p>
+        <p v-else-if="progress">
+          現在 {{ progress.count }} / 10回クリア。あと{{
+            remainingSuperPlays(progress)
+          }}回です。
+        </p>
+        <p v-else>クリア数を確認しています。通信状態を確認してください。</p>
+      </template>
+      <p v-if="!connected">超級の開始・再開にはオンライン接続が必要です。</p>
+      <p v-if="!complete && (sharedCode || right)">
         現在の盤面から超級へ切り替えます。通常の進行は端末に保存します。
       </p>
       <p v-if="message" role="status">{{ message }}</p>
       <div class="dialog-actions">
-        <button type="button" :disabled="busy" @click="prepare(sharedCode)">
+        <SignInButton v-if="!isSignedIn"
+          ><button type="button">ログイン</button></SignInButton
+        >
+        <button
+          v-else-if="!gameName"
+          type="button"
+          @click="
+            closeOffer();
+            emit('account');
+          "
+        >
+          名前と公開同意を設定
+        </button>
+        <button
+          v-else-if="sharedCode || right"
+          type="button"
+          :disabled="busy || !connected"
+          @click="prepare(sharedCode)"
+        >
           挑戦する</button
         ><button type="button" @click="closeOffer">あとで</button>
       </div>

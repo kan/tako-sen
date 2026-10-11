@@ -2077,6 +2077,82 @@ describe("history and results dialog", () => {
 });
 
 describe("super challenge flow", () => {
+  it.each(["anonymous", "profile-required", "more-clears"] as const)(
+    "opens an explanation rather than login/setup or a disabled entry: %s",
+    async (state) => {
+      vi.stubGlobal("HTMLElement", class {});
+      auth.user!.value = state === "anonymous" ? null : "ui-account";
+      request.mockImplementation(async () =>
+        Response.json({
+          progress: { cycle: 0, count: 3, offerPending: false },
+        }),
+      );
+      const container = root();
+      const opened = vi.fn(),
+        closed = vi.fn(),
+        account = vi.fn();
+      renderer.render(
+        h(SuperChallenge, {
+          puzzle,
+          complete: false,
+          gameName: state === "more-clears" ? "🐙タコ" : "",
+          playScreen: true,
+          historyOpen: false,
+          modalBlocked: false,
+          onOpened: opened,
+          onClosed: closed,
+          onAccount: account,
+        }),
+        container,
+      );
+      await nextTick();
+      const button = find(
+        container,
+        (n) =>
+          n.tag === "button" &&
+          String(n.props.class).includes("super-challenge-button"),
+      )!;
+      expect(button.props.disabled).not.toBe(true);
+      (button.props.onClick as () => void)();
+      await nextTick();
+      expect(opened).toHaveBeenCalledOnce();
+      expect(account).not.toHaveBeenCalled();
+      expect(
+        find(container, (n) => n.props.id === "super-offer-title")?.text,
+      ).toBe("超級について");
+      expect(
+        find(container, (n) => n.text.includes("通常問題を合計10回クリア")),
+      ).toBeDefined();
+      expect(
+        find(container, (n) => n.tag === "button" && n.text === "挑戦する"),
+      ).toBeUndefined();
+      if (state === "anonymous")
+        expect(
+          find(container, (n) => n.tag === "button" && n.text === "ログイン"),
+        ).toBeDefined();
+      if (state === "profile-required") {
+        (
+          find(
+            container,
+            (n) =>
+              n.tag === "button" && n.text.trim() === "名前と公開同意を設定",
+          )!.props.onClick as () => void
+        )();
+        await nextTick();
+        expect(account).toHaveBeenCalledOnce();
+        expect(closed).toHaveBeenCalledOnce();
+      } else {
+        (
+          find(
+            container,
+            (n) => n.props["aria-label"] === "超級の説明を閉じる",
+          )!.props.onClick as () => void
+        )();
+        await nextTick();
+        expect(closed).toHaveBeenCalledOnce();
+      }
+    },
+  );
   async function setup(count = 10) {
     vi.stubGlobal("HTMLElement", class {});
     const generated = generateSuperPuzzle("super-regression:0");
@@ -2253,7 +2329,7 @@ describe("super challenge flow", () => {
     expect(
       find(s.container, (n) => n.props["aria-label"] === "超級に挑戦")?.props
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
   });
   it("admits shared seeds without a right and pauses an active trial on offline and account change", async () => {
     const s = await setup(0);

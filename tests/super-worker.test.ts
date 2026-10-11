@@ -44,13 +44,25 @@ const event = (cycle = 0) => ({
   cycle,
   seedCode: "TAKO:g2:easy:credit",
 });
+const legacyTrials = [event(), event(), event()];
 beforeAll(async () => {
   platform = await getPlatformProxy<Env>({
     configPath: "./tests/wrangler.jsonc",
     persist: false,
     remoteBindings: false,
   });
-  await migrateTestDatabase(platform.env.DB);
+  await migrateTestDatabase(platform.env.DB, undefined, undefined, async () => {
+    await account("migrationpartial");
+    for (const trial of legacyTrials)
+      await recordSuperEvent(platform.env.DB, "migrationpartial", trial, now);
+    await normalClear("migrationpartial", legacyTrials[0]);
+    await normalClear("migrationpartial", legacyTrials[1]);
+    await normalClear("migrationpartial", event()); // unrelated historical clear
+    await account("migrationright");
+    for (let i = 0; i < 10; i++)
+      await recordSuperEvent(platform.env.DB, "migrationright", event(), now);
+    await deferSuperProgress(platform.env.DB, "migrationright", 0);
+  });
   await registerAccountProfile(platform.env.DB, "creator", "超級作成者");
   snapshot = await prepareSuperPuzzle(
     platform.env.DB,
@@ -67,8 +79,21 @@ async function account(id: string) {
   return getSuperProgress(platform.env.DB, id);
 }
 async function earn(id: string, cycle = 0) {
-  for (let i = 0; i < 10; i += 1)
-    await recordSuperEvent(platform.env.DB, id, event(cycle), now);
+  for (let i = 0; i < 10; i += 1) {
+    const trial = event(cycle);
+    await recordSuperEvent(platform.env.DB, id, trial, now);
+    await normalClear(id, trial);
+  }
+}
+async function normalClear(id: string, trial: ReturnType<typeof event>) {
+  await platform.env.DB.prepare(
+    `INSERT INTO completed_plays
+    (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
+     started_at, completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
+    VALUES (?, ?, ?, ?, 'g2', 'easy', 0, 1000, 1, 0, 0, 1)`,
+  )
+    .bind(id, trial.playId, `p1:${"a".repeat(64)}`, trial.seedCode)
+    .run();
 }
 function completion(playId: string): SuperCompletion {
   return {
@@ -83,6 +108,40 @@ function completion(playId: string): SuperCompletion {
 }
 
 describe("super challenge server", () => {
+  it("recounts only completed eligible legacy trials and preserves an earned deferred right", async () => {
+    const db = platform.env.DB;
+    expect(await getSuperProgress(db, "migrationpartial")).toEqual({
+      cycle: 0,
+      count: 2,
+      offerPending: false,
+    });
+    expect(await getSuperProgress(db, "migrationright")).toEqual({
+      cycle: 0,
+      count: 10,
+      offerPending: false,
+    });
+    await recordSuperEvent(db, "migrationpartial", legacyTrials[0], now);
+    expect((await getSuperProgress(db, "migrationpartial")).count).toBe(2);
+    await normalClear("migrationpartial", legacyTrials[2]);
+    expect((await getSuperProgress(db, "migrationpartial")).count).toBe(3);
+  });
+
+  it("requires matching account, play and seed, not just an event or unrelated completed history", async () => {
+    const db = platform.env.DB;
+    await account("verifiedclear");
+    await account("otherclear");
+    const trial = event();
+    await recordSuperEvent(db, "verifiedclear", trial, now);
+    await normalClear("otherclear", trial);
+    expect((await getSuperProgress(db, "verifiedclear")).count).toBe(0);
+    await normalClear("verifiedclear", {
+      ...trial,
+      seedCode: "TAKO:g2:easy:other",
+    });
+    expect((await getSuperProgress(db, "verifiedclear")).count).toBe(0);
+    await normalClear("verifiedclear", event());
+    expect((await getSuperProgress(db, "verifiedclear")).count).toBe(0);
+  });
   it("rolls back both right consumption and trial insertion when durable start fails", async () => {
     const db = platform.env.DB;
     await account("rollback");
@@ -132,14 +191,21 @@ describe("super challenge server", () => {
     });
     const first = event();
     await recordSuperEvent(db, "credit", first, now);
+    expect((await getSuperProgress(db, "credit")).count).toBe(0);
+    await normalClear("credit", first);
     expect((await recordSuperEvent(db, "credit", first, now)).count).toBe(1);
     await expect(
       recordSuperEvent(db, "credit", { ...first, cycle: 1 }, now),
     ).rejects.toMatchObject({ status: 409 });
-    for (let i = 0; i < 8; i += 1)
-      await recordSuperEvent(db, "credit", event(), now);
+    for (let i = 0; i < 8; i += 1) {
+      const trial = event();
+      await recordSuperEvent(db, "credit", trial, now);
+      await normalClear("credit", trial);
+    }
     expect((await getSuperProgress(db, "credit")).count).toBe(9);
-    await recordSuperEvent(db, "credit", event(), now);
+    const tenth = event();
+    await normalClear("credit", tenth);
+    await recordSuperEvent(db, "credit", tenth, now);
     expect(await getSuperProgress(db, "credit")).toEqual({
       cycle: 0,
       count: 10,
@@ -167,7 +233,18 @@ describe("super challenge server", () => {
       0,
     );
     expect((await recordSuperEvent(db, "credit", event(0), now)).count).toBe(0);
-    expect((await recordSuperEvent(db, "credit", event(1), now)).count).toBe(1);
+    const next = event(1);
+    await recordSuperEvent(db, "credit", next, now);
+    // Advance the separate publication rate window for this new-cycle fixture.
+    await db
+      .prepare(
+        "UPDATE publication_limits SET window_start = 0 WHERE account_id = 'credit'",
+      )
+      .run();
+    await normalClear("credit", heldEvent);
+    expect((await getSuperProgress(db, "credit")).count).toBe(0);
+    await normalClear("credit", next);
+    expect((await recordSuperEvent(db, "credit", next, now)).count).toBe(1);
     await account("isolated");
     expect((await getSuperProgress(db, "isolated")).count).toBe(0);
   });
@@ -359,15 +436,15 @@ describe("super challenge server", () => {
     for (let i = 1; i < 30; i += 1)
       await recordSuperEvent(db, "eventlimit", event(), now);
     expect((await recordSuperEvent(db, "eventlimit", first, now)).count).toBe(
-      10,
+      0,
     );
     await expect(
       recordSuperEvent(db, "eventlimit", event(), now),
     ).rejects.toMatchObject({ status: 429 });
-    expect((await getSuperProgress(db, "eventlimit")).count).toBe(10);
+    expect((await getSuperProgress(db, "eventlimit")).count).toBe(0);
     expect(
       (await recordSuperEvent(db, "eventlimit", event(), now + 60001)).count,
-    ).toBe(10);
+    ).toBe(0);
   });
   it("rejects invalid data and never admits daily/super trials as ordinary credit", () => {
     for (const seedCode of [
@@ -460,7 +537,7 @@ describe("super challenge server", () => {
       body: JSON.stringify({ ...event(), accountId: "apiisolated" }),
     });
     expect(response.status).toBe(200);
-    expect((await getSuperProgress(platform.env.DB, "creator")).count).toBe(1);
+    expect((await getSuperProgress(platform.env.DB, "creator")).count).toBe(0);
     expect((await getSuperProgress(platform.env.DB, "apiisolated")).count).toBe(
       0,
     );

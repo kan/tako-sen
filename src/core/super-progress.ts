@@ -24,7 +24,8 @@ export function remainingSuperPlays(progress: SuperProgress): number {
 
 /** The server must deduplicate playId and persist the event atomically with
  * this transition. cycle is captured when the normal trial begins, not when
- * the upload arrives. Completed history is never replayed as new events. */
+ * the upload arrives. Only verified clears of eligible trials are credited;
+ * unrelated completed history is never replayed as new events. */
 export function recordSuperPlay(
   progress: SuperProgress,
   trialCycle: number,

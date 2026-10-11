@@ -660,6 +660,12 @@ function closeMenu(): void {
   resumeAfterMenu = false;
 }
 
+function onNormalPlaysSynced(): void {
+  rankingRevision.value += 1;
+  // A normal completion, not its first board action, now credits the right.
+  void superChallengeRef.value?.refreshProgress();
+}
+
 function suspendGame(): void {
   soundEffects.stop();
   // メニュー中のフォーカス喪失でも自動再開を取り消す。
@@ -2245,7 +2251,7 @@ function formatElapsed(seconds: number): string {
       @close="accountDialogOpen = false"
       @profile="onAccountProfile"
       @setup-required="onAccountSetupRequired"
-      @synced="rankingRevision += 1"
+      @synced="onNormalPlaysSynced"
     />
 
     <div
