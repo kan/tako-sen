@@ -30,11 +30,17 @@ import {
   getCellViewState,
   type PlayerState,
   type Puzzle,
+  type PuzzleDifficulty,
 } from "./core/model";
 import {
   GENERATOR_VERSION,
   generatePuzzleWithAnalysis,
+  type GeneratedPuzzle,
 } from "./core/generator";
+import {
+  canGenerateInBackground,
+  generateInBackground,
+} from "./ui/puzzle-generation";
 import {
   analyzePuzzleDifficulty,
   type DifficultyRating,
@@ -441,6 +447,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   nextPuzzleRequest += 1;
+  window.clearTimeout(prepareNextPuzzleTimer);
   soundEffects.dispose();
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   window.removeEventListener("pagehide", suspendGame);
@@ -797,7 +804,10 @@ function commitPlayerState(next: PlayerState): void {
     pauseGame();
     return;
   }
-  if (playerMarksChanged(state.value, next)) registerPlay();
+  if (playerMarksChanged(state.value, next)) {
+    registerPlay();
+    touchedPlayId.value = playId.value;
+  }
   state.value = next;
 }
 
@@ -868,83 +878,25 @@ async function newGame(): Promise<void> {
     return;
   }
   const request = ++nextPuzzleRequest;
+  nextPuzzleLoading.value = true;
   const difficulty = resolveDifficultySelection(
     selectedDifficulty.value,
     Math.random,
   );
-  nextPuzzleLoading.value = true;
-  let generated;
-  let recommendedId: string | undefined;
+  let next: NextPuzzle | undefined;
   try {
-    const accountId = onlineAuth?.userId.value;
-    const token = accountId ? await onlineAuth?.getToken.value() : null;
-    if (token && accountId === onlineAuth?.userId.value) {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 3000);
-      let response: Response;
-      try {
-        response = await fetch(
-          `/api/next-puzzle?difficulty=${encodeURIComponent(difficulty)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            signal: controller.signal,
-          },
-        );
-      } finally {
-        window.clearTimeout(timeout);
-      }
-      if (response.ok) {
-        const data: { candidates?: unknown } = await response.json();
-        if (Array.isArray(data.candidates)) {
-          const candidates = data.candidates.filter(
-            (value): value is RankedPuzzleCandidate =>
-              value !== null &&
-              typeof value === "object" &&
-              typeof value.puzzleId === "string" &&
-              /^p1:[0-9a-f]{64}$/.test(value.puzzleId) &&
-              typeof value.seedCode === "string" &&
-              value.seedCode.length <= 512 &&
-              Number.isSafeInteger(value.players),
-          );
-          const excluded = new Set(offeredPuzzleIds);
-          excluded.add(await puzzleId(puzzle.value));
-          for (const candidate of candidates) {
-            if (
-              resultHistory.value?.plays.some(
-                (play) =>
-                  play.status === "completed" &&
-                  play.seedCode === candidate.seedCode,
-              )
-            )
-              excluded.add(candidate.puzzleId);
-          }
-          const chosen = chooseNextPuzzle(candidates, excluded, Math.random);
-          if (chosen) {
-            const code = parsePuzzleSeedCode(chosen.seedCode);
-            if (code?.difficulty === difficulty) {
-              const candidate = generatePuzzleWithAnalysis({
-                version: code.version,
-                seed: code.seed,
-                difficulty: code.difficulty,
-              });
-              if ((await puzzleId(candidate.puzzle)) === chosen.puzzleId) {
-                generated = candidate;
-                recommendedId = chosen.puzzleId;
-              }
-            }
-          }
-        }
-      }
-    }
+    next =
+      (await preparedNextPuzzle?.next) ?? (await loadNextPuzzle(difficulty));
   } catch {
-    // API が使えなくても、通常のクライアント生成で遊べる。
+    // Worker での生成に失敗しても、下のその場の生成で次の問題へ進める。
   }
   if (request !== nextPuzzleRequest) return;
-  if (!generated)
-    generated = generatePuzzleWithAnalysis({
+  const { generated, recommendedId } = next ?? {
+    generated: generatePuzzleWithAnalysis({
       seed: `game-${crypto.randomUUID()}`,
       difficulty,
-    });
+    }),
+  };
   if (recommendedId) offeredPuzzleIds.add(recommendedId);
   nextPuzzleLoading.value = false;
   activeDailyDate.value = undefined;
@@ -969,6 +921,150 @@ async function newGame(): Promise<void> {
   void navigateTo("play");
   centerBoardAfterPuzzleChange();
 }
+
+interface NextPuzzle {
+  readonly generated: GeneratedPuzzle;
+  readonly recommendedId?: string;
+}
+
+/** Picks a ranked board the account has not played, or generates a new one. */
+async function loadNextPuzzle(
+  difficulty: PuzzleDifficulty,
+  preparing?: AbortSignal,
+): Promise<NextPuzzle> {
+  // その場の取得では、API が使えなくても通常のクライアント生成で遊べる。先読みでは
+  // 候補の取得に失敗した結果を残さず、「次の問題へ」を押した時に取り直す。
+  const ranked = await pickRankedPuzzle(difficulty, preparing).catch(
+    (error: unknown) => {
+      if (preparing) throw error;
+      return undefined;
+    },
+  );
+  throwIfAborted(preparing);
+  return (
+    ranked ?? {
+      generated: await generateInBackground(
+        { seed: `game-${crypto.randomUUID()}`, difficulty },
+        preparing,
+      ),
+    }
+  );
+}
+
+// AbortSignal.throwIfAborted のないブラウザでも動かす。
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason;
+}
+
+/** 候補がなければ undefined。候補を取得できなかった時は例外を投げる。 */
+async function pickRankedPuzzle(
+  difficulty: PuzzleDifficulty,
+  signal?: AbortSignal,
+): Promise<NextPuzzle | undefined> {
+  const accountId = onlineAuth?.userId.value;
+  if (!accountId) return undefined;
+  const token = await onlineAuth?.getToken.value();
+  if (!token || accountId !== onlineAuth?.userId.value)
+    throw new Error("Session unavailable.");
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeout = window.setTimeout(abort, 3000);
+  signal?.addEventListener("abort", abort);
+  let response: Response;
+  try {
+    throwIfAborted(signal);
+    response = await fetch(
+      `/api/next-puzzle?difficulty=${encodeURIComponent(difficulty)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    );
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+  if (!response.ok) throw new Error("Candidates unavailable.");
+  const data: { candidates?: unknown } = await response.json();
+  if (!Array.isArray(data.candidates))
+    throw new Error("Candidates unavailable.");
+  const candidates = data.candidates.filter(
+    (value): value is RankedPuzzleCandidate =>
+      value !== null &&
+      typeof value === "object" &&
+      typeof value.puzzleId === "string" &&
+      /^p1:[0-9a-f]{64}$/.test(value.puzzleId) &&
+      typeof value.seedCode === "string" &&
+      value.seedCode.length <= 512 &&
+      Number.isSafeInteger(value.players),
+  );
+  const excluded = new Set(offeredPuzzleIds);
+  excluded.add(await puzzleId(puzzle.value));
+  for (const candidate of candidates) {
+    if (
+      resultHistory.value?.plays.some(
+        (play) =>
+          play.status === "completed" && play.seedCode === candidate.seedCode,
+      )
+    )
+      excluded.add(candidate.puzzleId);
+  }
+  const chosen = chooseNextPuzzle(candidates, excluded, Math.random);
+  const code = chosen && parsePuzzleSeedCode(chosen.seedCode);
+  if (!chosen || !code || code.difficulty !== difficulty) return undefined;
+  const generated = await generateInBackground(
+    { version: code.version, seed: code.seed, difficulty: code.difficulty },
+    signal,
+  );
+  return (await puzzleId(generated.puzzle)) === chosen.puzzleId
+    ? { generated, recommendedId: chosen.puzzleId }
+    : undefined;
+}
+
+// プレイ中に次の問題を用意しておき、「次の問題へ」で待たせない。用意した結果は
+// この鍵が変わるまで有効とする。この起動中に盤面へ手を入れた通常プレイだけを
+// 対象にし、保存済みの盤面を開いただけでは用意しない。
+const touchedPlayId = ref<string>();
+const nextPuzzleKey = computed(() => {
+  const id = playId.value;
+  if (!id || isSpecial.value || touchedPlayId.value !== id) return undefined;
+  return JSON.stringify([
+    id,
+    selectedDifficulty.value,
+    onlineAuth?.userId.value ?? null,
+  ]);
+});
+const nextPuzzlePreparationDelay = 2000;
+let preparedNextPuzzle:
+  | {
+      readonly next: Promise<NextPuzzle | undefined>;
+      readonly controller: AbortController;
+    }
+  | undefined;
+let prepareNextPuzzleTimer: number | undefined;
+
+function scheduleNextPuzzlePreparation(): void {
+  window.clearTimeout(prepareNextPuzzleTimer);
+  preparedNextPuzzle?.controller.abort();
+  preparedNextPuzzle = undefined;
+  // メインスレッドで生成するとプレイ中の入力が止まるため、Worker がある時だけ用意する。
+  if (!nextPuzzleKey.value || !canGenerateInBackground()) return;
+  const selection = selectedDifficulty.value;
+  prepareNextPuzzleTimer = window.setTimeout(() => {
+    const controller = new AbortController();
+    preparedNextPuzzle = {
+      controller,
+      next: loadNextPuzzle(
+        resolveDifficultySelection(selection, Math.random),
+        controller.signal,
+      ).catch(() => undefined),
+    };
+  }, nextPuzzlePreparationDelay);
+}
+
+// 鍵が変わった時点で古い結果を捨てる。次の描画まで待つと、その間に押された
+// 「次の問題へ」が古い結果を受け取る。
+watch(nextPuzzleKey, scheduleNextPuzzlePreparation, { flush: "sync" });
 
 function cancelPendingNextPuzzle(): void {
   nextPuzzleRequest += 1;
