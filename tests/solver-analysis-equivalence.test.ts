@@ -94,7 +94,7 @@ function referenceSolutions(
 // 版を明示して固定する。既定の版に追随させると、版を上げた時に比較の対象が
 // 黙って入れ替わる。g2は1マスRegionを、超級は事前設置と10×10を含む。
 const puzzles: Puzzle[] = [
-  ...(["g2", "g3"] as const).flatMap((version) =>
+  ...(["g2", "g3", "g4"] as const).flatMap((version) =>
     (["easy", "normal", "hard"] as const).flatMap((difficulty) =>
       Array.from({ length: 3 }, (_, i) =>
         generatePuzzle({ version, seed: `equivalence:${i}`, difficulty }),

@@ -45,8 +45,8 @@ beforeAll(async () => {
       {
         playId: crypto.randomUUID(),
         puzzleId,
-        seedCode: `TAKO:g3:easy:${seed}`,
-        generatorVersion: "g3",
+        seedCode: `TAKO:g4:easy:${seed}`,
+        generatorVersion: "g4",
         difficulty: "easy",
         startedAt: 1000,
         completedAt: 61000,
@@ -113,7 +113,7 @@ describe("ranked puzzle candidates", () => {
     expect(offered.map((candidate) => candidate.puzzleId)).not.toContain(oldId);
     expect(offered.length).toBeGreaterThan(0);
     expect(
-      offered.every((candidate) => candidate.seedCode.startsWith("TAKO:g3:")),
+      offered.every((candidate) => candidate.seedCode.startsWith("TAKO:g4:")),
     ).toBe(true);
   });
   it("returns popular boards without the requester's completed board", async () => {
@@ -121,12 +121,12 @@ describe("ranked puzzle candidates", () => {
     expect(await listRankedPuzzleCandidates(db, "requester", "easy")).toEqual([
       {
         puzzleId: firstId,
-        seedCode: "TAKO:g3:easy:first",
+        seedCode: "TAKO:g4:easy:first",
         players: 2,
       },
       {
         puzzleId: secondId,
-        seedCode: "TAKO:g3:easy:second",
+        seedCode: "TAKO:g4:easy:second",
         players: 1,
       },
     ]);
@@ -139,8 +139,8 @@ describe("ranked puzzle candidates", () => {
       {
         playId: crypto.randomUUID(),
         puzzleId: firstId,
-        seedCode: "TAKO:g3:easy:first",
-        generatorVersion: "g3",
+        seedCode: "TAKO:g4:easy:first",
+        generatorVersion: "g4",
         difficulty: "easy",
         startedAt: 1000,
         completedAt: 61000,
@@ -174,8 +174,8 @@ describe("ranked puzzle candidates", () => {
         {
           playId: crypto.randomUUID(),
           puzzleId,
-          seedCode: `TAKO:g3:hard:${puzzleId}`,
-          generatorVersion: "g3",
+          seedCode: `TAKO:g4:hard:${puzzleId}`,
+          generatorVersion: "g4",
           difficulty: "hard",
           startedAt: 1000,
           completedAt: 61000,

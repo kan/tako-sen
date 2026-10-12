@@ -75,6 +75,24 @@ const frozenBoards: Record<string, string> = {
     "e95d5d216c41bd7bc3ca7fa9c43e6660d31c45fd1d2b79960819c3a2b74c0344",
   "g3 hard generator-audit:0":
     "91f9c4b9100ff7280af5a2be1da5324c388614b6847c4c9d069f5774b2c31470",
+  "g4 easy restore-seed":
+    "546b80c62dfb92cabe54199dfba8c11dcfb119f651dcd45eddc9a1db3f4bfc48",
+  "g4 easy タコ🐙":
+    "e66382fb1ca2f1e5c4e51b04ab526bfc9f8bc8ff1c60157683b7fc79ca4607b1",
+  "g4 easy generator-audit:0":
+    "5a36170df8060ec6e0a716d546c54dd3358e7e41912a619966f2ad123a1046e2",
+  "g4 normal restore-seed":
+    "5128090ba5c97e4f90d633bea74fa94d76f3116741d2b46b8f2261915a10e0e9",
+  "g4 normal タコ🐙":
+    "e89e9bd1d8474d683ecc917b1b0d1b5119ca66aa68919069b4291caa136e8ec9",
+  "g4 normal generator-audit:0":
+    "6095fe5c1dcae91e6900c1d86f24140e4f198ff2adb3f7b833dfe75e2156622b",
+  "g4 hard restore-seed":
+    "8141a08b64a1301acf3e10e2f76fb8882942145a76ec5ff7f7b117128a020e6f",
+  "g4 hard タコ🐙":
+    "b2e34ece6b3ca9c24961379a8078300b5132a4465ee292374b8c2837cfa58756",
+  "g4 hard generator-audit:0":
+    "90dab15a3b7662b4593c1e79d4d23802241dde301e3183d39648f34b8e23be51",
 };
 
 describe("versioned puzzle generation", () => {
@@ -143,9 +161,9 @@ describe("versioned puzzle generation", () => {
     30000,
   );
 
-  it("defaults to g3, retains implicit legacy encoding and rejects unsupported versions", () => {
+  it("defaults to g4, retains implicit legacy encoding and rejects unsupported versions", () => {
     expect(generatePuzzle({ seed: "version-default" }).generatorVersion).toBe(
-      "g3",
+      "g4",
     );
     expect(encodePuzzleSeed({ seed: "old", difficulty: "easy" })).toBe(
       "TAKO:g1:easy:old",

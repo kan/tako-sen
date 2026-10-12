@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { generatePuzzleWithAnalysis } from "../src/core/generator";
 import {
-  g3Spec,
+  entryEliminations,
+  g4Spec,
   openingPlacements,
   shapeViolations,
 } from "../src/core/generator-g3";
@@ -147,9 +148,9 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
           errors: [],
         });
         assertConnectedRegions(puzzle, context);
-        // g3は事前設置を置かない。Regionだけで唯一解を持つことを独立に確認する。
+        // g3以降は事前設置を置かない。Regionだけで唯一解を持つことを独立に確認する。
         expect(puzzle.givens, context).toEqual([]);
-        expect(puzzle.generatorVersion, context).toBe("g3");
+        expect(puzzle.generatorVersion, context).toBe("g4");
         const solved = solvePuzzle(puzzle, { maxSolutions: 2 });
         expect(solved.status, context).toBe("unique");
         expect(
@@ -171,15 +172,28 @@ describe(`generator fixed-seed ${fullAudit ? "full audit" : "regression"}`, () =
           context,
         ).toEqual([]);
         expect(
-          shapeViolations(puzzle, g3Spec(difficulty).shape, single[0]),
+          shapeViolations(puzzle, g4Spec(difficulty).shape, single[0]),
           context,
         ).toBe(0);
-        // 初級は見てすぐ置けるタコが1匹だけで、その後は定石が要る。
-        expect(openingPlacements(analysis), context).toBe(
-          difficulty === "easy" ? 1 : 0,
-        );
         const depletions = analysis.techniqueCounts["region-depletion"];
         const multiRegion = analysis.techniqueCounts["multi-region-line"];
+        // 初級は1マスRegionの1匹に続けて1〜2匹が決まり、その後に消去の定石が1〜2回要る。
+        const opening = openingPlacements(analysis);
+        if (difficulty === "easy") {
+          expect(opening, context).toBeGreaterThanOrEqual(2);
+          expect(opening, context).toBeLessThanOrEqual(3);
+          const eliminations =
+            analysis.techniqueCounts["region-line"] +
+            analysis.techniqueCounts["line-region"];
+          expect(eliminations, context).toBeGreaterThanOrEqual(1);
+          expect(eliminations, context).toBeLessThanOrEqual(2);
+        } else expect(opening, context).toBe(0);
+        // 中級は最初の1匹まで、基本の消去2回以内で届く。複数Regionの定石はその後に要る。
+        if (difficulty === "normal") {
+          const entry = entryEliminations(analysis);
+          expect(entry.multiRegion, context).toBe(0);
+          expect(entry.basic, context).toBeLessThanOrEqual(2);
+        }
         if (difficulty === "hard")
           expect(depletions, context).toBeGreaterThanOrEqual(2);
         else expect(depletions, context).toBe(0);

@@ -42,7 +42,26 @@ export interface BoardSpec {
   readonly proposals: number;
   /** Rejections in a row after which reducing restarts from a new solution. */
   readonly stallLimit: number;
+  /** From g4 on, for easy boards. Without it, an easy board lets exactly one
+   * piece be placed before the first elimination. */
+  readonly easy?: EasyLimits;
+  /** From g4 on, for normal boards: the first piece needs at most this many
+   * eliminations, none of them multi-region-line. */
+  readonly entryEliminations?: number;
 }
+
+type Range = readonly [min: number, max: number];
+
+export interface EasyLimits {
+  /** Pieces placed before the first elimination: the single-cell region,
+   * then those its marks leave only one cell for. */
+  readonly opening: Range;
+  /** Uses of an elimination technique over the whole board. */
+  readonly eliminations: Range;
+}
+
+const outside = (value: number, [min, max]: Range) =>
+  Math.max(0, min - value, value - max);
 
 /** Solutions listed before the first move. Freshly grown boards have a few
  * thousand; an attempt that has more than this is dropped. */
@@ -70,6 +89,25 @@ export function g3Spec(difficulty: PuzzleDifficulty): BoardSpec {
     refineBudget: 400,
     proposals: 1,
     stallLimit: Infinity,
+  };
+}
+
+/**
+ * g4 keeps the method and the shapes of g3 and asks less reasoning of easy
+ * and normal boards, which players found harder than their names. An easy
+ * board lets a second or third piece follow the first, then needs one or two
+ * eliminations. A normal board reaches its first piece by the basic
+ * eliminations alone. Hard boards have the conditions of g3. The larger
+ * budgets let nearly every seed meet the normal condition.
+ */
+export function g4Spec(difficulty: PuzzleDifficulty): BoardSpec {
+  return {
+    ...g3Spec(difficulty),
+    version: "g4",
+    attempts: 48,
+    refineBudget: 800,
+    easy: { opening: [2, 3], eliminations: [1, 2] },
+    entryEliminations: 2,
   };
 }
 
@@ -107,6 +145,13 @@ export function generateG3(options: GenerateOptions = {}): GeneratedPuzzle {
   return generateBoard(
     options.seed ?? String(Date.now()),
     g3Spec(options.difficulty ?? "easy"),
+  );
+}
+
+export function generateG4(options: GenerateOptions = {}): GeneratedPuzzle {
+  return generateBoard(
+    options.seed ?? String(Date.now()),
+    g4Spec(options.difficulty ?? "easy"),
   );
 }
 
@@ -307,14 +352,56 @@ function difficultyShortfall(
     case "hard":
       return Math.max(0, spec.hardMinDepletion - depletions);
     case "normal":
-      return depletions + (multiRegion === 0 ? 1 : 0);
+      return (
+        depletions +
+        (multiRegion === 0 ? 1 : 0) +
+        entryShortfall(analysis, spec.entryEliminations)
+      );
     case "easy":
+      if (spec.easy)
+        return (
+          depletions +
+          multiRegion +
+          outside(openingPlacements(analysis), spec.easy.opening) +
+          outside(
+            analysis.techniqueCounts["region-line"] +
+              analysis.techniqueCounts["line-region"],
+            spec.easy.eliminations,
+          )
+        );
       return (
         depletions +
         multiRegion +
         Math.abs(openingPlacements(analysis) - (spec.singleton ? 1 : 0))
       );
   }
+}
+
+/** How far the way to the first piece is from an entry of at most `limit`
+ * eliminations, none of them multi-region-line. */
+function entryShortfall(
+  analysis: PuzzleDifficultyAnalysis,
+  limit: number | undefined,
+): number {
+  if (limit === undefined) return 0;
+  const entry = entryEliminations(analysis);
+  return entry.multiRegion + Math.max(0, entry.basic - limit);
+}
+
+/** The eliminations a board needs before its first piece can be placed. */
+export function entryEliminations(analysis: PuzzleDifficultyAnalysis): {
+  readonly basic: number;
+  readonly multiRegion: number;
+} {
+  let basic = 0;
+  let multiRegion = 0;
+  for (const step of analysis.steps) {
+    if (step.placed) break;
+    if (step.technique === "region-line" || step.technique === "line-region")
+      basic += 1;
+    else if (step.technique === "multi-region-line") multiRegion += 1;
+  }
+  return { basic, multiRegion };
 }
 
 /** Pieces that can be placed at the start without any elimination technique. */

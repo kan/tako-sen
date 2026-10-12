@@ -577,7 +577,7 @@ describe("generator", () => {
     const parsed = parsePuzzleSeedCode(encodePuzzleSeed(original));
 
     expect(parsed).toEqual({
-      version: "g3",
+      version: "g4",
       difficulty: "normal",
       seed: "restore-seed",
     });
