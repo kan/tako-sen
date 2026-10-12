@@ -77,15 +77,17 @@ ALLOWED_ORIGINS="http://localhost:5173,http://localhost:8787"
 
 `CLERK_WEBHOOK_SIGNING_SECRET` は Clerk Dashboard の Webhooks で `POST /api/clerk-webhook` に `user.deleted` を配信するエンドポイントを作成した後、その Signing Secret を設定します。ローカルで webhook を試すには外部から到達できる HTTPS 転送が必要です。値をチャットやリポジトリに貼らないでください。
 
-最初にローカル D1 へマイグレーションを適用し、2つのターミナルで API と画面を起動します。Vite の `/api` はローカル Worker へ転送されます。
+最初にローカル D1 へマイグレーションを適用し、API と画面を一括で起動します。API は空いているポートで起動し、Vite の `/api` はそこへ転送されます。
 
 ```bash
 npx wrangler d1 migrations apply tako-sen-dev --local
 npm run build
-npm run dev:api
-# 別ターミナルで
-npm run dev
+npm run dev:all
 ```
+
+[roji](https://github.com/kan/roji) が使える環境では、`npm run dev:all` の代わりに `npm run dev:roji` を使います。空いているポートで起動し、`https://tako-sen.<roji のドメイン>` で開けます。この場合、API は roji の URL を origin として受け付けるので、`.dev.vars` の `ALLOWED_ORIGINS` を書き換える必要はありません。
+
+API と画面を別々に起動する場合は、2つのターミナルで `npm run dev:api` と `npm run dev` を実行します。
 
 初回ログイン時にゲーム名と公開ルールへの同意を設定すると、その後のログイン中のクリアを自動同期します。過去のローカル履歴の取り込みは廃止し、未ログイン・同意前のクリアも後から送信しません。送信後もローカル履歴は削除しません。未送信記録はアカウント別に端末へ保存し、再接続・同じアカウントでの再ログイン時に再送します。通信失敗時もゲーム本体は引き続き利用できます。退会操作では Clerk アカウントとオンライン履歴を削除し、端末のローカル履歴は残します。Clerk Dashboard 等から直接削除された場合の履歴削除には、`POST /api/clerk-webhook` に `user.deleted` を送る Clerk webhook と `CLERK_WEBHOOK_SIGNING_SECRET` の設定が必要です。旧仕様では、開発用 Worker で別端末同期・履歴分離・使い捨てアカウントの退会を確認済みです。新仕様は未デプロイで、実機確認はこれからです。Clerk Dashboard の `user.deleted` テスト配信も `200` で成功しました。
 

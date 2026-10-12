@@ -48,6 +48,25 @@ Cloudflare固有の処理をパズルのコアロジックへ持ち込まない�
 
 小規模かつ十分にテスト可能な実装で済む場合は、安易に外部依存を追加しないでください。
 
+## ローカルでの開発サーバー
+
+API（`wrangler dev`）と画面（`vite`）は `scripts/dev.mjs` が一括で起動します。起動には次の 2 つの npm script を使います。
+
+| コマンド           | 用途                                                                                                |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| `npm run dev:roji` | [roji](https://github.com/kan/roji) を通して起動する。`https://tako-sen.<roji のドメイン>` で開ける |
+| `npm run dev:all`  | roji なしで起動する。画面は `http://localhost:5173`                                                 |
+
+- roji が使える環境では、ローカルの開発サーバーを `npm run dev:roji` で起動してください。**その環境では、`npm run dev:all`、`npm run dev`、`npm run dev:api`、`vite` や `wrangler dev` の直接の実行で起動しないでください。**
+  - 理由: ポートを固定すると、他のプロジェクトの開発サーバーと衝突します。`roji run` は空いているポートを選び、決まった URL を付けます。
+  - roji が使えるかは、`command -v roji` が成功し、`roji health` が「正常」を返すことで確かめます。2026-10-13 に 1.5.0 で動作を確認しました（`roji version`）。
+  - 開く URL は、起動時に出る `roji: https://... -> localhost:<ポート>` の行か `roji routes` で確かめてください。roji のドメインは環境ごとに違うので、URL を決め打ちしないでください。
+- roji が入っていない、または動いていない環境では、`npm run dev:all` を使ってください。画面のポートは 5173 に固定で、使用中なら起動に失敗します。別のポートへ移すと、`.dev.vars` の `ALLOWED_ORIGINS` にない origin になり、API が `403` を返すためです。
+- API のポートは起動のたびに空いているものを選び、Vite の `/api` の転送先へ環境変数 `TAKO_API_PORT` で渡します。API のポートを決め打ちしないでください。
+- roji を通す場合、`scripts/dev.mjs` は roji が付けた URL の origin を `ALLOWED_ORIGINS` として API へ渡します。`.dev.vars` の `ALLOWED_ORIGINS` はその起動では使われません。`.dev.vars` に roji の URL を書き足さないでください。
+- 終了は `Ctrl+C` です。API と画面の両方が止まり、roji のルートも取り消されます。片方が落ちた場合も、もう片方を止めて終了します。
+- 初回と、マイグレーションを足した後は、起動の前に `npx wrangler d1 migrations apply tako-sen-dev --local` を実行してください。
+
 ## アーキテクチャ
 
 パズルロジックはVue、DOM、Cloudflare Workers、永続化、表示処理から独立させます。
@@ -105,7 +124,7 @@ UIからCoreへ「この操作が可能か」を問い合わせることは構�
 
 ### Worker
 
-`src/worker/` に、認証・完了履歴の同期・公開ランキング・問題共有・デイリー・超級の API があります。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
+`src/worker/` に、認証・完了履歴の同期・公開ランキング・問題共有・デイリー・超級の API と、翌日のデイリーの盤面を作る定期実行（`wrangler.jsonc` の `triggers`）があります。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
 
 Worker は薄く保ちます。パズルの判定（盤面の再生成・問題IDの計算・正解の照合）は Core を呼び、Worker 側で再実装しないでください。
 
