@@ -8,8 +8,16 @@ import {
   getDailyStatus,
   listDailyLeaderboard,
   parseDailyCompletion,
+  prepareNextDailyPuzzle,
   startDailyAttempt,
 } from "../src/worker/daily";
+import {
+  DAILY_V2_START_DATE,
+  dailyDate,
+  generateDailyPuzzle,
+} from "../src/core/daily-puzzle";
+import { puzzleId } from "../src/core/puzzle-identity";
+import { restoreSharedPuzzleSnapshot } from "../src/core/shared-puzzle";
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const now = Date.parse("2026-10-01T15:30:00Z");
@@ -70,8 +78,6 @@ describe("daily challenge server contract", () => {
       ),
     ).toBe("expired");
     expect((await getDailyStatus(db, "daily-a", now)).attempt).toBe("active");
-    const { restoreSharedPuzzleSnapshot } =
-      await import("../src/core/shared-puzzle");
     const puzzle = await restoreSharedPuzzleSnapshot(status.puzzle);
     const completion = parseDailyCompletion({
       date: status.date,
@@ -151,5 +157,126 @@ describe("daily challenge server contract", () => {
         (entry) => entry.displayName,
       ),
     ).toEqual(["デイリーC", "デイリーB"]);
+  });
+});
+
+describe("daily-v2 switch and the board prepared a day ahead", () => {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startDay = Date.parse(`${DAILY_V2_START_DATE}T00:00:00+09:00`);
+  const dateAfter = (days: number) => dailyDate(startDay + days * dayMs);
+  const storedRow = (date: string) =>
+    platform.env.DB.prepare(
+      "SELECT puzzle_id, generator_version, created_at FROM daily_puzzles WHERE challenge_date = ?",
+    )
+      .bind(date)
+      .first<{
+        puzzle_id: string;
+        generator_version: string;
+        created_at: number;
+      }>();
+
+  it("stores tomorrow's board ahead and serves it unchanged", async () => {
+    const db = platform.env.DB;
+    const eve = startDay - 60 * 60 * 1000;
+    expect((await getDailyStatus(db, "daily-b", eve)).puzzle).toMatchObject({
+      generatorVersion: "daily-v1",
+    });
+    await prepareNextDailyPuzzle(db, eve);
+    const stored = await storedRow(DAILY_V2_START_DATE);
+    expect(stored).toMatchObject({
+      generator_version: "daily-v2",
+      created_at: eve,
+    });
+    await prepareNextDailyPuzzle(db, eve + 1000);
+    expect(await storedRow(DAILY_V2_START_DATE)).toEqual(stored);
+    const status = await getDailyStatus(db, "daily-b", startDay + 1000);
+    expect(status.date).toBe(DAILY_V2_START_DATE);
+    expect(status.puzzle).toMatchObject({
+      id: stored!.puzzle_id,
+      generatorVersion: "daily-v2",
+      givens: [],
+    });
+    expect((await storedRow(DAILY_V2_START_DATE))!.created_at).toBe(eve);
+  });
+
+  it("builds a day nothing prepared on its first request, and accepts its solution", async () => {
+    const db = platform.env.DB;
+    const date = dateAfter(1);
+    const at = startDay + dayMs + 1000;
+    expect(await storedRow(date)).toBeNull();
+    const status = await getDailyStatus(db, "daily-b", at);
+    expect(status.date).toBe(date);
+    expect(status.puzzle.generatorVersion).toBe("daily-v2");
+    expect(await storedRow(date)).toMatchObject({
+      puzzle_id: status.puzzle.id,
+      generator_version: "daily-v2",
+    });
+    const puzzle = await restoreSharedPuzzleSnapshot(status.puzzle);
+    const attempt = crypto.randomUUID();
+    expect(await startDailyAttempt(db, "daily-b", date, attempt, at)).toBe(
+      "started",
+    );
+    expect(
+      await completeDailyAttempt(
+        db,
+        "daily-b",
+        parseDailyCompletion({
+          date,
+          playId: attempt,
+          puzzleId: status.puzzle.id,
+          pieces: puzzle.solution,
+          elapsedSeconds: 300,
+          mistakes: 0,
+          hintsUsed: 0,
+          maxHintStage: 0,
+        }),
+        at,
+      ),
+    ).toBe("completed");
+  });
+
+  it("keeps the version a stored board was built with", async () => {
+    const db = platform.env.DB;
+    const date = dateAfter(5);
+    const at = startDay + 5 * dayMs + 1000;
+    const old = generateDailyPuzzle(date, "daily-v1");
+    // Written the way rows were before the version column existed.
+    await db
+      .prepare(
+        `INSERT INTO daily_puzzles (challenge_date, puzzle_id, regions_json, givens_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        date,
+        await puzzleId(old),
+        JSON.stringify(old.regions),
+        JSON.stringify(old.givens),
+        at,
+      )
+      .run();
+    const status = await getDailyStatus(db, "daily-b", at);
+    expect(status.puzzle.generatorVersion).toBe("daily-v1");
+    expect(await restoreSharedPuzzleSnapshot(status.puzzle)).toEqual(old);
+    const attempt = crypto.randomUUID();
+    expect(await startDailyAttempt(db, "daily-b", date, attempt, at)).toBe(
+      "started",
+    );
+    expect(
+      await completeDailyAttempt(
+        db,
+        "daily-b",
+        parseDailyCompletion({
+          date,
+          playId: attempt,
+          puzzleId: status.puzzle.id,
+          pieces: old.solution,
+          elapsedSeconds: 300,
+          mistakes: 0,
+          hintsUsed: 0,
+          maxHintStage: 0,
+        }),
+        at,
+      ),
+    ).toBe("completed");
   });
 });

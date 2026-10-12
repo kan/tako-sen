@@ -7,6 +7,7 @@ import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
 import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { puzzleId } from "../core/puzzle-identity";
+import { isDailyVersion } from "../core/daily-puzzle";
 import { loadDailyGame } from "../core/storage";
 import type {
   DailyStatus,
@@ -294,7 +295,7 @@ watch(
       !props.playId ||
       !userId.value ||
       userId.value !== props.activeAccountId ||
-      props.puzzle.generatorVersion !== "daily-v1"
+      !isDailyVersion(props.puzzle.generatorVersion)
     )
       return;
     const completion: DailyCompletion = {

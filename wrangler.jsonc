@@ -17,6 +17,8 @@
       "migrations_dir": "migrations",
     },
   ],
+  // 23:00 in Japan: builds the next day's daily board an hour before it opens.
+  "triggers": { "crons": ["0 14 * * *"] },
   "secrets": {
     "required": [
       "CLERK_PUBLISHABLE_KEY",

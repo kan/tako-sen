@@ -1,10 +1,45 @@
 import { analyzePuzzleDifficulty } from "./difficulty";
 import { generatePuzzle } from "./generator";
+import { DAILY_V2_SPEC, generateExactBoard } from "./generator-g3";
 import { cellIndex, DAILY_BOARD_SIZE, type Puzzle } from "./model";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
 
-export const DAILY_GENERATOR_VERSION = "daily-v1";
+/**
+ * First date built as daily-v2. Earlier dates stay daily-v1. A stored board
+ * carries its own version, so moving this date never changes a board that
+ * already exists.
+ */
+export const DAILY_V2_START_DATE = "2026-10-14";
+
+/** A date has more than one seed to try, so that every day gets a board. */
+const DAILY_V2_SEEDS = 8;
+
+const DAILY_GENERATORS: Record<string, (date: string) => Puzzle> = {
+  "daily-v1": (date) => generateTenBySeed(date, "daily-v1"),
+  "daily-v2": (date) => {
+    for (let index = 0; index < DAILY_V2_SEEDS; index += 1) {
+      const board = generateExactBoard(
+        index === 0 ? date : `${date}:${index}`,
+        DAILY_V2_SPEC,
+      );
+      if (board?.analysis.rating === "hard")
+        return { ...board.puzzle, seed: date };
+    }
+    throw new Error("Could not build a hard 10×10 puzzle.");
+  },
+};
+
+export function isDailyVersion(version: unknown): version is string {
+  return (
+    typeof version === "string" && Object.hasOwn(DAILY_GENERATORS, version)
+  );
+}
+
+/** The version a board for this date is built with when none is stored. */
+export function dailyVersion(date: string): string {
+  return date >= DAILY_V2_START_DATE ? "daily-v2" : "daily-v1";
+}
 
 export function dailyDate(now: number): string {
   return new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -18,16 +53,21 @@ export function isDailyDate(value: string): boolean {
   );
 }
 
-/** Embeds the proven 8×8 hard problem in a 10×10 board. The two singleton
- * regions force the added rows and columns, leaving exactly the original
- * problem for the other eight pieces. */
-export function generateDailyPuzzle(date: string): Puzzle {
+export function generateDailyPuzzle(
+  date: string,
+  version: string = dailyVersion(date),
+): Puzzle {
   if (!isDailyDate(date)) throw new Error("Invalid daily date.");
-  return generateTenBySeed(date, DAILY_GENERATOR_VERSION);
+  if (!isDailyVersion(version))
+    throw new Error(`Unsupported daily version: ${version}`);
+  return DAILY_GENERATORS[version](date);
 }
 
-/** Versioned construction shared with super challenges. Keeping the source seed
- * prefix preserves every daily-v1 board when adding a new challenge mode. */
+/** The construction of daily-v1 and super-v1: embeds the proven 8×8 hard
+ * problem in a 10×10 board. The two singleton regions force the added rows
+ * and columns, leaving exactly the original problem for the other eight
+ * pieces. Keeping the source seed prefix preserves every board of both
+ * versions. */
 export function generateTenBySeed(seed: string, version: string): Puzzle {
   for (let sourceIndex = 0; sourceIndex < 4; sourceIndex += 1) {
     const source = generatePuzzle({

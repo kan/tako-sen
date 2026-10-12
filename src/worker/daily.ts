@@ -1,8 +1,8 @@
 import {
   dailyDate,
+  dailyVersion,
   generateDailyPuzzle,
   isDailyDate,
-  DAILY_GENERATOR_VERSION,
 } from "../core/daily-puzzle";
 import { puzzleId } from "../core/puzzle-identity";
 import {
@@ -57,7 +57,8 @@ export async function getOrCreateDailyPuzzle(
   if (!isDailyDate(date)) throw new Error("Invalid daily date.");
   const existing = await readDailyPuzzle(db, date);
   if (existing) return existing;
-  const puzzle = generateDailyPuzzle(date);
+  const generatorVersion = dailyVersion(date);
+  const puzzle = generateDailyPuzzle(date, generatorVersion);
   const snapshot: SharedPuzzleSnapshot = {
     id: await puzzleId(puzzle),
     size: puzzle.size,
@@ -65,22 +66,32 @@ export async function getOrCreateDailyPuzzle(
     givens: puzzle.givens ?? [],
     seed: date,
     difficulty: "hard",
-    generatorVersion: DAILY_GENERATOR_VERSION,
+    generatorVersion,
   };
   await db
     .prepare(
-      `INSERT INTO daily_puzzles (challenge_date, puzzle_id, regions_json, givens_json, created_at)
-     VALUES (?, ?, ?, ?, ?) ON CONFLICT(challenge_date) DO NOTHING`,
+      `INSERT INTO daily_puzzles (challenge_date, puzzle_id, regions_json, givens_json, generator_version, created_at)
+     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(challenge_date) DO NOTHING`,
     )
     .bind(
       date,
       snapshot.id,
       JSON.stringify(snapshot.regions),
       JSON.stringify(snapshot.givens),
+      generatorVersion,
       now,
     )
     .run();
   return (await readDailyPuzzle(db, date)) ?? snapshot;
+}
+
+/** Builds tomorrow's board ahead of its first player. A day this misses is
+ * built by the first request of that day. */
+export async function prepareNextDailyPuzzle(
+  db: D1Database,
+  now: number,
+): Promise<void> {
+  await getOrCreateDailyPuzzle(db, dailyDate(now + 24 * 60 * 60 * 1000), now);
 }
 
 async function readDailyPuzzle(
@@ -89,10 +100,15 @@ async function readDailyPuzzle(
 ): Promise<SharedPuzzleSnapshot | undefined> {
   const row = await db
     .prepare(
-      "SELECT puzzle_id, regions_json, givens_json FROM daily_puzzles WHERE challenge_date = ?",
+      "SELECT puzzle_id, regions_json, givens_json, generator_version FROM daily_puzzles WHERE challenge_date = ?",
     )
     .bind(date)
-    .first<{ puzzle_id: string; regions_json: string; givens_json: string }>();
+    .first<{
+      puzzle_id: string;
+      regions_json: string;
+      givens_json: string;
+      generator_version: string;
+    }>();
   if (!row) return undefined;
   return {
     id: row.puzzle_id,
@@ -101,7 +117,8 @@ async function readDailyPuzzle(
     givens: JSON.parse(row.givens_json),
     seed: date,
     difficulty: "hard",
-    generatorVersion: DAILY_GENERATOR_VERSION,
+    // The ID covers the version, so a board keeps the one it was built with.
+    generatorVersion: row.generator_version,
   };
 }
 

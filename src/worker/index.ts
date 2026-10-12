@@ -17,6 +17,7 @@ import {
   getDailyStatus,
   listDailyLeaderboard,
   parseDailyCompletion,
+  prepareNextDailyPuzzle,
   startDailyAttempt,
 } from "./daily";
 import { isDailyDate } from "../core/daily-puzzle";
@@ -531,6 +532,20 @@ export default {
         JSON.stringify({ event: "history_api_failure", error: String(error) }),
       );
       return json({ error: "service_unavailable" }, 503);
+    }
+  },
+  async scheduled(controller, env): Promise<void> {
+    try {
+      // The planned time, so a late run still prepares the day it was for.
+      await prepareNextDailyPuzzle(env.DB, controller.scheduledTime);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "daily_prepare_failure",
+          error: String(error),
+        }),
+      );
+      throw error;
     }
   },
 } satisfies ExportedHandler<Env>;

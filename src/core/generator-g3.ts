@@ -93,6 +93,15 @@ export const SUPER_V2_SPEC: BoardSpec = {
   stallLimit: 150,
 };
 
+/**
+ * daily-v2 builds its boards the way super-v2 does. Its own version keeps the
+ * random stream and the puzzle IDs apart from the super boards.
+ */
+export const DAILY_V2_SPEC: BoardSpec = {
+  ...SUPER_V2_SPEC,
+  version: "daily-v2",
+};
+
 /** `maxAttempts` is not read: the seed code alone must decide the board. */
 export function generateG3(options: GenerateOptions = {}): GeneratedPuzzle {
   return generateBoard(

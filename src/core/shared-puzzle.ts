@@ -1,6 +1,6 @@
 import { generatePuzzle } from "./generator";
 import { BOARD_SIZE, DAILY_BOARD_SIZE, type Puzzle } from "./model";
-import { DAILY_GENERATOR_VERSION, isDailyDate } from "./daily-puzzle";
+import { isDailyDate, isDailyVersion } from "./daily-puzzle";
 import { puzzleId } from "./puzzle-identity";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { validateSolution } from "./rules";
@@ -71,7 +71,7 @@ export async function restoreSharedPuzzleSnapshot(
     (size === DAILY_BOARD_SIZE &&
       (snapshot.difficulty !== "hard" ||
         !(
-          (snapshot.generatorVersion === DAILY_GENERATOR_VERSION &&
+          (isDailyVersion(snapshot.generatorVersion) &&
             isDailyDate(snapshot.seed)) ||
           (isSuperVersion(snapshot.generatorVersion) &&
             isSuperSeed(snapshot.seed))
