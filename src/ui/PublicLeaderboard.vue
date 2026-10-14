@@ -121,52 +121,54 @@ onUnmounted(() => {
           <span aria-hidden="true">×</span>
         </button>
       </div>
-      <p class="ranking-note">
-        公開に同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
-      </p>
-      <p v-if="busy" role="status">ランキングを取得しています。</p>
-      <p v-else-if="message" aria-live="polite">{{ message }}</p>
-      <ol v-if="entries.length" class="public-ranking-entries">
-        <li
-          v-for="entry in entries"
-          :key="entry.displayName"
-          :class="{
-            'ranking-self':
-              !!props.gameName && entry.displayName === props.gameName,
-          }"
-        >
-          <div class="ranking-score-main">
-            <strong class="ranking-place">{{ entry.rank }}位</strong>
-            <div class="ranking-name">
-              <GameName :name="entry.displayName" />
-              <strong
-                v-if="props.gameName && entry.displayName === props.gameName"
-                class="ranking-you"
-                >あなた</strong
-              >
-            </div>
-            <strong>{{ rankingScore(entry) }}点</strong>
-            <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
-          </div>
-          <div class="ranking-score-meta">
-            <span
-              >ヒント {{ entry.hintsUsed }}回（{{
-                hintStageLabel(entry)
-              }}）</span
-            >
-            <span>ミス {{ entry.mistakes }}</span>
-          </div>
-        </li>
-      </ol>
-      <details class="ranking-guide">
-        <summary>順位の付け方</summary>
-        <p>
-          スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較し、すべて同じなら同順位です。最大100人を表示します。
+      <div class="ranking-dialog-body">
+        <p class="ranking-note">
+          公開に同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
         </p>
-      </details>
-      <p class="ranking-note">
-        ログインしてゲーム名を設定すると自動参加します。再挑戦では記録を更新しません。退会で公開記録を削除できます。
-      </p>
+        <p v-if="busy" role="status">ランキングを取得しています。</p>
+        <p v-else-if="message" aria-live="polite">{{ message }}</p>
+        <ol v-if="entries.length" class="public-ranking-entries">
+          <li
+            v-for="entry in entries"
+            :key="entry.displayName"
+            :class="{
+              'ranking-self':
+                !!props.gameName && entry.displayName === props.gameName,
+            }"
+          >
+            <div class="ranking-score-main">
+              <strong class="ranking-place">{{ entry.rank }}位</strong>
+              <div class="ranking-name">
+                <GameName :name="entry.displayName" />
+                <strong
+                  v-if="props.gameName && entry.displayName === props.gameName"
+                  class="ranking-you"
+                  >あなた</strong
+                >
+              </div>
+              <strong>{{ rankingScore(entry) }}点</strong>
+              <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
+            </div>
+            <div class="ranking-score-meta">
+              <span
+                >ヒント {{ entry.hintsUsed }}回（{{
+                  hintStageLabel(entry)
+                }}）</span
+              >
+              <span>ミス {{ entry.mistakes }}</span>
+            </div>
+          </li>
+        </ol>
+        <details class="ranking-guide">
+          <summary>順位の付け方</summary>
+          <p>
+            スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較し、すべて同じなら同順位です。最大100人を表示します。
+          </p>
+        </details>
+        <p class="ranking-note">
+          ログインしてゲーム名を設定すると自動参加します。再挑戦では記録を更新しません。退会で公開記録を削除できます。
+        </p>
+      </div>
     </section>
   </div>
 </template>

@@ -75,7 +75,7 @@ async function share(seedCode: string): Promise<void> {
       <UiIcon name="share" />問題の共有リンクを作成
     </button>
     <p v-if="!isSignedIn">共有リンクの作成にはログインが必要です。</p>
-    <p v-if="message" aria-live="polite">{{ message }}</p>
+    <p aria-live="polite" v-text="message"></p>
     <input
       v-if="shareUrl"
       :value="shareUrl"

@@ -56,12 +56,42 @@ export function assignRegionColorIndexes(
   return colorIndexes;
 }
 
-export function regionColorForCell(
+function regionColorForCell(
   puzzle: Pick<Puzzle, "size" | "regions">,
   colorIndexes: readonly number[],
   index: number,
 ): RegionPaletteColor {
   return REGION_PALETTE[colorIndexes[puzzle.regions[index]]];
+}
+
+/**
+ * The base inline style of a board cell, shared by the game and the tutorial.
+ * The board's own frame draws the outer edge, so edge cells draw no border
+ * there: a translucent line over the frame made its width look uneven.
+ */
+export function cellBaseStyle(
+  puzzle: Pick<Puzzle, "size" | "regions">,
+  colorIndexes: readonly number[],
+  index: number,
+): Record<string, string> {
+  const color = regionColorForCell(puzzle, colorIndexes, index);
+  const borders = cellRegionBorders(puzzle, index);
+  const { row, col } = cellCoord(index, puzzle.size);
+  const last = puzzle.size - 1;
+  const width = (edge: boolean, region: boolean) =>
+    edge ? "0" : region ? "2px" : "1px";
+  return {
+    backgroundColor: color.background,
+    color: color.foreground ?? "#2a1b14",
+    // The dark Region would swallow the blue focus ring and the tako's dark
+    // outline, so both get light versions there.
+    "--focus-color": color.foreground ?? "#2026d2",
+    ...(color.foreground ? { "--tako-halo": "#fffdf8" } : {}),
+    borderTopWidth: width(row === 0, borders.top),
+    borderRightWidth: width(col === last, borders.right),
+    borderBottomWidth: width(row === last, borders.bottom),
+    borderLeftWidth: width(col === 0, borders.left),
+  };
 }
 
 export function cellRegionBorders(

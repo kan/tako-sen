@@ -13,6 +13,7 @@ import InteractiveTutorial from "../src/ui/InteractiveTutorial.vue";
 import App from "../src/App.vue";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import { trapDialogFocus } from "../src/ui/dialog";
+import { answerConfirm, pendingConfirm } from "../src/ui/confirm-dialog";
 import type { Puzzle } from "../src/core/model";
 import { createInitialPlayerState } from "../src/core/model";
 import type { PlayResult } from "../src/core/results";
@@ -166,6 +167,8 @@ const renderer = createRenderer<HostNode, HostNode>({
   patchProp(child, key, _previous, value) {
     child.props[key] = value;
     if (key === "open") child.open = !!value;
+    // v-text arrives as the textContent prop rather than a text child.
+    if (key === "textContent") child.text = String(value ?? "");
   },
 });
 function find(
@@ -1496,6 +1499,8 @@ describe("play screen navigation", () => {
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
     localStorage.setItem("tako-sen.tutorial.v2", "seen");
+    // The confirm dialog teleports to the body.
+    teleportBody = root();
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
@@ -1594,13 +1599,21 @@ describe("play screen navigation", () => {
     await nextTick();
     updateCode(encodePuzzleSeed({ ...game().puzzle, generatorVersion: "g1" }));
     await click("復元");
+    // The marked board asks before it is replaced.
+    expect(pendingConfirm.value?.title).toBe("この問題を開きますか？");
+    answerConfirm(true);
+    await vi.waitFor(() =>
+      expect(
+        find(
+          container,
+          (n) => n.props["aria-labelledby"] === "seed-share-title",
+        ),
+      ).toBeUndefined(),
+    );
     expect(localStorage.getItem("tako-sen:difficulty-selection")).toBe(
       "random",
     );
     expect(game().puzzle.generatorVersion).toBe("g1");
-    expect(
-      find(container, (n) => n.props["aria-labelledby"] === "seed-share-title"),
-    ).toBeUndefined();
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeDefined();

@@ -431,39 +431,41 @@ onUnmounted(() => {
               <span aria-hidden="true">×</span>
             </button>
           </div>
-          <p class="ranking-note">
-            スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較します。記録は参考値です。
-          </p>
-          <p v-if="rankingLoading" role="status">読み込み中…</p>
-          <p v-else-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
-          <p v-else-if="!entries.length">まだ記録がありません。</p>
-          <ol v-else class="ranking-entries">
-            <li
-              v-for="entry in entries"
-              :key="entry.displayName"
-              :class="{ 'daily-self': entry.isSelf }"
-            >
-              <div class="ranking-score-main">
-                <strong class="ranking-place">{{ entry.rank }}位</strong>
-                <div class="ranking-name">
-                  <GameName :name="entry.displayName" />
-                  <strong v-if="entry.isSelf" class="ranking-you"
-                    >あなた</strong
-                  >
+          <div class="ranking-dialog-body">
+            <p class="ranking-note">
+              スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較します。記録は参考値です。
+            </p>
+            <p v-if="rankingLoading" role="status">読み込み中…</p>
+            <p v-else-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
+            <p v-else-if="!entries.length">まだ記録がありません。</p>
+            <ol v-else class="ranking-entries">
+              <li
+                v-for="entry in entries"
+                :key="entry.displayName"
+                :class="{ 'daily-self': entry.isSelf }"
+              >
+                <div class="ranking-score-main">
+                  <strong class="ranking-place">{{ entry.rank }}位</strong>
+                  <div class="ranking-name">
+                    <GameName :name="entry.displayName" />
+                    <strong v-if="entry.isSelf" class="ranking-you"
+                      >あなた</strong
+                    >
+                  </div>
+                  <strong>{{ rankingScore(entry) }}点</strong>
+                  <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
                 </div>
-                <strong>{{ rankingScore(entry) }}点</strong>
-                <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
-              </div>
-              <div class="ranking-score-meta">
-                <span
-                  >ヒント {{ entry.hintsUsed }}回（{{
-                    hintStageLabel(entry)
-                  }}）</span
-                >
-                <span>ミス {{ entry.mistakes }}</span>
-              </div>
-            </li>
-          </ol>
+                <div class="ranking-score-meta">
+                  <span
+                    >ヒント {{ entry.hintsUsed }}回（{{
+                      hintStageLabel(entry)
+                    }}）</span
+                  >
+                  <span>ミス {{ entry.mistakes }}</span>
+                </div>
+              </li>
+            </ol>
+          </div>
         </section>
       </div>
     </Teleport>

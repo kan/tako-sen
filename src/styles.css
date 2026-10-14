@@ -2,7 +2,6 @@
   color: #2a1b14;
   background: #fff7ec;
   font-family:
-    Inter,
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -27,6 +26,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  line-height: 1.6;
 }
 
 button {
@@ -60,6 +60,12 @@ input {
   flex-shrink: 0;
 }
 
+/* Keep the stroke at 2.2px whatever the icon's size, to sit beside bold
+ * text; scaled with the icon it thinned to 1.2px at 16px. */
+.ui-icon :is(path, circle, rect, line, polyline, polygon, ellipse) {
+  vector-effect: non-scaling-stroke;
+}
+
 .icon-button,
 .actions .icon-button {
   display: inline-grid;
@@ -84,26 +90,65 @@ input {
   cursor: pointer;
 }
 
-.menu-trigger:hover {
-  background: #ffe5cf;
+/* Touch screens keep :hover after a tap, so only pointers that hover get it. */
+@media (hover: hover) {
+  .menu-trigger:hover {
+    background: #ffe5cf;
+  }
 }
 
-.icon-button:focus-visible {
+/* Focus turns a control's own border blue, rather than drawing a second ring
+ * with a gap around it. A control without a border gets the same line just
+ * inside its edge. */
+button:not(.cell):focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+.weekly-metric-switch input:focus-visible + span,
+.settings-toggle:has(input:focus-visible) {
   outline: 3px solid #2026d2;
-  outline-offset: 2px;
+  outline-offset: -3px;
 }
 
-.dialog-backdrop.menu-backdrop {
-  place-items: center;
+/* Live regions stay mounted so their changes are announced. While empty they
+ * are taken out of the flow like .sr-only, so a grid or flex parent gives
+ * them no row and no gap. */
+p:is([role="status"], [aria-live]):empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
-.dialog-backdrop.history-backdrop,
-.dialog-backdrop.tools-backdrop {
-  place-items: center;
+/* The toggle's border shows focus for the checkbox inside it; browsers
+ * without :has() keep the checkbox's own ring. */
+@supports selector(:has(*)) {
+  .settings-toggle input:focus-visible {
+    outline: none;
+  }
 }
 
+/* Pressing a control sinks it a little, so a tap shows it registered. */
+button:not(.cell):not(:disabled):active,
+[role="button"]:active,
+.settings-toggle:active {
+  transform: scale(0.95);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button:not(.cell),
+  [role="button"],
+  .settings-toggle {
+    transition: transform 100ms ease-out;
+  }
+}
+
+/* Dialogs whose title (and filters) stay put while only the body scrolls. */
 .dialog-card.history-dialog,
-.dialog-card.tools-dialog {
+.dialog-card.tools-dialog,
+.dialog-card.ranking-dialog {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -115,8 +160,14 @@ input {
   margin-bottom: 8px;
 }
 
+.ranking-dialog > .ranking-header,
+.ranking-dialog > .weekly-ranking-filters {
+  flex-shrink: 0;
+}
+
 .history-dialog-body,
-.tools-dialog-body {
+.tools-dialog-body,
+.ranking-dialog-body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -156,11 +207,6 @@ input {
 .history-tabs button[aria-selected="true"] {
   background: #ffcf70;
   font-weight: 800;
-}
-
-.history-tabs button:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
 }
 
 .history-summary-grid {
@@ -208,9 +254,11 @@ input {
   fill: currentColor;
 }
 
+/* In viewBox units: about 17px rendered at 360px and 15px at 320px. */
 .history-chart text {
   fill: #2a1b14;
-  font-size: 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .history-recent summary {
@@ -237,6 +285,7 @@ input {
   flex-wrap: wrap;
   gap: 4px 10px;
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .history-record-result strong {
@@ -301,11 +350,6 @@ input {
   font-weight: 800;
 }
 
-.weekly-metric-switch input:focus-visible + span {
-  outline: 3px solid #2026d2;
-  outline-offset: 1px;
-}
-
 .weekly-ranking-filters select {
   min-height: 44px;
   padding: 6px 10px;
@@ -337,23 +381,23 @@ input {
   height: 20px;
 }
 
-.menu-header {
+/* Close sits on the title row like every other dialog; the account buttons
+ * get their own row, at the start, away from it. */
+.dialog-header.menu-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .menu-header .tako-title {
   margin: 0;
-  font-size: 20px;
 }
 
 .menu-header .account-controls {
-  margin: 0 0 0 auto;
+  grid-column: 1 / -1;
+  justify-self: start;
   min-width: 0;
-}
-
-.menu-header .dialog-close {
-  flex-shrink: 0;
 }
 
 .screen-menu {
@@ -411,10 +455,6 @@ input {
   max-height: min(94dvh, 900px);
 }
 
-.interactive-tutorial-card .dialog-header h2 {
-  font-size: clamp(1.15rem, 5vw, 1.5rem);
-}
-
 .tutorial-progress {
   margin: 0;
   font-weight: 800;
@@ -470,28 +510,6 @@ input {
   font-variant-emoji: emoji;
 }
 
-.eyebrow {
-  display: inline-block;
-  margin: 0;
-  border: 2px solid #2a1b14;
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: #fffdf8;
-  color: #a44a2a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  box-shadow: 0 2px 0 #2a1b14;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0 0 4px;
-  font-size: clamp(34px, 10vw, 58px);
-  line-height: 0.9;
-  letter-spacing: -0.06em;
-}
-
 .actions {
   display: flex;
   justify-content: center;
@@ -506,7 +524,6 @@ h1 {
   border-radius: 999px;
   padding: 6px 10px;
   background: #fffdf8;
-  box-shadow: 0 2px 0 #2a1b14;
   font-size: 14px;
   font-weight: 800;
 }
@@ -558,21 +575,17 @@ h1 {
   fill: currentColor;
 }
 
-.pause-button:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
-}
-
 .play-area {
   display: grid;
   gap: 8px;
 }
 
+/* The frame is this padding plus the board's border, 8px on every side. The
+ * radius is the board's plus the padding, so the two corners stay concentric. */
 .board-wrap {
-  border-radius: 28px;
-  padding: 8px;
+  border-radius: 22px;
+  padding: 4px;
   background: #2a1b14;
-  box-shadow: 0 12px 24px rgb(42 27 20 / 18%);
   touch-action: manipulation;
 }
 
@@ -646,7 +659,6 @@ h1 {
 .super-challenge-button {
   border: 2px solid #2a1b14;
   border-radius: 999px;
-  box-shadow: 0 2px 0 #2a1b14;
   background: #fff0c7;
   color: #2a1b14;
   cursor: pointer;
@@ -677,7 +689,6 @@ h1 {
 
 .dialog-backdrop.daily-panel-backdrop {
   z-index: 30;
-  place-items: center;
 }
 
 .dialog-card.daily-panel {
@@ -703,14 +714,11 @@ h1 {
 .dialog-backdrop.daily-ranking-backdrop,
 .dialog-backdrop.ranking-backdrop {
   z-index: 30;
-  place-items: center;
 }
 
 .dialog-card.ranking-dialog {
   width: min(100%, 560px);
   max-height: min(80dvh, 700px);
-  overflow: auto;
-  font-variant-numeric: tabular-nums;
 }
 
 .ranking-header {
@@ -722,7 +730,6 @@ h1 {
 
 .ranking-header h2 {
   margin: 0 0 8px;
-  font-size: clamp(1.1rem, 5vw, 1.5rem);
 }
 
 .tako-title {
@@ -758,11 +765,14 @@ h1 {
   font-weight: 800;
 }
 
+/* Numbers line up digit for digit wherever these lists appear, including the
+ * clear dialog's preview. */
 .ranking-entries,
 .public-ranking-entries {
   margin: 0;
   padding: 0;
   list-style: none;
+  font-variant-numeric: tabular-nums;
 }
 .ranking-entries li,
 .public-ranking-entries li {
@@ -884,15 +894,20 @@ h1 {
   aspect-ratio: 1;
   object-fit: contain;
   pointer-events: none;
-  filter: drop-shadow(0 2px 0 rgb(42 27 20 / 30%));
+  /* On the dark Region the tako's own colours fall below 2:1, so the cell sets
+   * --tako-halo for a cream edge; elsewhere the edge is transparent. */
+  filter: drop-shadow(0 0 1px var(--tako-halo, transparent))
+    drop-shadow(0 0 1px var(--tako-halo, transparent))
+    drop-shadow(0 2px 0 rgb(42 27 20 / 30%));
 }
 
+/* × is the most frequent action, so its feedback is a short fade only. */
 .cell.is-feedback-excluded-add .mark {
-  animation: mark-pop 160ms ease-out;
+  animation: mark-fade 120ms ease-out;
 }
 
 .cell.is-feedback-excluded-remove {
-  animation: mark-release 180ms ease-out;
+  animation: mark-release 150ms ease-out;
 }
 
 .cell.is-feedback-shortcut-exclude .mark {
@@ -1007,14 +1022,10 @@ h1 {
   padding: 6px 10px 6px 38px;
   background: #fffdf8;
   color: #2a1b14;
-  box-shadow: 0 2px 0 #2a1b14;
+  /* iOS Safari zooms into a focused control below 16px. */
+  font-size: 16px;
   font-weight: 800;
   cursor: pointer;
-}
-
-.difficulty-select select:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
 }
 
 .seed-panel-body {
@@ -1042,7 +1053,6 @@ h1 {
   background: #ffcf70;
   color: #2a1b14;
   font-weight: 800;
-  box-shadow: 0 2px 0 #2a1b14;
 }
 
 .seed-panel-body label {
@@ -1071,13 +1081,12 @@ h1 {
   min-width: 0;
 }
 
+/* Wraps rather than truncating: on a phone there is no hover to show the
+ * rest of the seed. */
 .seed-inline-row code {
   flex: 1;
   min-width: 0;
   margin-top: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .seed-inline-row input {
@@ -1109,23 +1118,19 @@ h1 {
   font-size: 14px;
 }
 
-.ranking-list {
-  margin: 6px 0;
-  padding-left: 24px;
-}
-
-.ranking-list li {
-  margin: 5px 0;
-}
-
 .dialog-backdrop {
   position: fixed;
   z-index: 10;
   inset: 0;
   display: grid;
-  place-items: end center;
+  place-items: center;
   padding: 18px 12px;
   background: rgb(42 27 20 / 28%);
+}
+
+/* The hint is read against the board, so it sits below it instead. */
+.dialog-backdrop.hint-backdrop {
+  place-items: end center;
 }
 
 .ready-overlay {
@@ -1161,26 +1166,26 @@ h1 {
   border: 2px solid #2a1b14;
   border-radius: 999px;
   padding: 10px 24px;
-  background: #ff8a5b;
+  background: #fffdf8;
   color: #2a1b14;
   font-weight: 900;
-  box-shadow: 0 3px 0 #2a1b14;
 }
 
-.ready-card button:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 4px;
+/* OK is the one action READY exists for; only it is filled. */
+.ready-card button.ready-primary {
+  background: #ff8a5b;
 }
 
 .dialog-card {
   width: min(100%, 520px);
   max-height: min(72vh, 560px);
   overflow: auto;
-  border: 2px solid #2a1b14;
+  overscroll-behavior: contain;
+  /* An even frame on every side, like the buttons; no drop under the card. */
+  border: 3px solid #2a1b14;
   border-radius: 20px;
   padding: 16px;
   background: #fffdf8;
-  box-shadow: 0 8px 0 #2a1b14;
 }
 
 .dialog-card,
@@ -1218,11 +1223,17 @@ h1 {
   margin: 0 0 8px;
 }
 
+/* Every dialog title is one level; CLEAR is a badge, not a title. */
+.dialog-card h2:not(.clear-badge) {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
 .dialog-close,
 .dialog-actions button,
 .haptics-settings button,
 .sound-previews button,
-.account-card button,
+.account-card button:not(.dialog-close),
 .retry-button,
 .retry-status button {
   border: 2px solid #2a1b14;
@@ -1231,7 +1242,11 @@ h1 {
   background: #ffcf70;
   color: #2a1b14;
   font-weight: 800;
-  box-shadow: 0 2px 0 #2a1b14;
+}
+
+/* Log out and account deletion sit side by side at the bottom of the card. */
+.account-card > button:not(.dialog-close) {
+  margin: 12px 8px 0 0;
 }
 
 .retry-status {
@@ -1281,15 +1296,6 @@ h1 {
 
 .dialog-close > span::after {
   transform: translate(-50%, -50%) rotate(-45deg);
-}
-
-.dialog-close:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
-}
-
-.clear-backdrop {
-  place-items: center;
 }
 
 .clear-confetti {
@@ -1400,21 +1406,6 @@ h1 {
   margin: 0;
 }
 
-.result-seed-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.result-seed {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-
 .dialog-actions.clear-actions {
   gap: 8px;
   align-items: center;
@@ -1440,11 +1431,6 @@ h1 {
   border-radius: 12px;
 }
 
-.clear-ranking-preview:focus-visible {
-  outline: 3px solid #2026d2;
-  outline-offset: 2px;
-}
-
 .inline-copy {
   flex: 0 0 auto;
   border: 2px solid #2a1b14;
@@ -1454,7 +1440,6 @@ h1 {
   color: #2a1b14;
   font-size: 13px;
   font-weight: 800;
-  box-shadow: 0 2px 0 #2a1b14;
 }
 
 .dialog-message {
@@ -1558,19 +1543,9 @@ h1 {
   }
 }
 
-@keyframes mark-pop {
-  0% {
-    opacity: 0.3;
-    transform: scale(0.65) rotate(-8deg);
-  }
-
-  70% {
-    transform: scale(1.12) rotate(3deg);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(0deg);
+@keyframes mark-fade {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1668,14 +1643,10 @@ h1 {
     display: none;
   }
 
-  .cell.is-pressed::after {
-    animation: none;
-  }
-
+  /* The confirm ring only fades, so it keeps its fade rather than sitting at
+   * full strength until the feedback ends. Beats the 1ms rule below. */
   .cell.is-feedback-piece-place::after {
-    animation: none;
-    opacity: 1;
-    transform: none;
+    animation-duration: 180ms !important;
   }
 
   .cell,
@@ -1695,14 +1666,6 @@ h1 {
 }
 
 @media (max-height: 740px) {
-  .eyebrow {
-    display: none;
-  }
-
-  h1 {
-    font-size: clamp(28px, 8vw, 44px);
-  }
-
   .actions {
     margin: 8px 0;
   }

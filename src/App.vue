@@ -136,11 +136,7 @@ import {
   type CellFeedback,
   type FeedbackSource,
 } from "./ui/feedback";
-import {
-  assignRegionColorIndexes,
-  cellRegionBorders,
-  regionColorForCell,
-} from "./ui/region-visuals";
+import { assignRegionColorIndexes, cellBaseStyle } from "./ui/region-visuals";
 
 const InteractiveTutorial = defineAsyncComponent(
   () => import("./ui/InteractiveTutorial.vue"),
@@ -437,9 +433,17 @@ function showClearRanking(
     })),
     (entry) => entry.isSelf,
   );
+  // Right after a normal clear is when joining is most tempting, so say how;
+  // daily and super boards have no "next puzzle" to join from.
+  const canJoin =
+    !special &&
+    !!onlineAuth &&
+    !(onlineAuth.isSignedIn.value && onlineGameName.value);
   clearRankingMessage.value = clearRankingEntries.value.length
     ? ""
-    : "あなたの公開ランキング記録はありません。";
+    : canJoin
+      ? "ログインしてゲーム名を設定すると、次の問題からランキングに載ります。"
+      : "あなたの公開ランキング記録はありません。";
 }
 const contradictionCells = computed(() =>
   hint.value?.kind === "move" &&
@@ -758,9 +762,10 @@ async function loadHistoryOnline(
     window.clearTimeout(timeout);
   }
 }
-function restoreHistorySeed(seedCode: string): void {
-  historyDialogOpen.value = false;
-  restoreSeed(seedCode);
+// The history stays open if the player cancels the confirm, so they can pick
+// another record.
+async function restoreHistorySeed(seedCode: string): Promise<void> {
+  if (await restoreSeed(seedCode)) historyDialogOpen.value = false;
 }
 
 function closeMenu(): void {
@@ -1312,7 +1317,7 @@ async function copySeed(): Promise<void> {
 }
 
 function restoreFromSeed(): void {
-  restoreSeed(restoreSeedCode.value);
+  void restoreSeed(restoreSeedCode.value);
 }
 
 async function copySuperLink(): Promise<void> {
@@ -1329,7 +1334,7 @@ async function copySuperLink(): Promise<void> {
   }
 }
 
-function restoreSeed(code: string): boolean {
+async function restoreSeed(code: string): Promise<boolean> {
   if (parseSuperSeed(code) !== undefined) {
     if (!onlineAuthEnabled) {
       seedMessage.value = "超級はログインとオンライン接続が必要です。";
@@ -1358,6 +1363,17 @@ function restoreSeed(code: string): boolean {
       "このシードからは問題を作れません。別のシードを入力するか、次の問題へ進んでください。";
     return false;
   }
+  if (
+    !(await confirmDiscardProgress({
+      title: "この問題を開きますか？",
+      message: "この盤面の途中のタコと×は消えます。",
+      confirmLabel: "開く",
+    }))
+  ) {
+    // Clear an earlier result so it does not read as this attempt's.
+    seedMessage.value = "";
+    return false;
+  }
   cancelPendingNextPuzzle();
   clearSharedPuzzleUrl();
   puzzle.value = generated.puzzle;
@@ -1381,7 +1397,8 @@ async function openSharedPuzzleFromUrl(
 ): Promise<void> {
   const superCode = new URL(window.location.href).searchParams.get("s");
   if (superCode) {
-    if (!restoreSeed(superCode)) showSharedLinkMessage(seedMessage.value);
+    if (!(await restoreSeed(superCode)))
+      showSharedLinkMessage(seedMessage.value);
     return;
   }
   const id = new URL(window.location.href).searchParams.get("p");
@@ -1964,22 +1981,22 @@ function cellClasses(index: number): Record<string, boolean> {
   };
 }
 
-function cellStyles(index: number): Record<string, string> {
-  const color = regionColorForCell(
-    puzzle.value,
-    regionColorIndexes.value,
-    index,
-  );
-  const borders = cellRegionBorders(puzzle.value, index);
+// Depends only on the board, so it is built once per board rather than on
+// every render (the clock re-renders each second).
+const cellBaseStyles = computed(() =>
+  cells.value.map((index) =>
+    cellBaseStyle(puzzle.value, regionColorIndexes.value, index),
+  ),
+);
+
+// The board's fixed look and the feedback that changes are passed as two
+// objects, so the fixed one keeps its identity between renders.
+function cellStyles(index: number): Record<string, string>[] {
+  return [cellBaseStyles.value[index], cellFeedbackStyle(index)];
+}
+
+function cellFeedbackStyle(index: number): Record<string, string> {
   return {
-    backgroundColor: color.background,
-    color: color.foreground ?? "#2a1b14",
-    // The dark Region would swallow the blue focus ring.
-    "--focus-color": color.foreground ?? "#2026d2",
-    borderTopWidth: borders.top ? "2px" : "1px",
-    borderRightWidth: borders.right ? "2px" : "1px",
-    borderBottomWidth: borders.bottom ? "2px" : "1px",
-    borderLeftWidth: borders.left ? "2px" : "1px",
     "--feedback-order": String(cellFeedbacks.value[index]?.order ?? 0),
     "--feedback-delay": `${Math.min(cellFeedbacks.value[index]?.order ?? 0, 12) * 22}ms`,
   };
@@ -2085,6 +2102,14 @@ function formatElapsed(seconds: number): string {
             <img src="/tako.svg" alt="" aria-hidden="true" draggable="false" />
             <span>TAKO-SEN メニュー</span>
           </h2>
+          <button
+            type="button"
+            class="dialog-close"
+            aria-label="メニューを閉じる"
+            @click="closeMenu"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
           <nav
             v-if="onlineAuthEnabled"
             class="account-controls"
@@ -2106,17 +2131,12 @@ function formatElapsed(seconds: number): string {
                 :aria-expanded="accountDialogOpen"
                 @click="accountDialogOpen = true"
               >
-                <GameName :name="onlineGameName || 'ゲーム名を設定'" /></button
-            ></Show>
+                <template v-if="onlineGameName"
+                  >プレイヤー: <GameName :name="onlineGameName" /></template
+                ><template v-else>ゲーム名を設定</template>
+              </button></Show
+            >
           </nav>
-          <button
-            type="button"
-            class="dialog-close"
-            aria-label="メニューを閉じる"
-            @click="closeMenu"
-          >
-            <span aria-hidden="true">×</span>
-          </button>
         </div>
         <nav class="screen-menu" aria-label="メニュー">
           <button type="button" @click="navigateTo('history')">
@@ -2479,9 +2499,11 @@ function formatElapsed(seconds: number): string {
                 <UiIcon name="share" />
                 超級の共有リンクをコピー
               </button>
-              <p v-if="seedMessage" class="seed-message" aria-live="polite">
-                {{ seedMessage }}
-              </p>
+              <p
+                class="seed-message"
+                aria-live="polite"
+                v-text="seedMessage"
+              ></p>
             </div>
           </template>
         </div>
@@ -2531,7 +2553,7 @@ function formatElapsed(seconds: number): string {
 
     <div
       v-if="hint && activeDialog === 'hint'"
-      class="dialog-backdrop"
+      class="dialog-backdrop hint-backdrop"
       role="presentation"
       @click.self="closeHintDialog"
     >
@@ -2728,9 +2750,11 @@ function formatElapsed(seconds: number): string {
             </li>
           </ol>
         </div>
-        <p v-if="clearDialogMessage" class="dialog-message" aria-live="polite">
-          {{ clearDialogMessage }}
-        </p>
+        <p
+          class="dialog-message"
+          aria-live="polite"
+          v-text="clearDialogMessage"
+        ></p>
         <div class="dialog-actions clear-actions">
           <label v-if="!isSpecial" class="difficulty-select">
             <UiIcon name="difficulty" />
@@ -2810,6 +2834,7 @@ function formatElapsed(seconds: number): string {
         <button
           ref="readyButton"
           type="button"
+          class="ready-primary"
           :disabled="dailyClaiming"
           @click="confirmReady"
         >

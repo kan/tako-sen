@@ -16,11 +16,7 @@ import {
 import { findLogicalMoves, type LogicalMove } from "../core/logical";
 import { isComplete } from "../core/rules";
 import { shortcutExclusionsForCell } from "../core/shortcuts";
-import {
-  assignRegionColorIndexes,
-  cellRegionBorders,
-  regionColorForCell,
-} from "./region-visuals";
+import { assignRegionColorIndexes, cellBaseStyle } from "./region-visuals";
 import {
   cellIndexAtPoint,
   DOUBLE_TAP_MS,
@@ -142,18 +138,7 @@ watch(phase, async () => {
 onUnmounted(() => cancelPointer());
 
 function cellStyle(index: number): Record<string, string> {
-  const color = regionColorForCell(puzzle, colorIndexes, index);
-  const border = cellRegionBorders(puzzle, index);
-  return {
-    backgroundColor: color.background,
-    color: color.foreground ?? "#2a1b14",
-    // The dark Region would swallow the blue focus ring.
-    "--focus-color": color.foreground ?? "#2026d2",
-    borderTopWidth: border.top ? "2px" : "1px",
-    borderRightWidth: border.right ? "2px" : "1px",
-    borderBottomWidth: border.bottom ? "2px" : "1px",
-    borderLeftWidth: border.left ? "2px" : "1px",
-  };
+  return cellBaseStyle(puzzle, colorIndexes, index);
 }
 
 function emphasized(index: number): boolean {

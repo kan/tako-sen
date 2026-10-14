@@ -366,10 +366,9 @@ onUnmounted(() => {
                 >
                   <div v-if="play.completed" class="history-record-result">
                     <strong
-                      :aria-label="`タイム ${seconds(play.elapsedSeconds!)}`"
-                      ><UiIcon name="clock" />{{
-                        seconds(play.elapsedSeconds!)
-                      }}</strong
+                      ><UiIcon name="clock" /><span class="sr-only"
+                        >タイム </span
+                      >{{ seconds(play.elapsedSeconds!) }}</strong
                     >
                     <strong
                       ><UiIcon name="score" /><span class="sr-only"
@@ -430,7 +429,7 @@ onUnmounted(() => {
               </ul>
             </details>
           </template>
-          <p v-if="copyMessage" role="status">{{ copyMessage }}</p>
+          <p role="status" v-text="copyMessage"></p>
         </section>
       </div>
     </section>

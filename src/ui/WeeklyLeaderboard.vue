@@ -155,70 +155,72 @@ onUnmounted(() => {
           >
         </fieldset>
       </div>
-      <p class="ranking-note">
-        日本時間の月曜0時〜翌月曜0時。通常問題のみ、同じ問題は週に1クリアとして集計します。平均タイムは週5クリア以上が対象です。
-      </p>
-      <p v-if="data" class="ranking-note">
-        {{ dateFormat.format(data.start) }} 0:00 〜
-        {{ dateFormat.format(data.end) }} 0:00（日本時間）
-      </p>
-      <p v-if="busy" role="status">週間ランキングを取得しています。</p>
-      <p v-else-if="message" class="retry-status" role="status">
-        <span>{{ message }}</span>
-        <button
-          type="button"
-          class="icon-button"
-          aria-label="再読み込み"
-          title="再読み込み"
-          @click="refresh"
-        >
-          <UiIcon name="reset" />
-        </button>
-      </p>
-      <p v-else-if="data && !data.entries.length" role="status">
-        今週の対象となる公開記録はありません。
-      </p>
-      <ol v-if="data?.entries.length" class="public-ranking-entries">
-        <li
-          v-for="entry in data.entries"
-          :key="entry.displayName"
-          :class="{
-            'ranking-self': !!gameName && entry.displayName === gameName,
-          }"
-        >
-          <div class="ranking-score-main">
-            <strong class="ranking-place">{{ entry.rank }}位</strong>
-            <div class="ranking-name">
-              <GameName :name="entry.displayName" /><strong
-                v-if="gameName && entry.displayName === gameName"
-                class="ranking-you"
-                >あなた</strong
-              >
-            </div>
-            <strong class="ranking-time">{{
-              metric === "clears"
-                ? `${entry.clears}クリア`
-                : `${entry.averageSeconds.toFixed(1)}秒`
-            }}</strong>
-          </div>
-          <div class="ranking-score-meta">
-            <span>{{
-              metric === "clears"
-                ? `平均 ${entry.averageSeconds.toFixed(1)}秒`
-                : `${entry.clears}クリア`
-            }}</span>
-          </div>
-        </li>
-      </ol>
-      <details class="ranking-guide">
-        <summary>順位の付け方</summary>
-        <p>
-          クリア数は多い順、平均タイムは短い順です。同じ値は同順位。各問題は週内で最初にクリアした試行を採用し、再挑戦の速いタイムへの差し替えはしません。最大100人を表示します。
+      <div class="ranking-dialog-body">
+        <p class="ranking-note">
+          日本時間の月曜0時〜翌月曜0時。通常問題のみ、同じ問題は週に1クリアとして集計します。平均タイムは週5クリア以上が対象です。
         </p>
-      </details>
-      <p class="ranking-note">
-        公開に同意した参加者の自己申告による参考記録です。未ログインでも閲覧でき、デイリー・超級・練習は含めません。
-      </p>
+        <p v-if="data" class="ranking-note">
+          {{ dateFormat.format(data.start) }} 0:00 〜
+          {{ dateFormat.format(data.end) }} 0:00（日本時間）
+        </p>
+        <p v-if="busy" role="status">週間ランキングを取得しています。</p>
+        <p v-else-if="message" class="retry-status" role="status">
+          <span>{{ message }}</span>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="再読み込み"
+            title="再読み込み"
+            @click="refresh"
+          >
+            <UiIcon name="reset" />
+          </button>
+        </p>
+        <p v-else-if="data && !data.entries.length" role="status">
+          今週の対象となる公開記録はありません。
+        </p>
+        <ol v-if="data?.entries.length" class="public-ranking-entries">
+          <li
+            v-for="entry in data.entries"
+            :key="entry.displayName"
+            :class="{
+              'ranking-self': !!gameName && entry.displayName === gameName,
+            }"
+          >
+            <div class="ranking-score-main">
+              <strong class="ranking-place">{{ entry.rank }}位</strong>
+              <div class="ranking-name">
+                <GameName :name="entry.displayName" /><strong
+                  v-if="gameName && entry.displayName === gameName"
+                  class="ranking-you"
+                  >あなた</strong
+                >
+              </div>
+              <strong class="ranking-time">{{
+                metric === "clears"
+                  ? `${entry.clears}クリア`
+                  : `${entry.averageSeconds.toFixed(1)}秒`
+              }}</strong>
+            </div>
+            <div class="ranking-score-meta">
+              <span>{{
+                metric === "clears"
+                  ? `平均 ${entry.averageSeconds.toFixed(1)}秒`
+                  : `${entry.clears}クリア`
+              }}</span>
+            </div>
+          </li>
+        </ol>
+        <details class="ranking-guide">
+          <summary>順位の付け方</summary>
+          <p>
+            クリア数は多い順、平均タイムは短い順です。同じ値は同順位。各問題は週内で最初にクリアした試行を採用し、再挑戦の速いタイムへの差し替えはしません。最大100人を表示します。
+          </p>
+        </details>
+        <p class="ranking-note">
+          公開に同意した参加者の自己申告による参考記録です。未ログインでも閲覧でき、デイリー・超級・練習は含めません。
+        </p>
+      </div>
     </section>
   </div>
 </template>

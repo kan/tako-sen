@@ -836,7 +836,7 @@ defineExpose({
       </button>
       <p v-if="syncing" role="status">超級の記録を同期しています。</p>
     </template>
-    <p v-if="message" role="status">{{ message }}</p>
+    <p role="status" v-text="message"></p>
     <p v-if="syncMessage" role="status">
       {{ syncMessage
       }}<button
@@ -916,7 +916,7 @@ defineExpose({
       <p v-if="!complete && (sharedCode || right)">
         現在の盤面から超級へ切り替えます。通常の進行は端末に保存します。
       </p>
-      <p v-if="message" role="status">{{ message }}</p>
+      <p role="status" v-text="message"></p>
       <p v-if="syncMessage" role="status">
         {{ syncMessage
         }}<button
