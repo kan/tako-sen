@@ -2019,9 +2019,6 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="navigateTo('history')">
             履歴・成績
           </button>
-          <button type="button" @click="showCurrentRanking">
-            {{ isDaily ? "今日のランキング" : "この問題のランキング" }}
-          </button>
           <button type="button" @click="navigateTo('weekly')">
             週間ランキング
           </button>

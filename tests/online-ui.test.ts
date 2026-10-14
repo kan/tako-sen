@@ -2869,9 +2869,7 @@ describe("public leaderboard dialog", () => {
     ).toBeUndefined();
   });
 
-  it("opens from the menu without leaving play and resumes timing after closing", async () => {
-    let now = 10000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+  it("leaves the per-board ranking out of the menu", async () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
@@ -2879,42 +2877,20 @@ describe("public leaderboard dialog", () => {
     const container = root();
     renderer.render(h(App), container);
     await nextTick();
-    const click = async (label: string) => {
-      const button = find(
-        container,
-        (n) =>
-          n.tag === "button" &&
-          (n.text.trim() === label || n.props["aria-label"] === label),
-      )!;
-      expect(button).toBeDefined();
-      await (button.props.onClick as () => void | Promise<void>)();
-      await nextTick();
-    };
-    await click("OK");
-    now += 3000;
-    await click("メニューを開く");
-    const game = () =>
-      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
-    expect(game().elapsedMs).toBe(3000);
-    await click("この問題のランキング");
-    expect(
-      find(container, (n) => n.props.id === "public-leaderboard"),
-    ).toBeDefined();
-    expect(
-      find(container, (n) => n.props["aria-labelledby"] === "menu-title"),
-    ).toBeUndefined();
-    expect(
-      find(container, (n) => n.props.class === "screen-header"),
-    ).toBeUndefined();
-    now += 60000;
-    await click("ランキングを閉じる");
-    expect(
-      find(container, (n) => n.props.id === "public-leaderboard"),
-    ).toBeUndefined();
-    expect(
-      find(container, (n) => n.props.class === "ready-overlay"),
-    ).toBeUndefined();
-    expect(game().elapsedMs).toBe(3000);
+    const open = find(
+      container,
+      (n) => n.tag === "button" && n.props["aria-label"] === "メニューを開く",
+    )!;
+    (open.props.onClick as () => void)();
+    await nextTick();
+    const menu = find(container, (n) => n.props.class === "screen-menu")!;
+    expect(menu.children.map((child) => child.text.trim())).toEqual([
+      "履歴・成績",
+      "週間ランキング",
+      "設定",
+      "シード・共有",
+      "遊び方",
+    ]);
   });
 
   it("loads on opening and closes with Escape", async () => {
