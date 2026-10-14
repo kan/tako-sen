@@ -1197,6 +1197,18 @@ button:not(.cell):not(:disabled):active,
   font-weight: 900;
 }
 
+/* One column, centred and as wide as its longest button; every button
+ * stretches to that width, so 通常プレイに戻る does not stand out. */
+.ready-actions {
+  display: grid;
+  gap: 22px;
+}
+
+/* Overrides the icon button's fixed 44px, so the menu button lines up too. */
+.ready-actions > button {
+  width: 100%;
+}
+
 /* OK is the one action READY exists for; only it is filled. */
 .ready-card button.ready-primary {
   background: var(--color-accent-next);

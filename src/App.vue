@@ -2831,40 +2831,42 @@ function formatElapsed(seconds: number): string {
           ログインとオンライン接続が必要です。初回のOKでのみ挑戦権を使用します（共有経由は消費しません）。
         </p>
         <p v-if="dailyReadyMessage" role="alert">{{ dailyReadyMessage }}</p>
-        <button
-          ref="readyButton"
-          type="button"
-          class="ready-primary"
-          :disabled="dailyClaiming"
-          @click="confirmReady"
-        >
-          OK
-        </button>
-        <button
-          v-if="isSuper || (isDaily && !dailyClaimed)"
-          type="button"
-          :disabled="dailyClaiming"
-          @click="leaveDaily"
-        >
-          通常プレイに戻る
-        </button>
-        <button type="button" @click="openTutorial">遊び方</button>
-        <button
-          v-if="!isSpecial && superChallengeRef?.right"
-          type="button"
-          @click="superChallengeRef?.openEarned()"
-        >
-          超級に挑戦
-        </button>
-        <button
-          type="button"
-          class="icon-button"
-          aria-label="メニューを開く"
-          title="メニュー"
-          @click="openMenu"
-        >
-          <UiIcon name="settings" />
-        </button>
+        <div class="ready-actions">
+          <button
+            ref="readyButton"
+            type="button"
+            class="ready-primary"
+            :disabled="dailyClaiming"
+            @click="confirmReady"
+          >
+            OK
+          </button>
+          <button
+            v-if="isSuper || (isDaily && !dailyClaimed)"
+            type="button"
+            :disabled="dailyClaiming"
+            @click="leaveDaily"
+          >
+            通常プレイに戻る
+          </button>
+          <button type="button" @click="openTutorial">遊び方</button>
+          <button
+            v-if="!isSpecial && superChallengeRef?.right"
+            type="button"
+            @click="superChallengeRef?.openEarned()"
+          >
+            超級に挑戦
+          </button>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="メニューを開く"
+            title="メニュー"
+            @click="openMenu"
+          >
+            <UiIcon name="settings" />
+          </button>
+        </div>
       </section>
     </div>
   </main>
