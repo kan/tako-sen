@@ -82,11 +82,16 @@ export function cellBaseStyle(
     edge ? "0" : region ? "2px" : "1px";
   return {
     backgroundColor: color.background,
-    color: color.foreground ?? "#2a1b14",
-    // The dark Region would swallow the blue focus ring and the tako's dark
-    // outline, so both get light versions there.
-    "--focus-color": color.foreground ?? "#2026d2",
-    ...(color.foreground ? { "--tako-halo": "#fffdf8" } : {}),
+    // The stylesheet's ink and focus colours suit the light Regions. On the
+    // dark Region the text, the keyboard focus ring and the tako's edge turn
+    // light; borders and the press rings keep their stylesheet colours.
+    ...(color.foreground
+      ? {
+          color: color.foreground,
+          "--focus-color": color.foreground,
+          "--tako-halo": "var(--color-surface)",
+        }
+      : {}),
     borderTopWidth: width(row === 0, borders.top),
     borderRightWidth: width(col === last, borders.right),
     borderBottomWidth: width(row === last, borders.bottom),

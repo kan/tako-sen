@@ -1,6 +1,32 @@
 :root {
-  color: #2a1b14;
-  background: #fff7ec;
+  /* Colours by role; use these rather than hex values. A colour used in only
+   * one place (confetti, the super lilac, the scrollbar, the daily panel)
+   * stays literal there.
+   *
+   * A translucent shade uses the -rgb channels, as rgb(var(--x-rgb) / 30%):
+   * unlike color-mix(), that works on iOS Safari before 16.2. */
+  --color-ink-rgb: 42 27 20;
+  --color-surface-rgb: 255 253 248;
+  --color-accent-next-rgb: 255 138 91;
+  --color-accent-text-rgb: 164 74 42;
+  --color-danger-rgb: 195 41 41;
+  --color-hint-rgb: 37 99 235;
+  --color-ink: rgb(var(--color-ink-rgb));
+  --color-ink-soft: #5f4636;
+  --color-surface: rgb(var(--color-surface-rgb));
+  --color-page: #fff7ec;
+  --color-highlight: #fff0c7;
+  --color-accent: #ffcf70;
+  --color-accent-next: rgb(var(--color-accent-next-rgb));
+  --color-accent-text: rgb(var(--color-accent-text-rgb));
+  --color-success: #116c35;
+  --color-danger: rgb(var(--color-danger-rgb));
+  --color-focus: #2026d2;
+  --color-hint: rgb(var(--color-hint-rgb));
+  --color-hint-strong: #1d4ed8;
+
+  color: var(--color-ink);
+  background: var(--color-page);
   font-family:
     ui-sans-serif,
     system-ui,
@@ -10,11 +36,11 @@
     sans-serif;
   /* The cream band that keeps rings on the board visible on every Region
    * fill, and the hatching that marks cells which take a ×. */
-  --ring-band: rgb(255 253 248 / 85%);
+  --ring-band: rgb(var(--color-surface-rgb) / 85%);
   --exclude-hatch: repeating-linear-gradient(
     135deg,
     transparent 0 5px,
-    rgb(185 28 28 / 30%) 5px 8px
+    rgb(var(--color-danger-rgb) / 30%) 5px 8px
   );
 }
 
@@ -106,7 +132,7 @@ summary:focus-visible,
 [role="button"]:focus-visible,
 .weekly-metric-switch input:focus-visible + span,
 .settings-toggle:has(input:focus-visible) {
-  outline: 3px solid #2026d2;
+  outline: 3px solid var(--color-focus);
   outline-offset: -3px;
 }
 
@@ -175,7 +201,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .history-source {
-  color: #5f4636;
+  color: var(--color-ink-soft);
   font-size: 12px;
 }
 
@@ -198,14 +224,14 @@ button:not(.cell):not(:disabled):active,
   min-height: 44px;
   padding-inline: 6px;
   white-space: nowrap;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 10px;
-  background: #fff7ec;
+  background: var(--color-page);
   color: inherit;
 }
 
 .history-tabs button[aria-selected="true"] {
-  background: #ffcf70;
+  background: var(--color-accent);
   font-weight: 800;
 }
 
@@ -236,12 +262,12 @@ button:not(.cell):not(:disabled):active,
 
 .history-chart svg {
   width: 100%;
-  color: #a44a2a;
+  color: var(--color-accent-text);
 }
 
 .history-chart-axis {
   fill: none;
-  stroke: #5f4636;
+  stroke: var(--color-ink-soft);
 }
 
 .history-chart-line {
@@ -256,7 +282,7 @@ button:not(.cell):not(:disabled):active,
 
 /* In viewBox units: about 17px rendered at 360px and 15px at 320px. */
 .history-chart text {
-  fill: #2a1b14;
+  fill: var(--color-ink);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -304,7 +330,7 @@ button:not(.cell):not(:disabled):active,
   grid-column: 1 / -1;
   grid-row: 2;
   margin: 0;
-  color: #655447;
+  color: var(--color-ink-soft);
 }
 
 .weekly-ranking-filters {
@@ -325,9 +351,9 @@ button:not(.cell):not(:disabled):active,
   margin: 0;
   padding: 3px;
   min-width: 0;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
-  background: #fffdf8;
+  background: var(--color-surface);
   font-size: 14px;
 }
 
@@ -346,16 +372,16 @@ button:not(.cell):not(:disabled):active,
 }
 
 .weekly-metric-switch input:checked + span {
-  background: #ffcf70;
+  background: var(--color-accent);
   font-weight: 800;
 }
 
 .weekly-ranking-filters select {
   min-height: 44px;
   padding: 6px 10px;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 8px;
-  background: #fffdf8;
+  background: var(--color-surface);
   color: inherit;
 }
 
@@ -408,9 +434,9 @@ button:not(.cell):not(:disabled):active,
 
 .screen-menu button {
   padding: 12px 16px;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 12px;
-  background: #fffdf8;
+  background: var(--color-surface);
   color: inherit;
   text-align: left;
 }
@@ -436,10 +462,10 @@ button:not(.cell):not(:disabled):active,
 }
 
 .account-controls button {
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 4px 10px;
-  background: #fffdf8;
+  background: var(--color-surface);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -477,25 +503,25 @@ button:not(.cell):not(:disabled):active,
  * that take a ×. */
 .interactive-tutorial-board .cell.tutorial-target:not(.tutorial-place-target) {
   box-shadow:
-    inset 0 0 0 4px #c32929,
+    inset 0 0 0 4px var(--color-danger),
     inset 0 0 0 6px var(--ring-band);
   background-image: var(--exclude-hatch);
 }
 
 .interactive-tutorial-board .cell.tutorial-place-target {
   box-shadow:
-    inset 0 0 0 4px #2563eb,
+    inset 0 0 0 4px var(--color-hint),
     inset 0 0 0 6px var(--ring-band);
   animation: tutorial-place-pulse 1.2s ease-in-out infinite;
 }
 
 .interactive-tutorial-board .cell.tutorial-place-target.is-holding::before {
-  background: #2563eb;
+  background: var(--color-hint);
 }
 
 .interactive-tutorial-board .cell.tutorial-place-target.is-holding::after,
 .interactive-tutorial-board .cell.tutorial-place-target.is-pressed::after {
-  border-color: #1d4ed8;
+  border-color: var(--color-hint-strong);
 }
 
 .name-emoji {
@@ -520,10 +546,10 @@ button:not(.cell):not(:disabled):active,
 
 .actions button,
 .settings-toggle {
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 6px 10px;
-  background: #fffdf8;
+  background: var(--color-surface);
   font-size: 14px;
   font-weight: 800;
 }
@@ -548,7 +574,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .clear {
-  color: #116c35;
+  color: var(--color-success);
 }
 
 .time-status {
@@ -565,7 +591,7 @@ button:not(.cell):not(:disabled):active,
   min-height: 32px;
   min-width: 32px;
   background: transparent;
-  color: #2a1b14;
+  color: var(--color-ink);
   cursor: pointer;
 }
 
@@ -585,7 +611,7 @@ button:not(.cell):not(:disabled):active,
 .board-wrap {
   border-radius: 22px;
   padding: 4px;
-  background: #2a1b14;
+  background: var(--color-ink);
   touch-action: manipulation;
 }
 
@@ -594,7 +620,7 @@ button:not(.cell):not(:disabled):active,
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
   overflow: hidden;
-  border: 4px solid #2a1b14;
+  border: 4px solid var(--color-ink);
   border-radius: 18px;
   aspect-ratio: 1;
   touch-action: none;
@@ -657,10 +683,10 @@ button:not(.cell):not(:disabled):active,
 
 .daily-challenge-button,
 .super-challenge-button {
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
-  background: #fff0c7;
-  color: #2a1b14;
+  background: var(--color-highlight);
+  color: var(--color-ink);
   cursor: pointer;
 }
 
@@ -748,14 +774,14 @@ button:not(.cell):not(:disabled):active,
 
 .ranking-note {
   margin: 8px 0 12px;
-  color: #674c3c;
+  color: var(--color-ink-soft);
   font-size: 0.85rem;
   line-height: 1.5;
 }
 
 .ranking-guide {
   margin-top: 12px;
-  color: #674c3c;
+  color: var(--color-ink-soft);
   font-size: 0.85rem;
   line-height: 1.5;
 }
@@ -791,7 +817,7 @@ button:not(.cell):not(:disabled):active,
 }
 .ranking-place {
   min-width: 2.5em;
-  color: #a44a2a;
+  color: var(--color-accent-text);
 }
 .ranking-name {
   display: flex;
@@ -803,7 +829,7 @@ button:not(.cell):not(:disabled):active,
 .ranking-you {
   border-radius: 999px;
   padding: 2px 7px;
-  background: #ffcf70;
+  background: var(--color-accent);
   font-size: 0.75em;
   white-space: nowrap;
 }
@@ -816,14 +842,14 @@ button:not(.cell):not(:disabled):active,
   flex-wrap: wrap;
   gap: 2px 12px;
   padding-left: calc(2.5em + 8px);
-  color: #674c3c;
+  color: var(--color-ink-soft);
   font-size: 0.85em;
 }
 .ranking-entries li.daily-self,
 .public-ranking-entries li.ranking-self {
-  border: 2px solid #a44a2a;
+  border: 2px solid var(--color-accent-text);
   border-radius: 12px;
-  background: #fff0c7;
+  background: var(--color-highlight);
 }
 
 .cell {
@@ -834,8 +860,8 @@ button:not(.cell):not(:disabled):active,
   min-height: 0;
   padding: 0;
   border-style: solid;
-  border-color: rgb(42 27 20 / 82%);
-  color: #2a1b14;
+  border-color: rgb(var(--color-ink-rgb) / 82%);
+  color: var(--color-ink);
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -845,14 +871,14 @@ button:not(.cell):not(:disabled):active,
 /* Double, so focus never reads as a single-line hint ring. */
 .cell:focus-visible {
   z-index: 2;
-  outline: 6px double var(--focus-color, #2026d2);
+  outline: 6px double var(--focus-color, var(--color-focus));
   outline-offset: -6px;
 }
 
 .cell::after {
   position: absolute;
   inset: 0;
-  border: 0 solid #2a1b14;
+  border: 0 solid var(--color-ink);
   content: "";
   pointer-events: none;
 }
@@ -879,11 +905,11 @@ button:not(.cell):not(:disabled):active,
  * player's own × without colour and keeps the red readable on every Region
  * fill. */
 .fixed-error {
-  color: #d11f1f;
+  color: var(--color-danger);
 }
 
 .fixed-error .cell-mark-halo {
-  stroke: #fffdf8;
+  stroke: var(--color-surface);
   stroke-width: 7.2;
 }
 
@@ -898,7 +924,7 @@ button:not(.cell):not(:disabled):active,
    * --tako-halo for a cream edge; elsewhere the edge is transparent. */
   filter: drop-shadow(0 0 1px var(--tako-halo, transparent))
     drop-shadow(0 0 1px var(--tako-halo, transparent))
-    drop-shadow(0 2px 0 rgb(42 27 20 / 30%));
+    drop-shadow(0 2px 0 rgb(var(--color-ink-rgb) / 30%));
 }
 
 /* × is the most frequent action, so its feedback is a short fade only. */
@@ -926,7 +952,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .cell.is-feedback-piece-place::after {
-  border: 3px solid #a44a2a;
+  border: 3px solid var(--color-accent-text);
   border-radius: 8px;
   box-shadow: 0 0 0 2px var(--ring-band);
   animation: piece-confirm 180ms ease-out both;
@@ -941,13 +967,13 @@ button:not(.cell):not(:disabled):active,
 }
 
 .cell.is-holding::after {
-  border: 2px solid rgb(164 74 42 / 65%);
+  border: 2px solid rgb(var(--color-accent-text-rgb) / 65%);
 }
 
 .cell.is-holding::before {
   position: absolute;
   inset: 0;
-  border: 2px solid #a44a2a;
+  border: 2px solid var(--color-accent-text);
   border-radius: 8px;
   box-shadow: 0 0 0 2px var(--ring-band);
   content: "";
@@ -961,7 +987,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .cell.is-pressed::after {
-  border: 4px solid #a44a2a;
+  border: 4px solid var(--color-accent-text);
   border-radius: 8px;
   box-shadow: 0 0 0 2px var(--ring-band);
 }
@@ -971,20 +997,20 @@ button:not(.cell):not(:disabled):active,
  * focus ring by hue alone. */
 .is-hint-focus {
   box-shadow:
-    inset 0 0 0 5px #2563eb,
+    inset 0 0 0 5px var(--color-hint),
     inset 0 0 0 7px var(--ring-band);
 }
 
 .is-hint-exclude {
   box-shadow:
-    inset 0 0 0 5px #b91c1c,
+    inset 0 0 0 5px var(--color-danger),
     inset 0 0 0 7px var(--ring-band);
   background-image: var(--exclude-hatch);
 }
 
 .actions button {
-  background: #ffcf70;
-  color: #2a1b14;
+  background: var(--color-accent);
+  color: var(--color-ink);
   font-weight: 800;
 }
 
@@ -1012,16 +1038,16 @@ button:not(.cell):not(:disabled):active,
 .settings-toggle input {
   width: 1em;
   height: 1em;
-  accent-color: #ff8a5b;
+  accent-color: var(--color-accent-next);
 }
 
 .difficulty-select select {
   min-height: 44px;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 6px 10px 6px 38px;
-  background: #fffdf8;
-  color: #2a1b14;
+  background: var(--color-surface);
+  color: var(--color-ink);
   /* iOS Safari zooms into a focused control below 16px. */
   font-size: 16px;
   font-weight: 800;
@@ -1031,7 +1057,7 @@ button:not(.cell):not(:disabled):active,
 .seed-panel-body {
   display: grid;
   gap: 10px;
-  border-top: 2px solid rgb(42 27 20 / 18%);
+  border-top: 2px solid rgb(var(--color-ink-rgb) / 18%);
   padding: 12px 14px 14px;
 }
 
@@ -1041,17 +1067,17 @@ button:not(.cell):not(:disabled):active,
   margin-top: 4px;
   border-radius: 12px;
   padding: 8px;
-  background: #fff7ec;
+  background: var(--color-page);
   font-size: 13px;
 }
 
 .seed-panel-body button {
   justify-self: start;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 7px 12px;
-  background: #ffcf70;
-  color: #2a1b14;
+  background: var(--color-accent);
+  color: var(--color-ink);
   font-weight: 800;
 }
 
@@ -1063,11 +1089,11 @@ button:not(.cell):not(:disabled):active,
 
 .seed-panel-body input {
   width: 100%;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 12px;
   padding: 9px 10px;
   background: #fff;
-  color: #2a1b14;
+  color: var(--color-ink);
 }
 
 .seed-label {
@@ -1114,7 +1140,7 @@ button:not(.cell):not(:disabled):active,
 
 .seed-message {
   margin: 0;
-  color: #5f4636;
+  color: var(--color-ink-soft);
   font-size: 14px;
 }
 
@@ -1125,7 +1151,7 @@ button:not(.cell):not(:disabled):active,
   display: grid;
   place-items: center;
   padding: 18px 12px;
-  background: rgb(42 27 20 / 28%);
+  background: rgb(var(--color-ink-rgb) / 28%);
 }
 
 /* The hint is read against the board, so it sits below it instead. */
@@ -1140,7 +1166,7 @@ button:not(.cell):not(:disabled):active,
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(42 27 20 / 88%);
+  background: rgb(var(--color-ink-rgb) / 88%);
   backdrop-filter: blur(6px);
 }
 
@@ -1149,10 +1175,10 @@ button:not(.cell):not(:disabled):active,
   justify-items: center;
   gap: 22px;
   width: min(100%, 300px);
-  border: 3px solid #2a1b14;
+  border: 3px solid var(--color-ink);
   border-radius: 24px;
   padding: 30px 20px;
-  background: #fffdf8;
+  background: var(--color-surface);
 }
 
 .ready-card h2 {
@@ -1163,17 +1189,17 @@ button:not(.cell):not(:disabled):active,
 
 .ready-card button {
   min-width: 112px;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 10px 24px;
-  background: #fffdf8;
-  color: #2a1b14;
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-weight: 900;
 }
 
 /* OK is the one action READY exists for; only it is filled. */
 .ready-card button.ready-primary {
-  background: #ff8a5b;
+  background: var(--color-accent-next);
 }
 
 .dialog-card {
@@ -1182,10 +1208,10 @@ button:not(.cell):not(:disabled):active,
   overflow: auto;
   overscroll-behavior: contain;
   /* An even frame on every side, like the buttons; no drop under the card. */
-  border: 3px solid #2a1b14;
+  border: 3px solid var(--color-ink);
   border-radius: 20px;
   padding: 16px;
-  background: #fffdf8;
+  background: var(--color-surface);
 }
 
 .dialog-card,
@@ -1236,11 +1262,11 @@ button:not(.cell):not(:disabled):active,
 .account-card button:not(.dialog-close),
 .retry-button,
 .retry-status button {
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 7px 12px;
-  background: #ffcf70;
-  color: #2a1b14;
+  background: var(--color-accent);
+  color: var(--color-ink);
   font-weight: 800;
 }
 
@@ -1313,12 +1339,12 @@ button:not(.cell):not(:disabled):active,
   width: 12px;
   height: 18px;
   border-radius: 2px;
-  background: #ff8a5b;
+  background: var(--color-accent-next);
   animation: confetti-burst 1.6s var(--delay) ease-out both;
 }
 
 .clear-confetti span:nth-child(4n) {
-  background: #ffcf70;
+  background: var(--color-accent);
 }
 
 .clear-confetti span:nth-child(4n + 1) {
@@ -1352,10 +1378,10 @@ button:not(.cell):not(:disabled):active,
 .clear-badge {
   display: inline-block;
   margin: 0 0 8px;
-  border: 2px solid #116c35;
+  border: 2px solid var(--color-success);
   border-radius: 999px;
   padding: 4px 12px;
-  color: #116c35;
+  color: var(--color-success);
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -1421,7 +1447,7 @@ button:not(.cell):not(:disabled):active,
 
 .actions .next-puzzle-button,
 .clear-actions .next-puzzle-button {
-  background: #ff8a5b;
+  background: var(--color-accent-next);
 }
 
 .clear-ranking-preview {
@@ -1433,18 +1459,18 @@ button:not(.cell):not(:disabled):active,
 
 .inline-copy {
   flex: 0 0 auto;
-  border: 2px solid #2a1b14;
+  border: 2px solid var(--color-ink);
   border-radius: 999px;
   padding: 4px 10px;
-  background: #ffcf70;
-  color: #2a1b14;
+  background: var(--color-accent);
+  color: var(--color-ink);
   font-size: 13px;
   font-weight: 800;
 }
 
 .dialog-message {
   margin: 0 0 12px;
-  color: #5f4636;
+  color: var(--color-ink-soft);
   font-size: 14px;
 }
 
@@ -1489,7 +1515,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .confirm-actions button:not(.confirm-accept) {
-  background: #fffdf8;
+  background: var(--color-surface);
 }
 
 @keyframes long-press-progress {
@@ -1551,11 +1577,11 @@ button:not(.cell):not(:disabled):active,
 
 @keyframes mark-release {
   0% {
-    box-shadow: inset 0 0 0 5px rgb(255 138 91 / 55%);
+    box-shadow: inset 0 0 0 5px rgb(var(--color-accent-next-rgb) / 55%);
   }
 
   100% {
-    box-shadow: inset 0 0 0 0 rgb(255 138 91 / 0%);
+    box-shadow: inset 0 0 0 0 transparent;
   }
 }
 
@@ -1622,15 +1648,15 @@ button:not(.cell):not(:disabled):active,
   0%,
   100% {
     box-shadow:
-      inset 0 0 0 4px #2563eb,
+      inset 0 0 0 4px var(--color-hint),
       inset 0 0 0 6px var(--ring-band);
   }
 
   50% {
     box-shadow:
-      inset 0 0 0 6px #1d4ed8,
+      inset 0 0 0 6px var(--color-hint-strong),
       inset 0 0 0 8px var(--ring-band),
-      inset 0 0 20px 8px rgb(37 99 235 / 50%);
+      inset 0 0 20px 8px rgb(var(--color-hint-rgb) / 50%);
   }
 }
 
