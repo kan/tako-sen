@@ -2,11 +2,9 @@
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { Show, SignInButton } from "@clerk/vue";
 import { tutorialLesson } from "./tutorial-lesson";
-import {
-  cellCoord,
-  createInitialPlayerState,
-  getCellViewState,
-} from "../core/model";
+import { createInitialPlayerState } from "../core/model";
+import { cellLabel } from "./cell-label";
+import CellMark from "./CellMark.vue";
 import {
   addExcludedMarks,
   countHintUsed,
@@ -114,7 +112,7 @@ const title = computed(() => titles[phase.value]);
 const dragInstruction = `${lesson.dragReason.explanation[0]} 赤枠のマスには置けないので、指を滑らせて×を付けましょう。`;
 const hintButtonLabel = computed(() =>
   shownHint.value && shownHintStage.value < hintStageCount(shownHint.value)
-    ? "次のヒント"
+    ? "次のステップ"
     : "ヒントを見る",
 );
 
@@ -149,7 +147,8 @@ function cellStyle(index: number): Record<string, string> {
   return {
     backgroundColor: color.background,
     color: color.foreground ?? "#2a1b14",
-    "--error-color": color.foreground ? "#ff9b9b" : "#d11f1f",
+    // The dark Region would swallow the blue focus ring.
+    "--focus-color": color.foreground ?? "#2026d2",
     borderTopWidth: border.top ? "2px" : "1px",
     borderRightWidth: border.right ? "2px" : "1px",
     borderBottomWidth: border.bottom ? "2px" : "1px",
@@ -165,9 +164,13 @@ function emphasized(index: number): boolean {
   return false;
 }
 
-function cellLabel(index: number): string {
-  const { row, col } = cellCoord(index, puzzle.size);
-  return `${row + 1}行${col + 1}列、Region ${puzzle.regions[index] + 1}、${getCellViewState(state.value, index)}`;
+function lessonCellLabel(index: number): string {
+  return cellLabel(
+    puzzle,
+    state.value,
+    index,
+    emphasized(index) ? ["練習の対象"] : [],
+  );
 }
 
 function startLesson(): void {
@@ -263,7 +266,7 @@ function showHint(): void {
   const move = findLogicalMoves(puzzle, state.value)[0];
   if (!move) {
     message.value =
-      "今は対応済みの定石から次のヒントを見つけられませんでした。";
+      "今の盤面からは、説明できる次の一手を見つけられませんでした。";
     return;
   }
   const key = JSON.stringify(move);
@@ -471,7 +474,7 @@ function onKeydown(event: KeyboardEvent): void {
           8匹のタコを置けました！各行・列・エリアに1匹ずつ、タコ同士は隣接できません。
         </p>
         <p>
-          ログインしてゲーム名と公開ルールに同意すると、これからのクリアが同期され、初回スコアがランキングに載ります。
+          ログインしてゲーム名を設定し、公開ルールに同意すると、これからのクリアが同期され、初回スコアがランキングに載ります。
         </p>
         <div v-if="onlineEnabled" class="dialog-actions">
           <Show when="signed-out"
@@ -489,7 +492,7 @@ function onKeydown(event: KeyboardEvent): void {
       </template>
       <template v-else>
         <p v-if="phase === 'place'">
-          青く点滅する枠はタコが必ず入る1マスのエリアです。ここを長押しし、枠が太くなったら離してタコを置きましょう。
+          青い枠はタコが必ず入る1マスのエリアです。ここを長押しし、枠が太くなったら離してタコを置きましょう。
         </p>
         <p v-if="phase === 'place'">
           タコは各行・各列・各エリアに1匹ずつ置き、縦・横・斜めに隣り合えません。
@@ -520,7 +523,8 @@ function onKeydown(event: KeyboardEvent): void {
           v-if="phase === 'place' || phase === 'shortcut' || phase === 'drag'"
           class="tutorial-a11y-note"
         >
-          キーボードでは赤枠のマスを Enter または Space で操作できます。
+          キーボードでは{{ phase === "drag" ? "赤枠" : "青枠" }}のマスを Enter
+          または Space で操作できます。
         </p>
         <div class="board-wrap interactive-tutorial-board-wrap">
           <div
@@ -543,8 +547,10 @@ function onKeydown(event: KeyboardEvent): void {
               class="cell"
               :class="{
                 'tutorial-target': emphasized(index),
+                // Blue marks the cell to act on; red is kept for ×.
                 'tutorial-place-target':
-                  phase === 'place' && index === lesson.firstPiece,
+                  (phase === 'place' || phase === 'shortcut') &&
+                  index === lesson.firstPiece,
                 'is-holding': holdingCell === index,
                 'is-pressed': readyCell === index,
                 'is-hint-focus':
@@ -560,7 +566,7 @@ function onKeydown(event: KeyboardEvent): void {
               }"
               :style="cellStyle(index)"
               :data-tutorial-cell="index"
-              :aria-label="cellLabel(index)"
+              :aria-label="lessonCellLabel(index)"
               role="gridcell"
               @click="
                 (event) => {
@@ -580,14 +586,14 @@ function onKeydown(event: KeyboardEvent): void {
                 v-else-if="state.fixedErrors.has(index)"
                 class="fixed-error"
                 aria-hidden="true"
-                >×</span
-              >
+                ><CellMark error
+              /></span>
               <span
                 v-else-if="state.excluded.has(index)"
                 class="mark"
                 aria-hidden="true"
-                >×</span
-              >
+                ><CellMark
+              /></span>
             </button>
           </div>
         </div>

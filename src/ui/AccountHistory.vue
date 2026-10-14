@@ -21,6 +21,7 @@ import {
 import { SyncOutbox } from "../core/sync-outbox";
 import type { SyncedRanking } from "../core/leaderboard";
 import type { PlayResult } from "../core/results";
+import { askConfirm } from "./confirm-dialog";
 
 const props = defineProps<{
   plays: readonly PlayResult[];
@@ -270,9 +271,12 @@ async function deleteAccount(): Promise<void> {
   const accountId = userId.value;
   if (!accountId || busy.value) return;
   if (
-    !window.confirm(
-      "退会するとアカウント、ゲーム名、オンライン履歴、すべてのランキング記録を削除します。端末のローカル履歴は残ります。元に戻せません。退会しますか？",
-    )
+    !(await askConfirm({
+      title: "退会しますか？",
+      message:
+        "アカウント、ゲーム名、オンライン履歴、すべてのランキング記録を削除します。端末のローカル履歴は残ります。元に戻せません。",
+      confirmLabel: "退会する",
+    }))
   )
     return;
   busy.value = true;
@@ -348,7 +352,7 @@ onUnmounted(() => {
       <p v-if="!isLoaded || profileLoading">オンライン設定を確認しています。</p>
       <template v-else-if="isSignedIn">
         <form v-if="!profile" @submit.prevent="registerProfile">
-          <h2 v-if="!setupOnly">ゲームで使う名前を決める</h2>
+          <h2 v-if="!setupOnly">ゲーム名を決める</h2>
           <label
             >ゲーム名
             <input
@@ -374,7 +378,7 @@ onUnmounted(() => {
             type="submit"
             :disabled="busy || !consent || !validateGameName(gameName)"
           >
-            名前を設定して参加する
+            ゲーム名を設定して参加する
           </button>
         </form>
         <template v-else-if="!setupOnly">

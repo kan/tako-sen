@@ -419,8 +419,8 @@ onUnmounted(() => {
                     <button
                       type="button"
                       class="icon-button"
-                      aria-label="シードを共有（コピー）"
-                      title="シードを共有（コピー）"
+                      aria-label="シードをコピー"
+                      title="シードをコピー"
                       @click="copySeed(play.seedCode)"
                     >
                       <UiIcon name="share" />

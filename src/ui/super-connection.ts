@@ -9,13 +9,24 @@ export class SuperConnectionError extends Error {
         timeout:
           "通信がタイムアウトしました。接続を確認し、少し待って再試行します。",
         auth: "ログイン状態を確認してください。再ログイン後に超級の記録を同期します。",
-        profile: "ゲーム名とランキングの公開同意を確認してください。",
+        profile: "ゲーム名と公開ルールへの同意を確認してください。",
         server: "サーバーが一時的に応答できません。少し待って再試行します。",
         rate: "送信が混み合っています。少し待って再試行します。",
         invalid: "サーバーの応答を確認できません。再試行してください。",
       }[kind],
     );
   }
+}
+
+/** A failure whose message is written for the player. */
+export class SuperNotice extends Error {}
+
+/** The player-facing text of a failure; anything else (a developer error in
+ * English, a JSON parse failure) becomes `fallback`. */
+export function superNoticeText(error: unknown, fallback: string): string {
+  return error instanceof SuperNotice || error instanceof SuperConnectionError
+    ? error.message
+    : fallback;
 }
 
 /** Buffer the small JSON response before clearing the timeout: headers alone

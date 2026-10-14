@@ -38,14 +38,14 @@ function storage(): KeyValueStorage {
 const puzzle = generatePuzzle({ seed: "hint-progress-save" });
 
 describe("maximum hint disclosure", () => {
-  it("labels hint depth as a fraction, separately from usage count", () => {
+  it("labels the deepest hint step, separately from usage count", () => {
     expect(hintStageLabel({ hintsUsed: 0 })).toBe("未使用");
     for (const stage of [1, 2, 3, 4] as const) {
       expect(hintStageLabel({ hintsUsed: 2, maxHintStage: stage })).toBe(
-        `深さ${stage}/4`,
+        `ステップ${stage}まで`,
       );
     }
-    expect(hintStageLabel({ hintsUsed: 2 })).toBe("深さ不明");
+    expect(hintStageLabel({ hintsUsed: 2 })).toBe("ステップ不明");
   });
   it("records monotonically without counting further disclosure or reopening as a new hint", () => {
     const initial = createInitialPlayerState(0);
@@ -70,7 +70,7 @@ describe("maximum hint disclosure", () => {
       maxHintStage: null,
     };
     expect(recordHintStage(legacy, 3).maxHintStage).toBeNull();
-    expect(hintStageLabel(legacy)).toBe("深さ不明");
+    expect(hintStageLabel(legacy)).toBe("ステップ不明");
     for (const stage of [-1, 0, 1.5, 5, NaN])
       expect(() => recordHintStage(legacy, stage)).toThrow();
     expect(() => recordHintStage(createInitialPlayerState(0), 1)).toThrow();

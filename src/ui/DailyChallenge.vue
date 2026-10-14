@@ -141,7 +141,8 @@ async function begin(): Promise<void> {
       emit("start", puzzle, day.date, userId.value, day.playId!, saved);
       closePanel();
     } catch {
-      message.value = "保存された盤面を復元できません。";
+      message.value =
+        "この端末に保存された盤面を復元できません。挑戦を始めた端末で続けてください。";
     }
     return;
   }
@@ -152,8 +153,9 @@ async function begin(): Promise<void> {
     const playId = crypto.randomUUID();
     emit("start", puzzle, day.date, userId.value, playId);
     closePanel();
-  } catch (error) {
-    message.value = String(error);
+  } catch {
+    message.value =
+      "デイリーチャレンジの盤面を読み込めません。少し待ってから、もう一度「挑戦を始める」を押してください。";
   } finally {
     busy.value = false;
   }
@@ -205,7 +207,8 @@ async function showRanking(date: string): Promise<void> {
     const data: { entries: DailyLeaderboardEntry[] } = await response.json();
     entries.value = data.entries;
   } catch {
-    rankingMessage.value = "ランキングを取得できません。";
+    rankingMessage.value =
+      "ランキングを取得できません。通信状態を確認して、ランキングを開き直してください。";
   } finally {
     rankingLoading.value = false;
   }

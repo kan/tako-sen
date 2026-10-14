@@ -40,8 +40,16 @@ import PublicLeaderboard from "./PublicLeaderboard.vue";
 import {
   fetchSuperResponse,
   SuperConnectionError,
+  SuperNotice,
+  superNoticeText,
   superRetryDelay,
 } from "./super-connection";
+
+const SHARED_SEED_INVALID =
+  "超級のシードを復元できません。共有された文字列を省略せずに貼り付けてください。";
+// The recovery steps the player-facing failures end with.
+const RETRY_LATER = "少し待ってからもう一度お試しください。";
+const PRESS_CHALLENGE = "もう一度「挑戦する」を押してください。";
 
 const props = defineProps<{
   puzzle: Puzzle;
@@ -49,6 +57,8 @@ const props = defineProps<{
   complete: boolean;
   gameName: string;
   modalBlocked: boolean;
+  /** Also disables the entry while READY covers it, without delaying offers. */
+  entryBlocked?: boolean;
 }>();
 const emit = defineEmits<{
   start: [puzzle: Puzzle, saved: SavedSuperGame];
@@ -121,7 +131,7 @@ async function request(path: string, body?: unknown): Promise<Response> {
   const id = account.value;
   const generation = epoch;
   if (!id || !current(id, generation))
-    throw new Error("ログインとオンライン接続が必要です。");
+    throw new SuperNotice("ログインとオンライン接続が必要です。");
   try {
     let token: string | null;
     try {
@@ -140,7 +150,7 @@ async function request(path: string, body?: unknown): Promise<Response> {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!current(id, generation))
-      throw new Error("アカウントか接続状態が変わりました。");
+      throw new SuperNotice("アカウントか接続状態が変わりました。");
     return response;
   } catch (error) {
     if (current(id, generation) && error instanceof SuperConnectionError) {
@@ -153,13 +163,14 @@ async function request(path: string, body?: unknown): Promise<Response> {
 async function readBody(response: Response): Promise<Record<string, unknown>> {
   const value: unknown = await response.json();
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("応答を確認できません。");
+    throw new SuperNotice(`サーバーの応答を確認できません。${RETRY_LATER}`);
   return value as Record<string, unknown>;
 }
 function applyProgress(value: unknown, id: string): void {
   const parsed = parseSuperProgress(value);
   if (id !== account.value) return;
-  if (!parsed) throw new Error("超級の進行を確認できません。");
+  if (!parsed)
+    throw new SuperNotice(`超級の進行を確認できません。${RETRY_LATER}`);
   progress.value = outbox.isDeferred(id, parsed.cycle)
     ? { ...parsed, offerPending: false }
     : parsed;
@@ -359,7 +370,9 @@ function generateFreshSuper(): { seedCode: string; puzzle: Puzzle } {
       if (!(error instanceof SuperSeedError)) throw error;
     }
   }
-  throw new Error("超級の盤面を作れませんでした。もう一度お試しください。");
+  throw new SuperNotice(
+    "超級の盤面を作れませんでした。もう一度お試しください。",
+  );
 }
 /** The board a code names, or undefined when it names none. */
 async function rebuildSuper(
@@ -390,10 +403,10 @@ async function prepare(seedCode?: string): Promise<void> {
     await refresh();
     if (!preparing()) return;
     if (!progress.value)
-      throw new Error("接続とログイン状態を確認してください。");
+      throw new SuperNotice("接続とログイン状態を確認してください。");
     const entry = seedCode ? "shared" : "earned";
     if (entry === "earned" && !hasSuperRight(progress.value))
-      throw new Error("通常問題を10回クリアすると超級に挑戦できます。");
+      throw new SuperNotice("通常問題を10回クリアすると超級に挑戦できます。");
     const cycle = progress.value.cycle;
     let candidate: RankedPuzzleCandidate | undefined;
     if (!seedCode) {
@@ -413,7 +426,7 @@ async function prepare(seedCode?: string): Promise<void> {
     let board = seedCode ? await rebuildSuper(seedCode) : undefined;
     if (!preparing()) return;
     if (seedCode && !board && !candidate)
-      throw new Error("超級のシードを復元できません。");
+      throw new SuperNotice(SHARED_SEED_INVALID);
     // A candidate that cannot be rebuilt as recorded gives way to a new board.
     if (!board || (candidate && board.identity !== candidate.puzzleId)) {
       const fresh = generateFreshSuper();
@@ -431,7 +444,7 @@ async function prepare(seedCode?: string): Promise<void> {
       (await puzzleId(verified)) !== identity ||
       !isSuperPuzzleOf(verified, seedCode)
     )
-      throw new Error("超級の盤面を確認できません。");
+      throw new SuperNotice(`超級の盤面を確認できません。${PRESS_CHALLENGE}`);
     if (!preparing()) return;
     const session: SuperSession = {
       puzzleId: identity,
@@ -446,9 +459,10 @@ async function prepare(seedCode?: string): Promise<void> {
     if (
       !saveSuperGame(id, session, generated, state, playId, timer, localStorage)
     )
-      throw new Error("保存できないため超級を開始できません。");
+      throw new SuperNotice("保存できないため超級を開始できません。");
     const saved = loadSuperGame(id, localStorage);
-    if (!saved) throw new Error("保存した超級を確認できません。");
+    if (!saved)
+      throw new SuperNotice(`保存した超級を確認できません。${PRESS_CHALLENGE}`);
     active.value = { accountId: id, session };
     availableSave.value = true;
     excluded.add(identity);
@@ -458,15 +472,17 @@ async function prepare(seedCode?: string): Promise<void> {
     emit("start", generated, saved);
   } catch (error) {
     if (preparing())
-      message.value =
-        error instanceof Error ? error.message : "超級を開始できません。";
+      message.value = superNoticeText(
+        error,
+        `超級の盤面を準備できません。${PRESS_CHALLENGE}`,
+      );
   } finally {
     busy.value = false;
   }
 }
 function openShared(code: string): void {
   if (parseSuperSeed(code) === undefined) {
-    message.value = "超級のシードを復元できません。";
+    message.value = SHARED_SEED_INVALID;
     return;
   }
   sharedCode.value = code;
@@ -495,12 +511,18 @@ async function resumeSaved(): Promise<void> {
       !saved ||
       (await puzzleId(saved.game.puzzle)) !== saved.session.puzzleId
     )
-      throw new Error("この端末の超級を復元できません。");
+      throw new SuperNotice(
+        "この端末の超級を復元できません。超級を始めた端末で再開してください。",
+      );
     if (!current(id, generation)) return;
     active.value = { accountId: id, session: saved.session };
     emit("start", saved.game.puzzle, saved);
   } catch (error) {
-    if (current(id, generation)) message.value = String(error);
+    if (current(id, generation))
+      message.value = superNoticeText(
+        error,
+        `超級を再開できません。${RETRY_LATER}`,
+      );
   } finally {
     busy.value = false;
   }
@@ -552,7 +574,13 @@ async function claimReady(
     void refresh();
     return true;
   } catch (error) {
-    message.value = String(error);
+    // A failure from the account that started the request is not news for
+    // whoever is signed in now.
+    if (meta.accountId === account.value)
+      message.value = superNoticeText(
+        error,
+        `超級を開始できません。${RETRY_LATER}`,
+      );
     return false;
   } finally {
     busy.value = false;
@@ -755,7 +783,7 @@ defineExpose({
 </script>
 
 <template>
-  <section class="super-entry" :inert="modalBlocked">
+  <section class="super-entry" :inert="modalBlocked || entryBlocked">
     <button
       v-if="!isSignedIn"
       type="button"
@@ -770,8 +798,8 @@ defineExpose({
       v-else-if="!gameName"
       type="button"
       class="icon-button super-challenge-button"
-      aria-label="超級 · 名前と公開ルールを設定"
-      title="超級 · 名前と公開ルールを設定"
+      aria-label="超級 · ゲーム名を設定して参加"
+      title="超級 · ゲーム名を設定して参加"
       @click="showOffer"
     >
       <UiIcon name="super" />
@@ -866,7 +894,7 @@ defineExpose({
       <template v-if="!sharedCode && !right">
         <p>初級・中級・上級より難しい、10×10のパズルに挑戦できます。</p>
         <p>
-          ログインしてゲーム名とランキングの公開同意を設定した後、通常問題を合計10回クリアすると、1回分の挑戦権を獲得できます。
+          ログインしてゲーム名を設定し、公開ルールに同意した後、通常問題を合計10回クリアすると、1回分の挑戦権を獲得できます。
         </p>
         <p>
           デイリー・超級・練習は加算しません。挑戦権は1回分だけ保留でき、保留中のクリアは次の分へ繰り越しません。
@@ -874,7 +902,9 @@ defineExpose({
         <p v-if="!isSignedIn">
           まずログインしてください。未ログイン中のクリアは加算されません。
         </p>
-        <p v-else-if="!gameName">ゲーム名と公開同意の設定が必要です。</p>
+        <p v-else-if="!gameName">
+          ゲーム名の設定と公開ルールへの同意が必要です。
+        </p>
         <p v-else-if="progress">
           現在 {{ progress.count }} / 10回クリア。あと{{
             remainingSuperPlays(progress)
@@ -912,7 +942,7 @@ defineExpose({
             emit('account');
           "
         >
-          名前と公開同意を設定
+          ゲーム名を設定する
         </button>
         <button
           v-else-if="sharedCode || right"

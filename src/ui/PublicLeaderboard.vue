@@ -65,7 +65,7 @@ async function refresh(): Promise<void> {
   } catch {
     if (current === generation)
       message.value =
-        "ランキングを取得できません。ローカルプレイは続けられます。";
+        "ランキングを取得できません。通信状態を確認して、ランキングを開き直してください。";
   } finally {
     if (current === generation) {
       busy.value = false;

@@ -54,8 +54,8 @@ export function findLogicalMoves(
         excludeCells: [],
         explanation: [
           "現在の×や確定済みの内容を前提にすると、完成できる配置が存在しません。",
-          "どこかの×が、本来タコを置く必要があるセルを塞いでいる可能性があります。",
-          "まず最近付けた×や、候補が極端に少ない行・列・Regionを見直してください。",
+          "どこかの×が、本来タコを置く必要があるマスを塞いでいる可能性があります。",
+          "まず最近付けた×や、候補が極端に少ない行・列・エリアを見直してください。",
         ],
       },
     ];
@@ -110,8 +110,8 @@ function findSingleCandidates(
         excludeCells: [],
         placeCell: candidates[0],
         explanation: [
-          "この行でタコを置ける未確定セルが1つだけ残っています。",
-          "そのセルにタコを確定できます。",
+          "この行でタコを置ける未確定マスが1つだけ残っています。",
+          "そのマスにタコを確定できます。",
         ],
       });
     }
@@ -129,8 +129,8 @@ function findSingleCandidates(
         excludeCells: [],
         placeCell: candidates[0],
         explanation: [
-          "この列でタコを置ける未確定セルが1つだけ残っています。",
-          "そのセルにタコを確定できます。",
+          "この列でタコを置ける未確定マスが1つだけ残っています。",
+          "そのマスにタコを確定できます。",
         ],
       });
     }
@@ -144,14 +144,14 @@ function findSingleCandidates(
     if (candidates.length === 1 && !state.pieces.has(candidates[0])) {
       moves.push({
         technique: "single-candidate",
-        title: "Regionの残り候補が1つです",
+        title: "エリアの残り候補が1つです",
         regionId,
         focusCells: candidates,
         excludeCells: [],
         placeCell: candidates[0],
         explanation: [
-          "このRegionでタコを置ける未確定セルが1つだけ残っています。",
-          "そのセルにタコを確定できます。",
+          "このエリアでタコを置ける未確定マスが1つだけ残っています。",
+          "そのマスにタコを確定できます。",
         ],
       });
     }
@@ -184,15 +184,15 @@ function findLineRegionMoves(
 
     moves.push({
       technique: "line-region",
-      title: "Line-Region消去",
+      title: "ライン・エリア消去",
       regionId,
       row,
       focusCells: candidates,
       excludeCells,
       explanation: [
-        "この行の残り候補は、同じRegion内に限定されています。",
-        "この行のタコはそのRegion内に必ず存在します。",
-        "同じRegionにある他の行のセルは×にできます。",
+        "この行の残り候補は、同じエリア内に限定されています。",
+        "この行のタコはそのエリア内に必ず存在します。",
+        "同じエリアにある他の行のマスは×にできます。",
       ],
     });
   }
@@ -215,15 +215,15 @@ function findLineRegionMoves(
 
     moves.push({
       technique: "line-region",
-      title: "Line-Region消去",
+      title: "ライン・エリア消去",
       regionId,
       col,
       focusCells: candidates,
       excludeCells,
       explanation: [
-        "この列の残り候補は、同じRegion内に限定されています。",
-        "この列のタコはそのRegion内に必ず存在します。",
-        "同じRegionにある他の列のセルは×にできます。",
+        "この列の残り候補は、同じエリア内に限定されています。",
+        "この列のタコはそのエリア内に必ず存在します。",
+        "同じエリアにある他の列のマスは×にできます。",
       ],
     });
   }
@@ -265,16 +265,16 @@ function findRegionDepletionMoves(
 
       moves.push({
         technique: "region-depletion",
-        title: "置くと別Regionの候補がなくなります",
+        title: "置くと別エリアの候補がなくなります",
         regionId: assumedRegionId,
         affectedRegionId,
         focusCells: [assumedCell, ...affectedCandidates],
         excludeCells: [assumedCell],
         explanation: [
-          "注目セルにタコを置くと仮定します。",
-          "すると、関連するRegionでタコを置ける候補がすべて消えてしまいます。",
-          "各Regionには必ず1つタコが必要なので、この仮定は成り立ちません。",
-          "したがって、注目セルは×にできます。",
+          "注目マスにタコを置くと仮定します。",
+          "すると、関連するエリアでタコを置ける候補がすべて消えてしまいます。",
+          "各エリアには必ず1つタコが必要なので、この仮定は成り立ちません。",
+          "したがって、注目マスは×にできます。",
         ],
       });
       break;
@@ -303,16 +303,16 @@ function findRegionLineMoves(
     );
     moves.push({
       technique: "region-line",
-      title: "Region-Line消去",
+      title: "エリア・ライン消去",
       regionId,
       row: rows.size === 1 ? [...rows][0] : undefined,
       col: columns.size === 1 ? [...columns][0] : undefined,
       focusCells: candidates,
       excludeCells: exclusions,
       explanation: [
-        "このRegionの残り候補は同じ行または列に限定されています。",
-        "このRegionのタコはそのライン上に必ず存在します。",
-        "同じラインにある他Regionのセルは×にできます。",
+        "このエリアの残り候補は同じ行または列に限定されています。",
+        "このエリアのタコはそのライン上に必ず存在します。",
+        "同じラインにある他エリアのマスは×にできます。",
       ],
     });
   }
@@ -338,8 +338,8 @@ function findMissingExclusionMoves(
       excludeCells,
       explanation: [
         "確定済みのタコに注目してください。",
-        "同じ行・列・Regionと周囲1マスには、もうタコを置けません。",
-        "まずそれらの未整理セルを×にして、盤面を整理できます。",
+        "同じ行・列・エリアと周囲1マスには、もうタコを置けません。",
+        "まずそれらの未整理マスを×にして、盤面を整理できます。",
       ],
     });
   }
@@ -385,15 +385,15 @@ function findMultiRegionLineMoves(
           seen.add(key);
           moves.push({
             technique: "multi-region-line",
-            title: "複数RegionのRegion-Line消去",
+            title: "複数エリアのエリア・ライン消去",
             regionIds,
             rows,
             focusCells,
             excludeCells,
             explanation: [
-              `${size}つのRegionの候補が、同じ${size}本の行だけに閉じ込められています。`,
-              `この${size}本の行には、それらのRegionのタコが必ず${size}匹入ります。`,
-              "そのため、同じ行にある他Regionのセルは×にできます。",
+              `${size}つのエリアの候補が、同じ${size}本の行だけに閉じ込められています。`,
+              `この${size}本の行には、それらのエリアのタコが必ず${size}匹入ります。`,
+              "そのため、同じ行にある他エリアのマスは×にできます。",
             ],
           });
         }
@@ -415,15 +415,15 @@ function findMultiRegionLineMoves(
           seen.add(key);
           moves.push({
             technique: "multi-region-line",
-            title: "複数RegionのRegion-Line消去",
+            title: "複数エリアのエリア・ライン消去",
             regionIds,
             cols,
             focusCells,
             excludeCells,
             explanation: [
-              `${size}つのRegionの候補が、同じ${size}本の列だけに閉じ込められています。`,
-              `この${size}本の列には、それらのRegionのタコが必ず${size}匹入ります。`,
-              "そのため、同じ列にある他Regionのセルは×にできます。",
+              `${size}つのエリアの候補が、同じ${size}本の列だけに閉じ込められています。`,
+              `この${size}本の列には、それらのエリアのタコが必ず${size}匹入ります。`,
+              "そのため、同じ列にある他エリアのマスは×にできます。",
             ],
           });
         }

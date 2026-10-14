@@ -24,8 +24,8 @@ export function validHintProgress(stage: unknown, hintsUsed: number): boolean {
 export function hintStageLabel(progress: HintProgress): string {
   const stage = maximumHintStage(progress);
   return stage === null
-    ? "深さ不明"
+    ? "ステップ不明"
     : stage === 0
       ? "未使用"
-      : `深さ${stage}/4`;
+      : `ステップ${stage}まで`;
 }

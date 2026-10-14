@@ -206,7 +206,6 @@ beforeEach(() => {
   vi.stubGlobal("window", {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
-    confirm: () => true,
     setInterval,
     clearInterval,
     setTimeout,
@@ -481,7 +480,7 @@ describe("board pointer input", () => {
       find(clearDialog, (n) => n.props.class === "result-list")?.children,
     ).toHaveLength(5);
     expect(
-      find(clearDialog, (n) => n.props["aria-label"] === "シードをシェア")
+      find(clearDialog, (n) => n.props["aria-label"] === "シードをコピー")
         ?.props.class,
     ).toContain("icon-button");
     expect(
@@ -493,7 +492,7 @@ describe("board pointer input", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
     await (
-      find(clearDialog, (n) => n.props["aria-label"] === "シードをシェア")!
+      find(clearDialog, (n) => n.props["aria-label"] === "シードをコピー")!
         .props.onClick as () => Promise<void>
     )();
     expect(writeText).toHaveBeenCalledWith(encodePuzzleSeed(saved().puzzle));
@@ -644,7 +643,7 @@ describe("board pointer input", () => {
     expect(options).toBeDefined();
     expect(find(actions, (n) => n.tag === "select")).toBeUndefined();
     expect(
-      find(actions, (n) => n.props["aria-label"] === "新しい問題")?.props.class,
+      find(actions, (n) => n.props["aria-label"] === "次の問題へ")?.props.class,
     ).toContain("next-puzzle-button");
     expect(find(options, (n) => n.tag === "select")).toBeDefined();
     const difficultyControl = find(
@@ -675,14 +674,14 @@ describe("board pointer input", () => {
     (select.props["onUpdate:modelValue"] as (value: string) => void)("random");
     const random = vi.spyOn(Math, "random").mockReturnValue(0);
     await (
-      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+      find(container, (n) => n.props["aria-label"] === "次の問題へ")!.props
         .onClick as () => Promise<void>
     )();
     await nextTick();
     expect(saved().puzzle.difficulty).toBe("easy");
     random.mockReturnValue(0.5);
     await (
-      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+      find(container, (n) => n.props["aria-label"] === "次の問題へ")!.props
         .onClick as () => Promise<void>
     )();
     await nextTick();
@@ -696,7 +695,7 @@ describe("board pointer input", () => {
     expect(saved().puzzle.difficulty).toBe("normal");
     random.mockReturnValue(0);
     await (
-      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+      find(container, (n) => n.props["aria-label"] === "次の問題へ")!.props
         .onClick as () => Promise<void>
     )();
     await nextTick();
@@ -721,7 +720,7 @@ describe("board pointer input", () => {
     await nextTick();
     expect(saved().puzzle).toEqual(before.puzzle);
     await (
-      find(container, (n) => n.props["aria-label"] === "新しい問題")!.props
+      find(container, (n) => n.props["aria-label"] === "次の問題へ")!.props
         .onClick as () => Promise<void>
     )();
     await nextTick();
@@ -758,7 +757,7 @@ describe("board pointer input", () => {
       draggable: "false",
       class: "tako",
     });
-    expect(cell(index).props["aria-label"]).toContain("piece");
+    expect(cell(index).props["aria-label"]).toContain("タコ");
     expect(cell(index).props.class).toContain("is-feedback-piece-place");
     expect(cell(index).props.class).not.toContain("is-holding");
     expect(cell(index).props.class).not.toContain("is-pressed");
@@ -1319,9 +1318,9 @@ describe("play screen navigation", () => {
     await click("OK");
     await click("ヒント");
     expect(game().state.maxHintStage).toBe(1);
-    await click("次のヒント");
+    await click("次のステップ");
     expect(game().state.maxHintStage).toBe(2);
-    await click("次のヒント");
+    await click("次のステップ");
     expect(game().state.maxHintStage).toBe(3);
     const closeButton = find(
       container,
@@ -1354,9 +1353,9 @@ describe("play screen navigation", () => {
     (cell.props.onClick as () => void)();
     await nextTick();
     await click("ヒント");
-    await click("次のヒント");
-    await click("次のヒント");
-    await click("次のヒント");
+    await click("次のステップ");
+    await click("次のステップ");
+    await click("次のステップ");
     expect(game().state.maxHintStage).toBe(4);
     await click("ヒントを閉じる");
     const completeSave = game();
@@ -1789,8 +1788,8 @@ describe("interactive tutorial", () => {
     expect(title()).toBe("ヒントを試そう");
     await click("ヒントを見る");
     expect(title()).toBe("ここからは自由に解こう");
-    await click("次のヒント");
-    await click("次のヒント");
+    await click("次のステップ");
+    await click("次のステップ");
     expect(
       find(
         container,
@@ -2075,7 +2074,7 @@ describe("history and results dialog", () => {
     Object.assign(navigator, { clipboard: { writeText } });
     const share = find(
       seed,
-      (n) => n.props["aria-label"] === "シードを共有（コピー）",
+      (n) => n.props["aria-label"] === "シードをコピー",
     )!;
     expect(share.props.class).toBe("icon-button");
     await (share.props.onClick as () => Promise<void>)();
@@ -2149,7 +2148,7 @@ describe("history and results dialog", () => {
       find(recent, (n) => n.props["aria-label"] === "再挑戦"),
     ).toBeUndefined();
     expect(
-      find(recent, (n) => n.props["aria-label"] === "シードを共有（コピー）"),
+      find(recent, (n) => n.props["aria-label"] === "シードをコピー"),
     ).toBeUndefined();
     s.account.value = undefined;
     await nextTick();
@@ -2497,8 +2496,7 @@ describe("super challenge flow", () => {
         (
           find(
             container,
-            (n) =>
-              n.tag === "button" && n.text.trim() === "名前と公開同意を設定",
+            (n) => n.tag === "button" && n.text.trim() === "ゲーム名を設定する",
           )!.props.onClick as () => void
         )();
         await nextTick();
@@ -2929,7 +2927,7 @@ describe("public leaderboard dialog", () => {
     const actions = find(container, (n) => n.props.class === "actions")!;
     const labels = actions.children.map((child) => child.props["aria-label"]);
     expect(labels.indexOf("この問題のランキング")).toBe(
-      labels.indexOf("新しい問題") + 1,
+      labels.indexOf("次の問題へ") + 1,
     );
     const click = async (label: string) => {
       const button = find(
@@ -2954,6 +2952,84 @@ describe("public leaderboard dialog", () => {
     expect(
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeUndefined();
+  });
+
+  it("asks in the game's own dialog before a reset discards marks", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
+    teleportBody = root();
+    const body = teleportBody;
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const press = async (scope: HostNode, label: string) => {
+      const button = find(
+        scope,
+        (n) =>
+          n.tag === "button" &&
+          (n.text.trim() === label || n.props["aria-label"] === label),
+      )!;
+      expect(button).toBeDefined();
+      (button.props.onClick as () => void)();
+      await nextTick();
+      await nextTick();
+    };
+    const excluded = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!).state
+        .excluded as number[];
+    await press(container, "OK");
+    // Keyboard activation (no event) toggles a ×.
+    (
+      find(container, (n) => n.props["data-cell-index"] === 0)!.props
+        .onClick as () => void
+    )();
+    await nextTick();
+    expect(excluded()).toEqual([0]);
+
+    await press(container, "リセット");
+    const dialog = () => find(body, (n) => n.props.role === "alertdialog");
+    expect(find(dialog()!, (n) => n.tag === "h2")!.text).toBe(
+      "盤面をリセットしますか？",
+    );
+    await press(body, "キャンセル");
+    expect(dialog()).toBeUndefined();
+    expect(excluded()).toEqual([0]);
+
+    await press(container, "リセット");
+    await press(body, "リセットする");
+    expect(dialog()).toBeUndefined();
+    expect(excluded()).toEqual([]);
+
+    // An empty board resets without asking.
+    await press(container, "リセット");
+    expect(dialog()).toBeUndefined();
+  });
+
+  it("tells under the board that a shared link is broken until the first mark", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
+    window.location.href = "https://example.test/?p=p1:bad";
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const footerMessage = () =>
+      find(container, (n) => n.props.class === "play-footer-message")?.text;
+    expect(footerMessage()).toContain("共有リンクが正しくありません。");
+    (
+      find(container, (n) => n.tag === "button" && n.text.trim() === "OK")!
+        .props.onClick as () => void
+    )();
+    await nextTick();
+    (
+      find(container, (n) => n.props["data-cell-index"] === 0)!.props
+        .onClick as () => void
+    )();
+    await nextTick();
+    expect(footerMessage()).toBeUndefined();
   });
 
   it("leaves the per-board ranking out of the menu", async () => {

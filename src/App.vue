@@ -6,6 +6,8 @@ import {
   onMounted,
   onUnmounted,
   ref,
+  shallowRef,
+  toRaw,
   watch,
 } from "vue";
 import { Show, SignInButton, SignUpButton, useAuth } from "@clerk/vue";
@@ -15,6 +17,9 @@ import DailyChallenge from "./ui/DailyChallenge.vue";
 import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
+import ConfirmDialog from "./ui/ConfirmDialog.vue";
+import CellMark from "./ui/CellMark.vue";
+import { askConfirm, type ConfirmRequest } from "./ui/confirm-dialog";
 import { isDailyVersion } from "./core/daily-puzzle";
 import { isSuperVersion, parseSuperSeed } from "./core/super-puzzle";
 import type { SavedSuperGame } from "./core/super-storage";
@@ -25,8 +30,8 @@ import { rankingPreview } from "./ui/ranking-preview";
 import type { LeaderboardEntry, SyncedRanking } from "./core/leaderboard";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { trapDialogFocus } from "./ui/dialog";
+import { cellLabel } from "./ui/cell-label";
 import {
-  cellCoord,
   createInitialPlayerState,
   getCellViewState,
   type PlayerState,
@@ -148,6 +153,14 @@ const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");
+// Shown only over the board it was written for, so replacing the board in any
+// way hides it; the first mark on that board clears it.
+const sharedLinkNotice = shallowRef<{ text: string; puzzle: Puzzle }>();
+const sharedLinkMessage = computed(() =>
+  sharedLinkNotice.value?.puzzle === toRaw(puzzle.value)
+    ? sharedLinkNotice.value.text
+    : "",
+);
 const offeredPuzzleIds = new Set<string>();
 let nextPuzzleRequest = 0;
 const onlineGameName = ref("");
@@ -404,7 +417,8 @@ watch(
       showClearRanking(data.entries, special);
     } catch {
       if (generation === clearRankingGeneration)
-        clearRankingMessage.value = "ランキングを取得できません。";
+        clearRankingMessage.value =
+          "ランキングを取得できません。タップして開き直してください。";
     }
   },
 );
@@ -442,6 +456,8 @@ onMounted(() => {
   }, 1000);
   window.addEventListener("pagehide", suspendGame);
   window.addEventListener("blur", suspendGame);
+  window.addEventListener("resize", measureHintRoom);
+  window.addEventListener("scroll", measureHintRoom, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
   hapticsEnabled.value = loadHapticsEnabled();
   autoExclusionsEnabled.value = loadAutoExclusionsEnabled(localStorage);
@@ -502,10 +518,37 @@ onUnmounted(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer);
   window.removeEventListener("pagehide", suspendGame);
   window.removeEventListener("blur", suspendGame);
+  window.removeEventListener("resize", measureHintRoom);
+  window.removeEventListener("scroll", measureHintRoom);
   document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
 watch([puzzle, state, timer], saveCurrentGame, { deep: true });
+
+// The hint sheet stays below the board so the cells it points at stay in view;
+// on a screen too short for that it keeps a usable minimum and overlaps.
+const HINT_MIN_HEIGHT_PX = 180;
+const hintRoom = ref<number>();
+async function measureHintRoom(): Promise<void> {
+  if (activeDialog.value !== "hint") return;
+  await nextTick();
+  const board = boardElement.value;
+  const backdrop = hintDialogRef.value?.parentElement;
+  if (!board || !backdrop) return;
+  const padding = parseFloat(getComputedStyle(backdrop).paddingBottom) || 0;
+  const room =
+    window.innerHeight - board.getBoundingClientRect().bottom - padding;
+  hintRoom.value = Math.max(HINT_MIN_HEIGHT_PX, Math.floor(room));
+}
+watch(activeDialog, () => measureHintRoom());
+// Watches the transition to a marked board, so a failure shown over a board
+// that already had marks stays until the next board.
+watch(
+  () => hasPlayerMarks(puzzle.value, state.value),
+  (marked) => {
+    if (marked) sharedLinkNotice.value = undefined;
+  },
+);
 watch(activeDialog, async (dialog, previous) => {
   if (dialog && !previous) {
     focusBeforeDialog =
@@ -932,6 +975,15 @@ async function newGame(): Promise<void> {
     showClearDialog.value = false;
     return;
   }
+  if (
+    !isSpecial.value &&
+    !(await confirmDiscardProgress({
+      title: "次の問題へ進みますか？",
+      message: "この盤面の途中のタコと×は消えます。",
+      confirmLabel: "次の問題へ",
+    }))
+  )
+    return;
   const request = ++nextPuzzleRequest;
   nextPuzzleLoading.value = true;
   nextPuzzleMessage.value = "";
@@ -952,7 +1004,7 @@ async function newGame(): Promise<void> {
     // ダイアログの両方にあるので、どちらにも表示する。
     nextPuzzleLoading.value = false;
     nextPuzzleMessage.value =
-      "新しい問題を作れませんでした。もう一度お試しください。";
+      "次の問題を作れませんでした。もう一度お試しください。";
     if (showClearDialog.value)
       clearDialogMessage.value = nextPuzzleMessage.value;
     return;
@@ -977,7 +1029,7 @@ async function newGame(): Promise<void> {
   restoreSeedCode.value = "";
   seedMessage.value = recommendedId
     ? "他のプレイヤーの記録がある問題を選びました。"
-    : "新しい問題を生成しました。";
+    : "次の問題を生成しました。";
   beginPlay();
   void navigateTo("play");
   centerBoardAfterPuzzleChange();
@@ -1302,7 +1354,8 @@ function restoreSeed(code: string): boolean {
     });
   } catch {
     // 生成器は決まった試行回数で打ち切るので、盤面にならないシードがあり得る。
-    seedMessage.value = "このシードからは問題を作れません。";
+    seedMessage.value =
+      "このシードからは問題を作れません。別のシードを入力するか、次の問題へ進んでください。";
     return false;
   }
   cancelPendingNextPuzzle();
@@ -1328,13 +1381,15 @@ async function openSharedPuzzleFromUrl(
 ): Promise<void> {
   const superCode = new URL(window.location.href).searchParams.get("s");
   if (superCode) {
-    restoreSeed(superCode);
+    if (!restoreSeed(superCode)) showSharedLinkMessage(seedMessage.value);
     return;
   }
   const id = new URL(window.location.href).searchParams.get("p");
   if (!id) return;
   if (!/^p1:[0-9a-f]{64}$/.test(id)) {
-    seedMessage.value = "共有リンクの問題 ID が不正です。";
+    showSharedLinkMessage(
+      "共有リンクが正しくありません。リンクを送ってくれた人に、もう一度送ってもらってください。",
+    );
     return;
   }
   try {
@@ -1350,12 +1405,14 @@ async function openSharedPuzzleFromUrl(
       throw new Error(`取得に失敗しました (${response.status})。`);
     const data: { puzzle: unknown } = await response.json();
     const shared = await restoreSharedPuzzleSnapshot(data.puzzle);
+    // Judge by the live board: the player may have marked it while the
+    // shared puzzle was loading.
     if (
-      saved &&
-      hasPlayerMarks(saved.puzzle, saved.state) &&
-      !window.confirm(
-        "共有された問題を開くと、この端末で進行中の盤面を置き換えます。開きますか？",
-      )
+      !(await confirmDiscardProgress({
+        title: "共有された問題を開きますか？",
+        message: "この端末で進行中の盤面を置き換えます。",
+        confirmLabel: "開く",
+      }))
     )
       return;
     cancelPendingNextPuzzle();
@@ -1368,13 +1425,21 @@ async function openSharedPuzzleFromUrl(
     showClearDialog.value = false;
     clearElapsedSeconds.value = undefined;
     clearDialogMessage.value = "";
-    seedMessage.value = "共有された問題を開きました。";
+    showSharedLinkMessage("共有された問題を開きました。");
     beginPlay();
     centerBoardAfterPuzzleChange();
   } catch {
-    seedMessage.value =
-      "共有された問題を開けませんでした。ローカルプレイは続けられます。";
+    showSharedLinkMessage(
+      "共有された問題を開けませんでした。通信状態を確認して、リンクをもう一度開いてください。",
+    );
   }
+}
+
+/** A shared link opens before any dialog, so its outcome also goes under the
+ * board, where the seed dialog's own message would never be seen. */
+function showSharedLinkMessage(message: string): void {
+  seedMessage.value = message;
+  sharedLinkNotice.value = { text: message, puzzle: toRaw(puzzle.value) };
 }
 
 function clearSharedPuzzleUrl(): void {
@@ -1385,8 +1450,27 @@ function clearSharedPuzzleUrl(): void {
   window.history.replaceState(null, "", url);
 }
 
-function resetProgress(): void {
+/** Ask before discarding marks on an unfinished board; true when nothing to lose. */
+async function confirmDiscardProgress(
+  request: ConfirmRequest,
+): Promise<boolean> {
+  return (
+    complete.value ||
+    !hasPlayerMarks(puzzle.value, state.value) ||
+    askConfirm(request)
+  );
+}
+
+async function resetProgress(): Promise<void> {
   if (isSpecial.value) return;
+  if (
+    !(await confirmDiscardProgress({
+      title: "盤面をリセットしますか？",
+      message: "置いたタコと×をすべて消します。元に戻せません。",
+      confirmLabel: "リセットする",
+    }))
+  )
+    return;
   cancelPendingNextPuzzle();
   state.value = resetPlayerProgress(
     state.value,
@@ -1402,10 +1486,33 @@ function resetProgress(): void {
   beginPlay();
 }
 
-function cellLabel(index: number): string {
-  const { row, col } = cellCoord(index, puzzle.value.size);
-  const viewState = getCellViewState(state.value, index);
-  return `${row + 1}行${col + 1}列、Region ${puzzle.value.regions[index] + 1}、${viewState}`;
+const hintFocusIndexes = computed(
+  () =>
+    new Set(
+      hint.value?.kind === "move"
+        ? hintFocusCells(
+            puzzle.value,
+            hint.value.move,
+            hintStage.value,
+            contradictionCells.value,
+          )
+        : [],
+    ),
+);
+const hintExcludeIndexes = computed(
+  () =>
+    new Set(
+      hint.value?.kind === "move"
+        ? hintExcludeCells(hint.value.move, hintStage.value)
+        : [],
+    ),
+);
+
+function boardCellLabel(index: number): string {
+  return cellLabel(puzzle.value, state.value, index, [
+    ...(hintFocusIndexes.value.has(index) ? ["ヒント注目"] : []),
+    ...(hintExcludeIndexes.value.has(index) ? ["×候補"] : []),
+  ]);
 }
 
 function onTap(index: number): void {
@@ -1645,9 +1752,9 @@ function showHint(): void {
     kind: "unavailable",
     title: "今出せるヒントがありません",
     explanation: [
-      "現在のプロトタイプが対応している定石では、説明できる次の一手を見つけられませんでした。",
+      "今の盤面からは、説明できる次の一手を見つけられませんでした。",
       "ヒント回数は増やしていません。",
-      "×の付け忘れや、タコからの一括消去・Region-Line消去を見直してください。",
+      "×の付け忘れがないか、置いたタコをダブルタップして×を付けたかを見直してください。",
     ],
   };
   hintDialogOpen.value = true;
@@ -1814,7 +1921,7 @@ async function copyResultSeed(): Promise<void> {
     clearDialogMessage.value = "シードをコピーしました。";
   } catch {
     clearDialogMessage.value =
-      "コピーできませんでした。シードを手動で選択してください。";
+      "コピーできませんでした。メニューの「シード・共有」からコピーしてください。";
   }
 }
 
@@ -1842,17 +1949,8 @@ function cellClasses(index: number): Record<string, boolean> {
     "is-fixed-error": viewState === "fixed-error",
     "is-pressed": pressedCell.value === index,
     "is-holding": holdingCell.value === index,
-    "is-hint-focus":
-      hint.value?.kind === "move" &&
-      hintFocusCells(
-        puzzle.value,
-        hint.value.move,
-        hintStage.value,
-        contradictionCells.value,
-      ).includes(index),
-    "is-hint-exclude":
-      hint.value?.kind === "move" &&
-      hintExcludeCells(hint.value.move, hintStage.value).includes(index),
+    "is-hint-focus": hintFocusIndexes.value.has(index),
+    "is-hint-exclude": hintExcludeIndexes.value.has(index),
     "is-feedback-excluded-add":
       cellFeedbacks.value[index]?.kind === "excluded-add",
     "is-feedback-excluded-remove":
@@ -1876,7 +1974,8 @@ function cellStyles(index: number): Record<string, string> {
   return {
     backgroundColor: color.background,
     color: color.foreground ?? "#2a1b14",
-    "--error-color": color.foreground ? "#ff9b9b" : "#d11f1f",
+    // The dark Region would swallow the blue focus ring.
+    "--focus-color": color.foreground ?? "#2026d2",
     borderTopWidth: borders.top ? "2px" : "1px",
     borderRightWidth: borders.right ? "2px" : "1px",
     borderBottomWidth: borders.bottom ? "2px" : "1px",
@@ -2045,7 +2144,7 @@ function formatElapsed(seconds: number): string {
           class="board"
           id="board"
           role="grid"
-          :aria-label="`TAKO-SEN ${puzzle.size}×${puzzle.size} board`"
+          :aria-label="`TAKO-SEN ${puzzle.size}×${puzzle.size} の盤面`"
           :style="{
             gridTemplateColumns: `repeat(${puzzle.size}, 1fr)`,
             gridTemplateRows: `repeat(${puzzle.size}, 1fr)`,
@@ -2066,7 +2165,7 @@ function formatElapsed(seconds: number): string {
             :style="cellStyles(index)"
             :data-cell-index="index"
             :data-region="puzzle.regions[index]"
-            :aria-label="cellLabel(index)"
+            :aria-label="boardCellLabel(index)"
             role="gridcell"
             @click="onCellClick(index, $event)"
             @dblclick.prevent
@@ -2083,14 +2182,14 @@ function formatElapsed(seconds: number): string {
               v-else-if="state.fixedErrors.has(index)"
               aria-hidden="true"
               class="fixed-error"
-              >×</span
-            >
+              ><CellMark error
+            /></span>
             <span
               v-else-if="state.excluded.has(index)"
               aria-hidden="true"
               class="mark"
-              >×</span
-            >
+              ><CellMark
+            /></span>
           </button>
         </div>
       </section>
@@ -2122,8 +2221,8 @@ function formatElapsed(seconds: number): string {
           type="button"
           class="icon-button next-puzzle-button"
           :disabled="nextPuzzleLoading"
-          :aria-label="isSpecial ? '通常のプレイに戻る' : '新しい問題'"
-          :title="isSpecial ? '通常のプレイに戻る' : '新しい問題'"
+          :aria-label="isSpecial ? '通常プレイに戻る' : '次の問題へ'"
+          :title="isSpecial ? '通常プレイに戻る' : '次の問題へ'"
           @click="isSpecial ? leaveDaily() : newGame()"
         >
           <UiIcon name="next" />
@@ -2166,6 +2265,7 @@ function formatElapsed(seconds: number): string {
           :complete="complete"
           :game-name="onlineGameName"
           :modal-blocked="!!activeDialog"
+          :entry-blocked="waitingToStart"
           @start="startSuper"
           @pause="pauseGame"
           @account="accountDialogOpen = true"
@@ -2177,7 +2277,7 @@ function formatElapsed(seconds: number): string {
         <DailyChallenge
           v-if="onlineAuthEnabled"
           ref="dailyChallengeRef"
-          :inert="!!activeDialog"
+          :inert="waitingToStart || !!activeDialog"
           :active-date="activeDailyDate"
           :active-account-id="activeDailyAccountId"
           :puzzle="puzzle"
@@ -2204,6 +2304,13 @@ function formatElapsed(seconds: number): string {
         role="status"
       >
         {{ nextPuzzleMessage }}
+      </p>
+      <p
+        v-else-if="sharedLinkMessage"
+        class="play-footer-message"
+        role="status"
+      >
+        {{ sharedLinkMessage }}
       </p>
     </div>
 
@@ -2248,7 +2355,7 @@ function formatElapsed(seconds: number): string {
         <div class="tools-dialog-body">
           <template v-if="toolsDialog === 'settings'">
             <div class="auto-exclusions-settings">
-              <label>
+              <label class="settings-toggle">
                 <input
                   v-model="autoExclusionsEnabled"
                   type="checkbox"
@@ -2264,7 +2371,7 @@ function formatElapsed(seconds: number): string {
               </p>
             </div>
             <div class="haptics-settings">
-              <label class="haptics-toggle">
+              <label class="settings-toggle">
                 <input
                   v-model="hapticsEnabled"
                   type="checkbox"
@@ -2294,7 +2401,7 @@ function formatElapsed(seconds: number): string {
               </p>
             </div>
             <div class="sound-settings">
-              <label>
+              <label class="settings-toggle">
                 <input
                   v-model="soundEnabled"
                   type="checkbox"
@@ -2388,6 +2495,8 @@ function formatElapsed(seconds: number): string {
       @close="closeWeeklyRanking"
     />
 
+    <ConfirmDialog />
+
     <HistoryDialog
       :open="activeDialog === 'history'"
       :plays="resultHistory?.plays ?? []"
@@ -2429,6 +2538,7 @@ function formatElapsed(seconds: number): string {
       <section
         ref="hintDialogRef"
         class="dialog-card hint-card"
+        :style="hintRoom ? { '--hint-room': `${hintRoom}px` } : undefined"
         role="dialog"
         aria-modal="true"
         aria-labelledby="hint-title"
@@ -2474,7 +2584,7 @@ function formatElapsed(seconds: number): string {
             type="button"
             @click="revealNextHintStage"
           >
-            次のヒント
+            次のステップ
           </button>
           <button
             v-if="hintStage >= 3 && hint.move.excludeCells.length > 0"
@@ -2484,7 +2594,7 @@ function formatElapsed(seconds: number): string {
             ×を適用
           </button>
           <p v-if="hintStage >= 3 && hint.move.placeCell !== undefined">
-            強調されたセルを長押しするとタコを確定できます。
+            強調されたマスを長押しするとタコを確定できます。
           </p>
         </div>
       </section>
@@ -2564,6 +2674,9 @@ function formatElapsed(seconds: number): string {
             <dd :title="hintStageLabel(state)">{{ state.hintsUsed }}</dd>
           </div>
         </dl>
+        <!-- The preview below is a button, so its own text is not announced
+          when it changes; this region announces it instead. -->
+        <p class="sr-only" role="status">{{ clearRankingMessage }}</p>
         <div
           class="clear-ranking-preview"
           role="button"
@@ -2571,6 +2684,7 @@ function formatElapsed(seconds: number): string {
           :aria-label="
             isDaily ? '今日のランキングを表示' : 'この問題のランキングを表示'
           "
+          aria-describedby="clear-ranking-content"
           @click="isDaily ? showDailyRankingFromClear() : showCurrentRanking()"
           @keydown.enter.prevent="
             isDaily ? showDailyRankingFromClear() : showCurrentRanking()
@@ -2579,10 +2693,12 @@ function formatElapsed(seconds: number): string {
             isDaily ? showDailyRankingFromClear() : showCurrentRanking()
           "
         >
-          <p v-if="clearRankingMessage" role="status">
+          <!-- The button's name replaces its content for screen readers, so the
+            ranking itself is read as the description. -->
+          <p v-if="clearRankingMessage" id="clear-ranking-content">
             {{ clearRankingMessage }}
           </p>
-          <ol v-else class="public-ranking-entries">
+          <ol v-else id="clear-ranking-content" class="public-ranking-entries">
             <li
               v-for="entry in clearRankingEntries"
               :key="entry.displayName"
@@ -2653,7 +2769,7 @@ function formatElapsed(seconds: number): string {
             v-if="!isDaily"
             type="button"
             class="icon-button"
-            aria-label="シードをシェア"
+            aria-label="シードをコピー"
             title="シードをコピー"
             @click="copyResultSeed"
           >
@@ -2705,7 +2821,7 @@ function formatElapsed(seconds: number): string {
           :disabled="dailyClaiming"
           @click="leaveDaily"
         >
-          通常の問題に戻る
+          通常プレイに戻る
         </button>
         <button type="button" @click="openTutorial">遊び方</button>
         <button
