@@ -245,6 +245,35 @@ export async function completeDailyAttempt(
   return existing.completed_at !== null ? "duplicate" : "not_started";
 }
 
+export interface DailyHistoryPlay {
+  readonly playId: string;
+  readonly date: string;
+  readonly startedAt: number;
+  readonly completedAt: number | null;
+  readonly elapsedSeconds: number | null;
+  readonly mistakes: number | null;
+  readonly hintsUsed: number | null;
+}
+
+/** Started attempts are included so the history can count unfinished days. */
+export async function listDailyHistory(
+  db: D1Database,
+  accountId: string,
+): Promise<DailyHistoryPlay[]> {
+  return (
+    await db
+      .prepare(
+        `SELECT play_id AS playId, challenge_date AS date, started_at AS startedAt,
+           completed_at AS completedAt, elapsed_seconds AS elapsedSeconds,
+           mistakes, hints_used AS hintsUsed
+         FROM daily_attempts WHERE account_id = ?
+         ORDER BY challenge_date DESC LIMIT 500`,
+      )
+      .bind(accountId)
+      .all<DailyHistoryPlay>()
+  ).results;
+}
+
 export interface DailyLeaderboardEntry extends LeaderboardEntry {
   readonly isSelf: boolean;
 }

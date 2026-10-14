@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { PlayResult } from "../core/results";
 import {
+  dailyHistory,
   historyView,
   localHistory,
   onlineHistory,
@@ -11,6 +12,7 @@ import {
 import { loadSuperGame } from "../core/super-storage";
 import { SuperOutbox } from "../core/super-outbox";
 import { isComplete } from "../core/rules";
+import { dailyDate } from "../core/daily-puzzle";
 import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
 import UiIcon from "./UiIcon.vue";
@@ -20,8 +22,10 @@ const props = defineProps<{
   plays: readonly PlayResult[];
   accountId?: string;
   revision?: number;
-  loadOnline: (mode: "normal" | "super") => Promise<unknown>;
+  loadOnline: (mode: OnlineHistoryMode) => Promise<unknown>;
 }>();
+type OnlineHistoryMode = "normal" | "super" | "daily";
+const onlineModes = ["normal", "super", "daily"] as const;
 const emit = defineEmits<{ close: []; restore: [seedCode: string] }>();
 const dialog = ref<HTMLElement>();
 const tabButtons = ref<HTMLButtonElement[]>([]);
@@ -31,6 +35,7 @@ const tabs = [
   { id: "normal", label: "中級" },
   { id: "hard", label: "上級" },
   { id: "super", label: "超級" },
+  { id: "daily", label: "デイリー" },
 ] as const;
 const connected = ref(navigator.onLine !== false);
 const online = computed(() => !!props.accountId && connected.value);
@@ -75,6 +80,15 @@ const label = computed(
 const chartPoints = computed(() =>
   view.value.trend.map((point) => `${point.x},${point.y}`).join(" "),
 );
+// Read when the dialog opens, so a day change while it stays open is not tracked.
+const today = computed(() => (props.open ? dailyDate(Date.now()) : ""));
+/** M/D, with the year only when it differs from today's. */
+const dailyLabel = (date: string) => {
+  const [year, month, day] = date.split("-").map(Number);
+  return year === Number(today.value.slice(0, 4))
+    ? `${month}/${day}`
+    : `${year}/${month}/${day}`;
+};
 const seconds = (value: number) =>
   `${Math.floor(Math.round(value) / 60)}:${String(Math.round(value) % 60).padStart(2, "0")}`;
 function readLocalSupers(): void {
@@ -134,10 +148,8 @@ async function refresh(): Promise<void> {
   busy.value = true;
   const account = props.accountId;
   const results = await Promise.allSettled(
-    ["normal", "super"].map((mode) =>
-      Promise.resolve().then(() =>
-        props.loadOnline(mode as "normal" | "super"),
-      ),
+    onlineModes.map((mode) =>
+      Promise.resolve().then(() => props.loadOnline(mode)),
     ),
   );
   if (current !== generation || account !== props.accountId || !online.value)
@@ -148,7 +160,12 @@ async function refresh(): Promise<void> {
     try {
       if (result.status !== "fulfilled") throw new Error();
       const data = result.value as { plays?: unknown };
-      loaded.push(...onlineHistory(data?.plays, i === 0 ? "normal" : "super"));
+      const mode = onlineModes[i];
+      loaded.push(
+        ...(mode === "daily"
+          ? dailyHistory(data?.plays)
+          : onlineHistory(data?.plays, mode)),
+      );
     } catch {
       failures += 1;
     }
@@ -237,10 +254,10 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="history-dialog-body">
-        <p class="history-source">
+        <p v-if="online || selected !== 'daily'" class="history-source">
           {{
             online
-              ? "オンラインの完了記録（通常・超級それぞれ直近500件まで）"
+              ? "オンラインの記録（通常・超級・デイリーそれぞれ直近500件まで）"
               : "端末に保存された記録"
           }}
         </p>
@@ -285,112 +302,134 @@ onUnmounted(() => {
           :aria-labelledby="`history-tab-${selected}`"
           tabindex="0"
         >
-          <p class="history-summary">
-            <template v-if="!online && selected !== 'super'"
-              >{{ view.plays }}回プレイ · </template
-            >{{ view.clears }}回クリア
+          <p v-if="selected === 'daily' && !online">
+            デイリーの成績はログイン中のオンラインで表示します。
           </p>
-          <dl v-if="view.clears" class="history-summary-grid">
-            <div>
-              <dt>平均タイム</dt>
-              <dd>{{ seconds(Math.round(view.averageSeconds!)) }}</dd>
-            </div>
-            <div>
-              <dt>最高スコア</dt>
-              <dd>{{ view.bestScore }}</dd>
-            </div>
-            <div>
-              <dt>平均ミス</dt>
-              <dd>{{ view.averageMistakes?.toFixed(1) }}</dd>
-            </div>
-            <div>
-              <dt>平均ヒント</dt>
-              <dd>{{ view.averageHints?.toFixed(1) }}</dd>
-            </div>
-          </dl>
-          <p v-else-if="!busy">{{ label }}のクリア記録はありません。</p>
-          <figure v-if="view.trend.length" class="history-chart">
-            <figcaption>最近のクリア時間（最大20回・左が古い記録）</figcaption>
-            <svg
-              viewBox="0 0 300 120"
-              role="img"
-              :aria-label="`${label}のクリア時間の推移`"
-            >
-              <path d="M20 20v80h260" class="history-chart-axis" />
-              <polyline :points="chartPoints" class="history-chart-line" />
-              <circle
-                v-for="point in view.trend"
-                :key="point.play.id"
-                :cx="point.x"
-                :cy="point.y"
-                r="3"
+          <template v-else>
+            <p class="history-summary">
+              <template v-if="selected === 'daily'"
+                >{{ view.plays }}日挑戦 · </template
+              ><template v-else-if="!online && selected !== 'super'"
+                >{{ view.plays }}回プレイ · </template
+              >{{ view.clears }}回クリア
+            </p>
+            <dl v-if="view.clears" class="history-summary-grid">
+              <div>
+                <dt>平均タイム</dt>
+                <dd>{{ seconds(Math.round(view.averageSeconds!)) }}</dd>
+              </div>
+              <div>
+                <dt>最高スコア</dt>
+                <dd>{{ view.bestScore }}</dd>
+              </div>
+              <div>
+                <dt>平均ミス</dt>
+                <dd>{{ view.averageMistakes?.toFixed(1) }}</dd>
+              </div>
+              <div>
+                <dt>平均ヒント</dt>
+                <dd>{{ view.averageHints?.toFixed(1) }}</dd>
+              </div>
+            </dl>
+            <p v-else-if="!busy">{{ label }}のクリア記録はありません。</p>
+            <figure v-if="view.trend.length" class="history-chart">
+              <figcaption>
+                最近のクリア時間（最大20回・左が古い記録）
+              </figcaption>
+              <svg
+                viewBox="0 0 300 120"
+                role="img"
+                :aria-label="`${label}のクリア時間の推移`"
               >
-                <title>{{ seconds(point.play.elapsedSeconds!) }}</title>
-              </circle>
-              <text x="20" y="14">{{ seconds(view.maxSeconds) }}</text>
-              <text x="3" y="105">0</text>
-            </svg>
-          </figure>
-          <details :key="selected" class="history-recent">
-            <summary>最近のプレイ（{{ view.recent.length }}件）</summary>
-            <ul>
-              <li
-                v-for="play in view.recent"
-                :key="play.id"
-                :data-seed-code="play.seedCode"
-              >
-                <div v-if="play.completed" class="history-record-result">
-                  <strong
-                    :aria-label="`タイム ${seconds(play.elapsedSeconds!)}`"
-                    ><UiIcon name="clock" />{{
-                      seconds(play.elapsedSeconds!)
-                    }}</strong
+                <path d="M20 20v80h260" class="history-chart-axis" />
+                <polyline :points="chartPoints" class="history-chart-line" />
+                <circle
+                  v-for="point in view.trend"
+                  :key="point.play.id"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="3"
+                >
+                  <title>{{ seconds(point.play.elapsedSeconds!) }}</title>
+                </circle>
+                <text x="20" y="14">{{ seconds(view.maxSeconds) }}</text>
+                <text x="3" y="105">0</text>
+              </svg>
+            </figure>
+            <details :key="selected" class="history-recent">
+              <summary>最近のプレイ（{{ view.recent.length }}件）</summary>
+              <ul>
+                <li
+                  v-for="play in view.recent"
+                  :key="play.id"
+                  :data-seed-code="play.seedCode"
+                >
+                  <div v-if="play.completed" class="history-record-result">
+                    <strong
+                      :aria-label="`タイム ${seconds(play.elapsedSeconds!)}`"
+                      ><UiIcon name="clock" />{{
+                        seconds(play.elapsedSeconds!)
+                      }}</strong
+                    >
+                    <strong
+                      ><UiIcon name="score" /><span class="sr-only"
+                        >スコア
+                      </span>
+                      {{
+                        rankingScore({
+                          elapsedSeconds: play.elapsedSeconds!,
+                          mistakes: play.mistakes ?? 0,
+                          hintsUsed: play.hintsUsed ?? 0,
+                        })
+                      }}点</strong
+                    >
+                  </div>
+                  <strong v-else-if="play.date && play.date !== today"
+                    >未完了</strong
                   >
-                  <strong
-                    ><UiIcon name="score" /><span class="sr-only">スコア </span>
-                    {{
-                      rankingScore({
-                        elapsedSeconds: play.elapsedSeconds!,
-                        mistakes: play.mistakes ?? 0,
-                        hintsUsed: play.hintsUsed ?? 0,
-                      })
-                    }}点</strong
+                  <strong v-else>プレイ中</strong>
+                  <p class="history-record-meta">
+                    <time v-if="play.date" :datetime="play.date">{{
+                      dailyLabel(play.date)
+                    }}</time>
+                    <time
+                      v-else
+                      :datetime="new Date(play.playedAt).toISOString()"
+                      >{{ dateFormat.format(play.playedAt) }}</time
+                    >
+                    <template v-if="play.completed">
+                      · ミス{{ play.mistakes }} · ヒント{{
+                        play.hintsUsed
+                      }}</template
+                    >
+                  </p>
+                  <div
+                    v-if="play.seedCode"
+                    class="dialog-actions history-record-actions"
                   >
-                </div>
-                <strong v-else>プレイ中</strong>
-                <p class="history-record-meta">
-                  <time :datetime="new Date(play.playedAt).toISOString()">{{
-                    dateFormat.format(play.playedAt)
-                  }}</time>
-                  <template v-if="play.completed">
-                    · ミス{{ play.mistakes }} · ヒント{{
-                      play.hintsUsed
-                    }}</template
-                  >
-                </p>
-                <div class="dialog-actions history-record-actions">
-                  <button
-                    type="button"
-                    class="icon-button"
-                    aria-label="再挑戦"
-                    title="再挑戦"
-                    @click="emit('restore', play.seedCode)"
-                  >
-                    <UiIcon name="reset" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-button"
-                    aria-label="シードを共有（コピー）"
-                    title="シードを共有（コピー）"
-                    @click="copySeed(play.seedCode)"
-                  >
-                    <UiIcon name="share" />
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </details>
+                    <button
+                      type="button"
+                      class="icon-button"
+                      aria-label="再挑戦"
+                      title="再挑戦"
+                      @click="emit('restore', play.seedCode)"
+                    >
+                      <UiIcon name="reset" />
+                    </button>
+                    <button
+                      type="button"
+                      class="icon-button"
+                      aria-label="シードを共有（コピー）"
+                      title="シードを共有（コピー）"
+                      @click="copySeed(play.seedCode)"
+                    >
+                      <UiIcon name="share" />
+                    </button>
+                  </div>
+                </li>
+              </ul>
+            </details>
+          </template>
           <p v-if="copyMessage" role="status">{{ copyMessage }}</p>
         </section>
       </div>

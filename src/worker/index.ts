@@ -15,6 +15,7 @@ import { getAccountProfile, registerAccountProfile } from "./profile";
 import {
   completeDailyAttempt,
   getDailyStatus,
+  listDailyHistory,
   listDailyLeaderboard,
   parseDailyCompletion,
   prepareNextDailyPuzzle,
@@ -183,6 +184,7 @@ export default {
       pathname !== "/api/daily/start" &&
       pathname !== "/api/daily/complete" &&
       pathname !== "/api/daily/ranking" &&
+      pathname !== "/api/daily/history" &&
       !isSuper
     ) {
       if (pathname.startsWith("/api/"))
@@ -192,7 +194,9 @@ export default {
     const isAccountDeletion = pathname === "/api/account";
     const isPuzzleCreation = pathname === "/api/puzzles";
     const isDailyRead =
-      pathname === "/api/daily" || pathname === "/api/daily/ranking";
+      pathname === "/api/daily" ||
+      pathname === "/api/daily/ranking" ||
+      pathname === "/api/daily/history";
     const isNextPuzzle = pathname === "/api/next-puzzle";
     const isDailyWrite =
       pathname === "/api/daily/start" || pathname === "/api/daily/complete";
@@ -384,6 +388,10 @@ export default {
         return json({
           entries: await listDailyLeaderboard(env.DB, date, accountId),
         });
+      }
+
+      if (pathname === "/api/daily/history") {
+        return json({ plays: await listDailyHistory(env.DB, accountId) });
       }
 
       if (isDailyWrite) {

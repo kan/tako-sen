@@ -1935,16 +1935,46 @@ describe("history and results dialog", () => {
     hintsUsed: 0,
   });
   function setup(
-    loadOnline = vi.fn(async (mode: "normal" | "super") => ({
+    loadOnline = vi.fn(async (mode: "normal" | "super" | "daily") => ({
       plays:
         mode === "normal"
           ? [record("server")]
-          : [
-              {
-                ...record("super", 90),
-                seedCode: encodeSuperSeed("server-super"),
-              },
-            ],
+          : mode === "super"
+            ? [
+                {
+                  ...record("super", 90),
+                  seedCode: encodeSuperSeed("server-super"),
+                },
+              ]
+            : [
+                {
+                  playId: "daily-done",
+                  date: "2026-10-13",
+                  startedAt: 50,
+                  completedAt: 120,
+                  elapsedSeconds: 70,
+                  mistakes: 1,
+                  hintsUsed: 0,
+                },
+                {
+                  playId: "daily-open",
+                  date: "2026-10-14",
+                  startedAt: 200,
+                  completedAt: null,
+                  elapsedSeconds: null,
+                  mistakes: null,
+                  hintsUsed: null,
+                },
+                {
+                  playId: "daily-abandoned",
+                  date: "2025-10-12",
+                  startedAt: 20,
+                  completedAt: null,
+                  elapsedSeconds: null,
+                  mistakes: null,
+                  hintsUsed: null,
+                },
+              ],
     })),
   ) {
     const account = ref<string | undefined>("history-account");
@@ -2077,6 +2107,61 @@ describe("history and results dialog", () => {
     });
     expect(s.close).toHaveBeenCalledOnce();
   });
+  it("shows daily attempts in their own tab without seed actions and only while online", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-14T03:00:00Z"));
+    const s = setup();
+    await vi.waitFor(() =>
+      expect(
+        find(
+          s.container,
+          (n) => n.props["data-seed-code"] === "TAKO:g2:easy:server",
+        ),
+      ).toBeDefined(),
+    );
+    (s.tab("デイリー").props.onClick as () => void)();
+    await nextTick();
+    const textOf = (n: HostNode): string =>
+      n.tag === "comment" ? "" : n.text + n.children.map(textOf).join("");
+    expect(
+      textOf(
+        find(s.container, (n) => n.props.class === "history-summary")!,
+      ).trim(),
+    ).toBe("3日挑戦 · 1回クリア");
+    const recent = find(
+      s.container,
+      (n) => n.props.class === "history-recent",
+    )!;
+    expect(
+      find(recent, (n) => n.tag === "time" && n.text === "10/13")?.props
+        .datetime,
+    ).toBe("2026-10-13");
+    const items = find(recent, (n) => n.tag === "ul")!.children.filter(
+      (n) => n.tag === "li",
+    );
+    // Today's open attempt is still in play; an older one is left unfinished
+    // and carries its year.
+    expect(items.map((n) => textOf(n).replace(/\s+/g, ""))).toEqual([
+      "プレイ中10/14",
+      expect.stringContaining("10/13"),
+      "未完了2025/10/12",
+    ]);
+    expect(
+      find(recent, (n) => n.props["aria-label"] === "再挑戦"),
+    ).toBeUndefined();
+    expect(
+      find(recent, (n) => n.props["aria-label"] === "シードを共有（コピー）"),
+    ).toBeUndefined();
+    s.account.value = undefined;
+    await nextTick();
+    expect(
+      find(s.container, (n) =>
+        n.text.includes("デイリーの成績はログイン中のオンラインで表示します"),
+      ),
+    ).toBeDefined();
+    expect(
+      find(s.container, (n) => n.props.class === "history-summary"),
+    ).toBeUndefined();
+  });
   it("switches to local data on offline and back to server data on reconnect without mixing sources", async () => {
     const s = setup();
     await vi.waitFor(() =>
@@ -2130,15 +2215,16 @@ describe("history and results dialog", () => {
   it("rejects late history from the previous account and clearly reports retrieval errors", async () => {
     const pending: ((data: { plays: unknown[] }) => void)[] = [];
     const load = vi.fn(
-      (_mode: "normal" | "super") =>
+      (_mode: "normal" | "super" | "daily") =>
         new Promise<{ plays: unknown[] }>((resolve) => pending.push(resolve)),
     );
     const s = setup(load);
-    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
     s.account.value = "another-account";
-    await vi.waitFor(() => expect(pending).toHaveLength(4));
-    pending[2]({ plays: [record("new")] });
-    pending[3]({ plays: [] });
+    await vi.waitFor(() => expect(pending).toHaveLength(6));
+    pending[3]({ plays: [record("new")] });
+    pending[4]({ plays: [] });
+    pending[5]({ plays: [] });
     await vi.waitFor(() =>
       expect(
         find(
@@ -2149,6 +2235,7 @@ describe("history and results dialog", () => {
     );
     pending[0]({ plays: [record("old")] });
     pending[1]({ plays: [] });
+    pending[2]({ plays: [] });
     await nextTick();
     await nextTick();
     expect(

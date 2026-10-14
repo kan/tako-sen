@@ -687,7 +687,14 @@ function onToolsKeydown(event: KeyboardEvent): void {
   } else trapDialogFocus(event, toolsDialogRef.value);
 }
 
-async function loadHistoryOnline(mode: "normal" | "super"): Promise<unknown> {
+const historyPaths = {
+  normal: "/api/plays",
+  super: "/api/super/history",
+  daily: "/api/daily/history",
+} as const;
+async function loadHistoryOnline(
+  mode: keyof typeof historyPaths,
+): Promise<unknown> {
   const account = historyAccountId.value;
   if (!account || navigator.onLine === false)
     throw new Error("Offline history.");
@@ -697,13 +704,10 @@ async function loadHistoryOnline(mode: "normal" | "super"): Promise<unknown> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(
-      mode === "super" ? "/api/super/history" : "/api/plays",
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      },
-    );
+    const response = await fetch(historyPaths[mode], {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
     if (!response.ok || account !== historyAccountId.value)
       throw new Error("History unavailable.");
     return await response.json();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dailyHistory,
   historyView,
   localHistory,
   onlineHistory,
@@ -86,6 +87,62 @@ describe("unified difficulty history", () => {
     expect(() =>
       onlineHistory([{ ...record, difficulty: "easy" }], "normal"),
     ).toThrow();
+  });
+  it("normalizes daily attempts, keeping unfinished days without results or seeds", () => {
+    const done = {
+      playId: "d1",
+      date: "2026-10-13",
+      startedAt: 10,
+      completedAt: 90,
+      elapsedSeconds: 80,
+      mistakes: 1,
+      hintsUsed: 2,
+    };
+    const open = {
+      playId: "d2",
+      date: "2026-10-14",
+      startedAt: 200,
+      completedAt: null,
+      elapsedSeconds: null,
+      mistakes: null,
+      hintsUsed: null,
+    };
+    const records = dailyHistory([done, open]);
+    expect(records).toEqual([
+      {
+        id: "d1",
+        date: "2026-10-13",
+        difficulty: "daily",
+        playedAt: 90,
+        completed: true,
+        elapsedSeconds: 80,
+        mistakes: 1,
+        hintsUsed: 2,
+      },
+      {
+        id: "d2",
+        date: "2026-10-14",
+        difficulty: "daily",
+        playedAt: 200,
+        completed: false,
+      },
+    ]);
+    expect(historyView(records, "daily")).toMatchObject({
+      plays: 2,
+      clears: 1,
+      averageSeconds: 80,
+    });
+    expect(historyView(records, "hard").plays).toBe(0);
+    // A day completed late (here after the next day began) stays below it.
+    const late = dailyHistory([{ ...done, completedAt: 500 }, open]);
+    expect(historyView(late, "daily").recent.map((p) => p.id)).toEqual([
+      "d2",
+      "d1",
+    ]);
+    expect(() => dailyHistory({})).toThrow();
+    expect(() => dailyHistory([{ ...done, date: "10/13" }])).toThrow();
+    expect(() => dailyHistory([{ ...done, mistakes: null }])).toThrow();
+    expect(() => dailyHistory([{ ...open, elapsedSeconds: 3 }])).toThrow();
   });
   it("preserves local trial dates, completion metrics and status", () => {
     expect(

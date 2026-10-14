@@ -128,13 +128,17 @@ input {
 
 .history-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-block: 16px;
 }
 
+/* Widths follow the label so 「デイリー」 stays on one line at 360px. */
 .history-tabs button {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 44px;
+  padding-inline: 6px;
+  white-space: nowrap;
   border: 2px solid #2a1b14;
   border-radius: 10px;
   background: #fff7ec;

@@ -6,6 +6,7 @@ import { deleteAccountHistory } from "../src/worker/history";
 import {
   completeDailyAttempt,
   getDailyStatus,
+  listDailyHistory,
   listDailyLeaderboard,
   parseDailyCompletion,
   prepareNextDailyPuzzle,
@@ -157,6 +158,51 @@ describe("daily challenge server contract", () => {
         (entry) => entry.displayName,
       ),
     ).toEqual(["デイリーC", "デイリーB"]);
+  });
+
+  it("lists only the account's own attempts, unfinished ones with null results", async () => {
+    const db = platform.env.DB;
+    await registerAccountProfile(db, "daily-d", "デイリーD");
+    const status = await getDailyStatus(db, "daily-d", now);
+    const ownPlayId = crypto.randomUUID();
+    await startDailyAttempt(db, "daily-d", status.date, ownPlayId, now);
+    expect(await listDailyHistory(db, "daily-d")).toEqual([
+      {
+        playId: ownPlayId,
+        date: status.date,
+        startedAt: now,
+        completedAt: null,
+        elapsedSeconds: null,
+        mistakes: null,
+        hintsUsed: null,
+      },
+    ]);
+    const puzzle = await restoreSharedPuzzleSnapshot(status.puzzle);
+    await completeDailyAttempt(
+      db,
+      "daily-d",
+      parseDailyCompletion({
+        date: status.date,
+        playId: ownPlayId,
+        puzzleId: status.puzzle.id,
+        pieces: puzzle.solution,
+        elapsedSeconds: 95,
+        mistakes: 2,
+        hintsUsed: 1,
+        maxHintStage: 1,
+      }),
+      later,
+    );
+    expect(await listDailyHistory(db, "daily-d")).toMatchObject([
+      {
+        playId: ownPlayId,
+        completedAt: later,
+        elapsedSeconds: 95,
+        mistakes: 2,
+        hintsUsed: 1,
+      },
+    ]);
+    expect(await listDailyHistory(db, "nobody")).toEqual([]);
   });
 });
 

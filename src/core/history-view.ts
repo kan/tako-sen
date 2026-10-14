@@ -2,11 +2,15 @@ import type { PlayResult } from "./results";
 import { rankingScore } from "./ranking-score";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { parseSuperSeed } from "./super-puzzle";
+import { isDailyDate } from "./daily-puzzle";
 
-export type HistoryDifficulty = "easy" | "normal" | "hard" | "super";
+export type HistoryDifficulty = "easy" | "normal" | "hard" | "super" | "daily";
 export interface HistoryPlay {
   readonly id: string;
-  readonly seedCode: string;
+  /** Daily attempts have no seed to share or replay. */
+  readonly seedCode?: string;
+  /** The challenge date (`YYYY-MM-DD`) of a daily attempt. */
+  readonly date?: string;
   readonly difficulty: HistoryDifficulty;
   readonly playedAt: number;
   readonly completed: boolean;
@@ -26,6 +30,7 @@ export function localHistory(plays: readonly PlayResult[]): HistoryPlay[] {
     hintsUsed: play.hintsUsed,
   }));
 }
+const isCount = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 /** API data is validated here; UI rendering never infers a mode from a colour. */
 export function onlineHistory(
   value: unknown,
@@ -44,7 +49,7 @@ export function onlineHistory(
         play.elapsedSeconds,
         play.mistakes,
         play.hintsUsed,
-      ].every((v) => Number.isSafeInteger(v) && v >= 0)
+      ].every(isCount)
     )
       throw new Error("Invalid history record.");
     const code = parsePuzzleSeedCode(play.seedCode);
@@ -67,13 +72,58 @@ export function onlineHistory(
   }
   return records;
 }
+/** Daily attempts include unfinished ones, whose results are all null. */
+export function dailyHistory(value: unknown): HistoryPlay[] {
+  if (!Array.isArray(value)) throw new Error("Invalid history response.");
+  return value.map((play) => {
+    if (
+      !play ||
+      typeof play !== "object" ||
+      typeof play.playId !== "string" ||
+      typeof play.date !== "string" ||
+      !isDailyDate(play.date) ||
+      !isCount(play.startedAt)
+    )
+      throw new Error("Invalid history record.");
+    const results = [
+      play.completedAt,
+      play.elapsedSeconds,
+      play.mistakes,
+      play.hintsUsed,
+    ];
+    const completed = results.every(isCount);
+    if (!completed && !results.every((v) => v === null))
+      throw new Error("Invalid history record.");
+    return {
+      id: play.playId,
+      date: play.date,
+      difficulty: "daily",
+      playedAt: completed ? play.completedAt : play.startedAt,
+      completed,
+      ...(completed
+        ? {
+            elapsedSeconds: play.elapsedSeconds,
+            mistakes: play.mistakes,
+            hintsUsed: play.hintsUsed,
+          }
+        : {}),
+    };
+  });
+}
 export function historyView(
   records: readonly HistoryPlay[],
   difficulty: HistoryDifficulty,
 ) {
   const plays = records
     .filter((play) => play.difficulty === difficulty)
-    .sort((a, b) => b.playedAt - a.playedAt || a.id.localeCompare(b.id));
+    // Daily attempts order by challenge date: a late completion of an earlier
+    // day must not rise above a later day.
+    .sort(
+      (a, b) =>
+        (b.date ?? "").localeCompare(a.date ?? "") ||
+        b.playedAt - a.playedAt ||
+        a.id.localeCompare(b.id),
+    );
   const completed = plays.filter(
     (p) => p.completed && p.elapsedSeconds !== undefined,
   );
