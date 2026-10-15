@@ -11,7 +11,10 @@ defineProps<{ error?: boolean }>();
     aria-hidden="true"
     focusable="false"
   >
-    <path v-if="error" class="cell-mark-halo" d="M6 6 18 18M18 6 6 18" />
+    <template v-if="error">
+      <path class="cell-mark-edge" d="M6 6 18 18M18 6 6 18" />
+      <path class="cell-mark-halo" d="M6 6 18 18M18 6 6 18" />
+    </template>
     <path d="M6 6 18 18M18 6 6 18" />
   </svg>
 </template>

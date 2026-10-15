@@ -1,7 +1,6 @@
 :root {
   /* Colours by role; use these rather than hex values. A colour used in only
-   * one place (confetti, the super lilac, the scrollbar, the daily panel)
-   * stays literal there.
+   * one place (confetti, the super lilac, the scrollbar) stays literal there.
    *
    * A translucent shade uses the -rgb channels, as rgb(var(--x-rgb) / 30%):
    * unlike color-mix(), that works on iOS Safari before 16.2. */
@@ -25,6 +24,11 @@
   --color-hint: rgb(var(--color-hint-rgb));
   --color-hint-strong: #1d4ed8;
 
+  /* Secondary text comes in two sizes: notes and meta lines, and the
+   * smallest labels (chart axes, summary terms, history rows). */
+  --text-small: 14px;
+  --text-caption: 12px;
+
   color: var(--color-ink);
   background: var(--color-page);
   font-family:
@@ -35,12 +39,18 @@
     "Segoe UI",
     sans-serif;
   /* The cream band that keeps rings on the board visible on every Region
-   * fill, and the hatching that marks cells which take a ×. */
+   * fill, and the ink of the hatching that marks cells which take a ×. */
   --ring-band: rgb(var(--color-surface-rgb) / 85%);
+  --exclude-hatch-ink: rgb(var(--color-danger-rgb) / 30%);
+}
+
+/* Defined on the cell rather than :root, so a cell that sets its own
+ * --exclude-hatch-ink (the dark Region) gets hatching in that ink. */
+.cell {
   --exclude-hatch: repeating-linear-gradient(
     135deg,
     transparent 0 5px,
-    rgb(var(--color-danger-rgb) / 30%) 5px 8px
+    var(--exclude-hatch-ink) 5px 8px
   );
 }
 
@@ -156,6 +166,14 @@ p:is([role="status"], [aria-live]):empty {
   }
 }
 
+/* A control that cannot be pressed now looks it, wherever it is. Board cells
+ * are never disabled this way. */
+button:not(.cell):disabled,
+button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Pressing a control sinks it a little, so a tap shows it registered. */
 button:not(.cell):not(:disabled):active,
 [role="button"]:active,
@@ -202,7 +220,7 @@ button:not(.cell):not(:disabled):active,
 
 .history-source {
   color: var(--color-ink-soft);
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 
 .tools-dialog-body > .auto-exclusions-settings,
@@ -242,7 +260,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .history-summary-grid dt {
-  font-size: 12px;
+  font-size: var(--text-caption);
   white-space: nowrap;
 }
 
@@ -257,7 +275,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .history-chart figcaption {
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 
 .history-chart svg {
@@ -303,14 +321,14 @@ button:not(.cell):not(:disabled):active,
   align-items: center;
   gap: 2px 8px;
   margin-block: 12px;
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 
 .history-record-result {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -365,7 +383,7 @@ button:not(.cell):not(:disabled):active,
 .weekly-metric-switch span {
   display: inline-grid;
   place-items: center;
-  min-height: 36px;
+  min-height: 44px;
   padding: 6px 10px;
   border-radius: 999px;
   white-space: nowrap;
@@ -462,13 +480,14 @@ button:not(.cell):not(:disabled):active,
 }
 
 .account-controls button {
+  min-height: 44px;
   border: 2px solid var(--color-ink);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 6px 14px;
   background: var(--color-surface);
   color: inherit;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-small);
   font-weight: 800;
 }
 
@@ -487,7 +506,7 @@ button:not(.cell):not(:disabled):active,
 }
 
 .tutorial-a11y-note {
-  font-size: 0.85rem;
+  font-size: var(--text-small);
 }
 
 .interactive-tutorial-board-wrap {
@@ -529,11 +548,107 @@ button:not(.cell):not(:disabled):active,
     "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   font-variant-emoji: emoji;
 }
-.account-card input {
+.account-card input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 44px;
+  border: 2px solid var(--color-ink);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--color-ink);
+  /* iOS Safari zooms into a focused field below 16px. */
+  font-size: 16px;
   font-family:
     "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui,
     sans-serif;
   font-variant-emoji: emoji;
+}
+
+.account-card input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+/* The account card may grow taller than other dialogs, and the rules sit tight
+ * under the field, so consent and the submit button fit on the first screen of
+ * a 320×640 phone. */
+.dialog-card.account-card {
+  max-height: min(92dvh, 720px);
+}
+
+.account-setup {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog-card .account-setup h3 {
+  margin: 0;
+}
+
+.account-setup > label:first-of-type {
+  font-weight: 800;
+}
+
+.account-setup p {
+  margin: 0;
+}
+
+.account-note {
+  color: var(--color-ink-soft);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+
+.account-problem {
+  color: var(--color-danger);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.account-consent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.account-consent input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-accent-next);
+}
+
+.account-setup button[type="submit"] {
+  justify-self: start;
+}
+
+.account-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* Log out and deletion are far apart, so a slip cannot hit the one that
+ * cannot be undone. */
+.account-actions,
+.account-danger {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.account-danger {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid #d7c4ae;
+}
+
+.account-card .account-danger button.danger-button {
+  border-color: var(--color-danger);
+  background: var(--color-surface);
+  color: var(--color-danger);
 }
 
 .actions {
@@ -664,11 +779,15 @@ button:not(.cell):not(:disabled):active,
 }
 
 .play-options > .daily-entry {
+  display: contents;
+}
+
+.play-options .daily-challenge-button {
   grid-column: 4;
   grid-row: 1;
 }
 
-.play-options .super-entry > p[role="status"],
+.play-options :is(.super-entry, .daily-entry) > p[role="status"],
 .play-footer-message {
   grid-column: 1 / -1;
   margin: 0;
@@ -697,7 +816,7 @@ button:not(.cell):not(:disabled):active,
 
 .super-progress {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -708,9 +827,12 @@ button:not(.cell):not(:disabled):active,
   gap: 6px;
 }
 
-.super-challenge-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* A waiting challenge right fills the crown and rings it. */
+.super-challenge-button.has-right {
+  background: #c9a7f5;
+  box-shadow:
+    0 0 0 3px var(--color-surface),
+    0 0 0 5px #48255f;
 }
 
 .dialog-backdrop.daily-panel-backdrop {
@@ -718,11 +840,6 @@ button:not(.cell):not(:disabled):active,
 }
 
 .dialog-card.daily-panel {
-  width: min(100%, 520px);
-  padding: 16px;
-  border: 3px solid #50352a;
-  border-radius: 16px;
-  background: #fff9e9;
   text-align: left;
 }
 
@@ -754,8 +871,11 @@ button:not(.cell):not(:disabled):active,
   gap: 12px;
 }
 
+/* A long title wraps rather than pushing the close button off a 320px screen. */
 .ranking-header h2 {
+  min-width: 0;
   margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 
 .tako-title {
@@ -775,18 +895,21 @@ button:not(.cell):not(:disabled):active,
 .ranking-note {
   margin: 8px 0 12px;
   color: var(--color-ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-small);
   line-height: 1.5;
 }
 
 .ranking-guide {
   margin-top: 12px;
   color: var(--color-ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-small);
   line-height: 1.5;
 }
 
+/* The whole row opens it, at the 44px a finger needs; padding rather than
+ * flex, which would drop the disclosure triangle. */
 .ranking-guide summary {
+  padding-block: 12px;
   cursor: pointer;
   font-weight: 800;
 }
@@ -826,10 +949,12 @@ button:not(.cell):not(:disabled):active,
   gap: 4px 8px;
   min-width: 0;
 }
+/* Not the button yellow, so the badge does not read as something to press. */
 .ranking-you {
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 2px 7px;
-  background: var(--color-accent);
+  background: var(--color-accent-text);
+  color: #fff;
   font-size: 0.75em;
   white-space: nowrap;
 }
@@ -843,13 +968,19 @@ button:not(.cell):not(:disabled):active,
   gap: 2px 12px;
   padding-left: calc(2.5em + 8px);
   color: var(--color-ink-soft);
-  font-size: 0.85em;
+  font-size: var(--text-small);
 }
 .ranking-entries li.daily-self,
 .public-ranking-entries li.ranking-self {
   border: 2px solid var(--color-accent-text);
   border-radius: 12px;
   background: var(--color-highlight);
+}
+
+/* The own row's frame is the only line between it and the next row. */
+.ranking-entries li.daily-self + li,
+.public-ranking-entries li.ranking-self + li {
+  border-top-color: transparent;
 }
 
 .cell {
@@ -901,11 +1032,16 @@ button:not(.cell):not(:disabled):active,
   stroke-linecap: round;
 }
 
-/* A permanent mistake is a red × with a white edge, which tells it from the
- * player's own × without colour and keeps the red readable on every Region
- * fill. */
+/* A permanent mistake is a red × in a white band with a dark edge, which
+ * tells it from the player's own × without colour. The dark edge keeps the
+ * band visible on the near-white Region, where white alone disappears. */
 .fixed-error {
   color: var(--color-danger);
+}
+
+.fixed-error .cell-mark-edge {
+  stroke: rgb(var(--color-ink-rgb) / 75%);
+  stroke-width: 9.2;
 }
 
 .fixed-error .cell-mark-halo {
@@ -1068,7 +1204,7 @@ button:not(.cell):not(:disabled):active,
   border-radius: 12px;
   padding: 8px;
   background: var(--color-page);
-  font-size: 13px;
+  font-size: var(--text-small);
 }
 
 .seed-panel-body button {
@@ -1141,7 +1277,7 @@ button:not(.cell):not(:disabled):active,
 .seed-message {
   margin: 0;
   color: var(--color-ink-soft);
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 .dialog-backdrop {
@@ -1261,9 +1397,16 @@ button:not(.cell):not(:disabled):active,
   margin: 0 0 8px;
 }
 
-/* Every dialog title is one level; CLEAR is a badge, not a title. */
+/* Every dialog title is one level; CLEAR is a badge, not a title. A heading
+ * inside a dialog is one step below it. */
 .dialog-card h2:not(.clear-badge) {
   font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.dialog-card h3 {
+  margin: 16px 0 8px;
+  font-size: 1.05rem;
   line-height: 1.3;
 }
 
@@ -1280,11 +1423,6 @@ button:not(.cell):not(:disabled):active,
   background: var(--color-accent);
   color: var(--color-ink);
   font-weight: 800;
-}
-
-/* Log out and account deletion sit side by side at the bottom of the card. */
-.account-card > button:not(.dialog-close) {
-  margin: 12px 8px 0 0;
 }
 
 .retry-status {
@@ -1462,7 +1600,10 @@ button:not(.cell):not(:disabled):active,
   background: var(--color-accent-next);
 }
 
+/* Room for a two-line message or one ranking row, so the buttons below do not
+ * jump when the loading line gives way to the result. */
 .clear-ranking-preview {
+  min-height: 72px;
   margin: 16px 0;
   text-align: left;
   cursor: pointer;
@@ -1483,7 +1624,7 @@ button:not(.cell):not(:disabled):active,
 .dialog-message {
   margin: 0 0 12px;
   color: var(--color-ink-soft);
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 .dialog-actions {
@@ -1526,7 +1667,8 @@ button:not(.cell):not(:disabled):active,
   padding-inline: 18px;
 }
 
-.confirm-actions button:not(.confirm-accept) {
+.confirm-actions button:not(.confirm-accept),
+.dialog-actions button.secondary-button {
   background: var(--color-surface);
 }
 
@@ -1766,9 +1908,5 @@ button:not(.cell):not(:disabled):active,
   .result-list {
     flex-wrap: wrap;
     gap: 2px 4px;
-  }
-
-  .history-summary-grid dt {
-    font-size: 11px;
   }
 }

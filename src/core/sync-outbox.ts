@@ -84,10 +84,16 @@ export class SyncOutbox {
     this.persist();
   }
 
+  /**
+   * Sends the account's plays in order and returns how many the server took.
+   * A play `send` answers "rejected" for can never be accepted (the server
+   * keeps a different record under its ID), so it leaves the queue instead of
+   * blocking every play behind it; the local history still has it.
+   */
   async drain(
     accountId: string,
     stillCurrent: () => boolean,
-    send: (play: PlayResult) => Promise<void>,
+    send: (play: PlayResult) => Promise<void | "rejected">,
   ): Promise<number> {
     if (this.running) return 0;
     this.running = true;
@@ -96,10 +102,10 @@ export class SyncOutbox {
       while (stillCurrent()) {
         const next = this.pending.find((p) => p.accountId === accountId);
         if (!next) break;
-        await send(next.play);
+        const outcome = await send(next.play);
         this.pending = this.pending.filter((p) => p !== next);
         this.persist();
-        sent += 1;
+        if (outcome !== "rejected") sent += 1;
       }
       return sent;
     } finally {

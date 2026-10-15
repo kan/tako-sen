@@ -14,7 +14,8 @@ defineProps<{
     | "board"
     | "score"
     | "share"
-    | "ranking";
+    | "ranking"
+    | "check";
 }>();
 </script>
 
@@ -62,6 +63,7 @@ defineProps<{
       <circle cx="12" cy="12" r="3" />
     </template>
     <path v-else-if="name === 'mistake'" d="m6 6 12 12M18 6 6 18" />
+    <path v-else-if="name === 'check'" d="m5 12.5 4.5 4.5L19 7.5" />
     <template v-else-if="name === 'hint'">
       <path d="M9 17c0-3-4-4-4-8a7 7 0 0 1 14 0c0 4-4 5-4 8ZM9 20h6M10 23h4" />
       <path d="M12 17v-5m-2-2 2 2 2-2" />

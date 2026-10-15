@@ -13,6 +13,7 @@ describe("super connection", () => {
     [401, "auth"],
     [403, "profile"],
     [429, "rate"],
+    [409, "conflict"],
     [503, "server"],
     [400, "invalid"],
   ])("classifies HTTP %s", async (status, kind) => {

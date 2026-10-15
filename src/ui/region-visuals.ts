@@ -83,13 +83,16 @@ export function cellBaseStyle(
   return {
     backgroundColor: color.background,
     // The stylesheet's ink and focus colours suit the light Regions. On the
-    // dark Region the text, the keyboard focus ring and the tako's edge turn
-    // light; borders and the press rings keep their stylesheet colours.
+    // dark Region the text, the keyboard focus ring, the tako's edge and the
+    // × hatching turn light; the press rings keep their stylesheet colours.
     ...(color.foreground
       ? {
           color: color.foreground,
           "--focus-color": color.foreground,
           "--tako-halo": "var(--color-surface)",
+          // The stylesheet's red hatching vanishes on the dark fill.
+          "--exclude-hatch-ink": "rgb(var(--color-surface-rgb) / 55%)",
+          ...darkInnerLines(borders),
         }
       : {}),
     borderTopWidth: width(row === 0, borders.top),
@@ -98,6 +101,26 @@ export function cellBaseStyle(
     borderLeftWidth: width(col === 0, borders.left),
   };
 }
+
+/**
+ * Ink lines between cells of the dark Region reach only 2.2:1, so those turn
+ * light (about 3.5:1); the Region's own outline stays ink like every other.
+ */
+function darkInnerLines(borders: CellRegionBorders): Record<string, string> {
+  const sides = {
+    Top: borders.top,
+    Right: borders.right,
+    Bottom: borders.bottom,
+    Left: borders.left,
+  };
+  return Object.fromEntries(
+    Object.entries(sides)
+      .filter(([, region]) => !region)
+      .map(([side]) => [`border${side}Color`, DARK_REGION_LINE]),
+  );
+}
+
+const DARK_REGION_LINE = "rgb(var(--color-surface-rgb) / 60%)";
 
 export function cellRegionBorders(
   puzzle: Pick<Puzzle, "size" | "regions">,

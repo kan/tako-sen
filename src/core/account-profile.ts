@@ -55,22 +55,35 @@ export function saveCachedProfile(
   }
 }
 
-/** Names are plain text, never authentication identifiers or HTML. */
-export function validateGameName(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+/** A name's length in graphemes, as the player sees it. */
+export const GAME_NAME_MIN = 2;
+export const GAME_NAME_MAX = 20;
+
+/**
+ * Why a name is refused: its length in graphemes (or its size in UTF-16, which
+ * only a very long name reaches), or a character outside the allowed set.
+ */
+export function gameNameProblem(value: string): "length" | "chars" | undefined {
   const name = value.normalize("NFC").trim();
-  if (name.length > 256) return undefined;
   const parts = gameNameParts(name);
   if (
-    parts.length < 2 ||
-    parts.length > 20 ||
-    !parts.every(
-      (part) =>
-        part.emoji ||
-        (/^[\p{L}\p{N}\p{M} _-]+$/u.test(part.text) &&
-          !/[\uFE0E\uFE0F]/u.test(part.text)),
-    )
+    name.length > 256 ||
+    parts.length < GAME_NAME_MIN ||
+    parts.length > GAME_NAME_MAX
   )
-    return undefined;
-  return name;
+    return "length";
+  return parts.every(
+    (part) =>
+      part.emoji ||
+      (/^[\p{L}\p{N}\p{M} _-]+$/u.test(part.text) &&
+        !/[\uFE0E\uFE0F]/u.test(part.text)),
+  )
+    ? undefined
+    : "chars";
+}
+
+/** Names are plain text, never authentication identifiers or HTML. */
+export function validateGameName(value: unknown): string | undefined {
+  if (typeof value !== "string" || gameNameProblem(value)) return undefined;
+  return value.normalize("NFC").trim();
 }

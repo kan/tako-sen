@@ -9,8 +9,8 @@ import { isComplete } from "../core/rules";
 import { maximumHintStage } from "../core/hint-progress";
 import {
   encodeSuperSeed,
+  SUPER_GENERATOR_VERSION,
   SuperSeedError,
-  generateSuperPuzzle,
   isSuperPuzzleOf,
   isSuperVersion,
   parseSuperSeed,
@@ -37,12 +37,15 @@ import { puzzleId } from "../core/puzzle-identity";
 import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { trapDialogFocus } from "./dialog";
 import PublicLeaderboard from "./PublicLeaderboard.vue";
+import { generateSuperInBackground } from "./puzzle-generation";
+import { ALLOW_SITE_DATA, PLAY_CONTINUES, accountChanged } from "./notice-text";
 import {
   fetchSuperResponse,
   SuperConnectionError,
   SuperNotice,
   superNoticeText,
   superRetryDelay,
+  superStartFailureText,
 } from "./super-connection";
 
 const SHARED_SEED_INVALID =
@@ -50,6 +53,12 @@ const SHARED_SEED_INVALID =
 // The recovery steps the player-facing failures end with.
 const RETRY_LATER = "少し待ってからもう一度お試しください。";
 const PRESS_CHALLENGE = "もう一度「挑戦する」を押してください。";
+const CANNOT_SAVE_START = `この端末に保存できないため超級を開始できません。${ALLOW_SITE_DATA}`;
+const ACCOUNT_CHANGED = accountChanged("超級の案内");
+const SUPER_RANKING_NOTE = {
+  lead: "この超級の盤面に挑戦した参加者の初回成績です。自己申告の参考記録で、見るにはログインが必要です。",
+  join: "挑戦権か共有された超級で挑戦すると自動参加します。同じ盤面への再挑戦では記録を更新しません。退会で公開記録を削除できます。",
+};
 
 const props = defineProps<{
   puzzle: Puzzle;
@@ -95,6 +104,7 @@ const entryButton = ref<HTMLElement>();
 let focusBefore: HTMLElement | null = null;
 let epoch = 0;
 let preparation = 0;
+let preparationAbort: AbortController | undefined;
 const sharedCode = ref<string>();
 let disposed = false;
 let retryTimer: ReturnType<typeof setInterval> | undefined;
@@ -117,6 +127,22 @@ const label = computed(() =>
     : progress.value
       ? `あと${remainingSuperPlays(progress.value)}`
       : "",
+);
+/** "Later" only means something when there is a challenge to put off. */
+const canPostpone = computed(
+  () => !!account.value && (!!sharedCode.value || right.value),
+);
+/** The entry button resumes a super board saved here rather than offering one. */
+const resumable = computed(() => availableSave.value && !isSuper.value);
+/** The entry button's name, which also says whether a right is waiting. */
+const entryLabel = computed(() =>
+  resumable.value
+    ? "この端末の超級を再開"
+    : right.value
+      ? "超級に挑戦（挑戦権があります）"
+      : progress.value
+        ? `超級に挑戦（${label.value}回クリアすると挑戦できます）`
+        : "超級に挑戦",
 );
 
 function current(id: string, generation: number): boolean {
@@ -219,23 +245,27 @@ function captureNormalTrial(playId: string, seedCode: string): void {
       throw new Error();
     void retry();
   } catch {
-    message.value =
-      "超級のクリア数に必要な試行情報を保存できませんでした。通常プレイは続けられます。";
+    message.value = `この端末に保存できないため、このクリアは超級のクリア数に入りません。${ALLOW_SITE_DATA}${PLAY_CONTINUES}`;
   }
 }
 function syncFailed(error: unknown): void {
   failures += 1;
   nextRetryAt = Date.now() + superRetryDelay(failures);
-  // A brief connection hiccup should recover silently. Report it only when
-  // the next attempt also fails; keep the queued records in either case.
-  if (failures === 1) return;
   const failure =
     error instanceof SuperConnectionError
       ? error
       : new SuperConnectionError("invalid");
-  if (failure.kind === "auth" || failure.kind === "profile")
-    nextRetryAt = Infinity;
-  syncMessage.value = `${failure.message} 保存済みの進捗と未送信記録は保持しています。通常プレイは続けられます。`;
+  // Sending again cannot fix these; only the player can, and the retry button
+  // stays for when they have.
+  const lasting =
+    failure.kind === "auth" ||
+    failure.kind === "profile" ||
+    failure.kind === "conflict";
+  if (lasting) nextRetryAt = Infinity;
+  // A brief connection hiccup should recover silently. Report it only when
+  // the next attempt also fails; keep the queued records in either case.
+  else if (failures === 1) return;
+  syncMessage.value = `${failure.message} 送れていない記録はこの端末に残っています。${PLAY_CONTINUES}`;
 }
 async function refresh(): Promise<boolean> {
   if (refreshing) return refreshing;
@@ -325,14 +355,14 @@ function showOffer(): void {
       void retry();
     } else
       message.value =
-        "案内済み状態を保存できません。次回も案内する場合があります。";
+        "この案内を見たことをこの端末に保存できません。次回も同じ案内が出る場合があります。";
   }
 }
 function closeOffer(): void {
   if (!offerOpen.value) return;
   offerOpen.value = false;
   sharedCode.value = undefined;
-  preparation += 1;
+  cancelPreparation();
   emit("closed");
   void nextTick(() =>
     focusBefore?.isConnected ? focusBefore.focus() : entryButton.value?.focus(),
@@ -357,31 +387,50 @@ function onKeydown(event: KeyboardEvent): void {
     closeOffer();
   } else trapDialogFocus(event, dialog.value);
 }
+/**
+ * Ends the preparation under way: its result is no longer wanted, and the
+ * board it may be building stops taking the generation worker's time.
+ */
+function cancelPreparation(): void {
+  preparation += 1;
+  preparationAbort?.abort();
+  preparationAbort = undefined;
+}
 /** super-v2 has seeds that reach no hard board, so a few are tried. */
-function generateFreshSuper(): { seedCode: string; puzzle: Puzzle } {
+async function generateFreshSuper(signal: AbortSignal): Promise<{
+  seedCode: string;
+  puzzle: Puzzle;
+}> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const seed = crypto.randomUUID();
     try {
       return {
         seedCode: encodeSuperSeed(seed),
-        puzzle: generateSuperPuzzle(seed),
+        puzzle: await generateSuperInBackground(
+          seed,
+          SUPER_GENERATOR_VERSION,
+          signal,
+        ),
       };
     } catch (error) {
       if (!(error instanceof SuperSeedError)) throw error;
     }
   }
-  throw new SuperNotice(
-    "超級の盤面を作れませんでした。もう一度お試しください。",
-  );
+  throw new SuperNotice(`超級の盤面を作れませんでした。${PRESS_CHALLENGE}`);
 }
 /** The board a code names, or undefined when it names none. */
 async function rebuildSuper(
   seedCode: string,
+  signal: AbortSignal,
 ): Promise<{ seedCode: string; puzzle: Puzzle; identity: string } | undefined> {
   const code = parseSuperSeedCode(seedCode);
   if (!code) return undefined;
   try {
-    const puzzle = generateSuperPuzzle(code.seed, code.version);
+    const puzzle = await generateSuperInBackground(
+      code.seed,
+      code.version,
+      signal,
+    );
     return { seedCode, puzzle, identity: await puzzleId(puzzle) };
   } catch {
     return undefined;
@@ -395,7 +444,10 @@ async function prepare(seedCode?: string): Promise<void> {
   }
   const id = account.value;
   const generation = epoch;
-  const ticket = ++preparation;
+  cancelPreparation();
+  const ticket = preparation;
+  const abort = new AbortController();
+  preparationAbort = abort;
   const preparing = () => current(id, generation) && preparation === ticket;
   busy.value = true;
   message.value = "";
@@ -423,13 +475,15 @@ async function prepare(seedCode?: string): Promise<void> {
       }
       seedCode = candidate?.seedCode;
     }
-    let board = seedCode ? await rebuildSuper(seedCode) : undefined;
+    let board = seedCode
+      ? await rebuildSuper(seedCode, abort.signal)
+      : undefined;
     if (!preparing()) return;
     if (seedCode && !board && !candidate)
       throw new SuperNotice(SHARED_SEED_INVALID);
     // A candidate that cannot be rebuilt as recorded gives way to a new board.
     if (!board || (candidate && board.identity !== candidate.puzzleId)) {
-      const fresh = generateFreshSuper();
+      const fresh = await generateFreshSuper(abort.signal);
       board = { ...fresh, identity: await puzzleId(fresh.puzzle) };
       if (!preparing()) return;
     }
@@ -459,7 +513,7 @@ async function prepare(seedCode?: string): Promise<void> {
     if (
       !saveSuperGame(id, session, generated, state, playId, timer, localStorage)
     )
-      throw new SuperNotice("保存できないため超級を開始できません。");
+      throw new SuperNotice(CANNOT_SAVE_START);
     const saved = loadSuperGame(id, localStorage);
     if (!saved)
       throw new SuperNotice(`保存した超級を確認できません。${PRESS_CHALLENGE}`);
@@ -478,6 +532,7 @@ async function prepare(seedCode?: string): Promise<void> {
       );
   } finally {
     busy.value = false;
+    if (preparationAbort === abort) preparationAbort = undefined;
   }
 }
 function openShared(code: string): void {
@@ -545,19 +600,21 @@ function saveCurrent(
     localStorage,
   );
   if (!ok)
-    message.value =
-      "超級の進行を保存できません。再読み込みすると進行が戻る可能性があります。";
+    message.value = `超級の進行をこの端末に保存できません。ページを読み込み直すと、進行が戻る場合があります。${ALLOW_SITE_DATA}`;
   return ok;
 }
+/** Claims the start on READY's OK: true, or what the player should do. */
 async function claimReady(
   puzzle: Puzzle,
   state: PlayerState,
   playId: string,
   timer: SavedPlayTimer,
-): Promise<boolean> {
+): Promise<true | string> {
   const meta = active.value;
-  if (!meta || meta.accountId !== account.value || busy.value) return false;
-  if (!saveCurrent(puzzle, state, playId, timer)) return false;
+  if (!meta || meta.accountId !== account.value) return ACCOUNT_CHANGED;
+  if (busy.value)
+    return "超級の状態を確認しています。少し待ってから、もう一度 OK を押してください。";
+  if (!saveCurrent(puzzle, state, playId, timer)) return CANNOT_SAVE_START;
   busy.value = true;
   try {
     // Same start body is retried even if the first response was lost. Restoring
@@ -568,7 +625,8 @@ async function claimReady(
       cycle: meta.session.cycle,
       entry: meta.session.entry,
     });
-    if (active.value !== meta || meta.accountId !== account.value) return false;
+    if (active.value !== meta || meta.accountId !== account.value)
+      return ACCOUNT_CHANGED;
     active.value = { ...meta, session: { ...meta.session, claimed: true } };
     saveCurrent(puzzle, state, playId, timer);
     void refresh();
@@ -576,12 +634,9 @@ async function claimReady(
   } catch (error) {
     // A failure from the account that started the request is not news for
     // whoever is signed in now.
-    if (meta.accountId === account.value)
-      message.value = superNoticeText(
-        error,
-        `超級を開始できません。${RETRY_LATER}`,
-      );
-    return false;
+    return meta.accountId === account.value
+      ? superStartFailureText(error)
+      : ACCOUNT_CHANGED;
   } finally {
     busy.value = false;
   }
@@ -612,8 +667,7 @@ function completeCurrent(
       meta.session.seedCode,
     )
   )
-    message.value =
-      "超級の結果を保存できません。画面を閉じず、保存できる状態で再試行してください。";
+    message.value = `超級の結果をこの端末に保存できません。画面を閉じずに、${ALLOW_SITE_DATA}`;
   else {
     excluded.add(meta.session.puzzleId);
     persistExcluded(meta.accountId);
@@ -648,7 +702,7 @@ async function fetchRanking(id: string): Promise<Response> {
 watch(
   () => [props.playId, props.puzzle],
   () => {
-    preparation += 1;
+    cancelPreparation();
     rememberTrial();
   },
 );
@@ -668,7 +722,7 @@ watch(
     refreshedAt = 0;
     syncMessage.value = "";
     refreshing = undefined;
-    preparation += 1;
+    cancelPreparation();
     progress.value = undefined;
     progressOwner.value = undefined;
     availableSave.value = false;
@@ -720,8 +774,7 @@ watch(
 function onOffline(): void {
   connected.value = false;
   if (account.value)
-    syncMessage.value =
-      "通信が切れています。保存済みの進捗と未送信記録は保持し、接続が戻ると再同期します。通常プレイは続けられます。";
+    syncMessage.value = `通信が切れています。送れていない記録はこの端末に残り、接続が戻ると自動で送り直します。${PLAY_CONTINUES}`;
   if (isSuper.value) {
     emit("pause");
     message.value = "超級はオンライン復帰後に再開できます。";
@@ -798,8 +851,8 @@ defineExpose({
       v-else-if="!gameName"
       type="button"
       class="icon-button super-challenge-button"
-      aria-label="超級 · ゲーム名を設定して参加"
-      title="超級 · ゲーム名を設定して参加"
+      aria-label="超級 · プレイヤー名を設定して参加"
+      title="超級 · プレイヤー名を設定して参加"
       @click="showOffer"
     >
       <UiIcon name="super" />
@@ -811,20 +864,14 @@ defineExpose({
       <button
         ref="entryButton"
         class="icon-button super-challenge-button"
-        :aria-label="
-          availableSave && !isSuper ? 'この端末の超級を再開' : '超級に挑戦'
-        "
-        :title="
-          availableSave && !isSuper
-            ? 'この端末の超級を再開'
-            : right
-              ? '超級に挑戦'
-              : `${label}回クリアで超級に挑戦`
-        "
+        :class="{ 'has-right': right && !resumable }"
+        :aria-label="entryLabel"
+        :title="entryLabel"
+        :aria-busy="busy || undefined"
         type="button"
         :disabled="busy"
         @click="
-          if (availableSave && !isSuper) {
+          if (resumable) {
             resumeSaved();
           } else {
             sharedCode = undefined;
@@ -834,21 +881,33 @@ defineExpose({
       >
         <UiIcon name="super" />
       </button>
-      <p v-if="syncing" role="status">超級の記録を同期しています。</p>
     </template>
-    <p role="status" v-text="message"></p>
-    <p v-if="syncMessage" role="status">
-      {{ syncMessage
-      }}<button
-        type="button"
-        class="icon-button retry-button"
-        aria-label="再試行"
-        title="再試行"
-        :disabled="syncing || !connected"
-        @click="retry(true)"
-      >
-        <UiIcon name="reset" />
-      </button>
+    <p
+      role="status"
+      v-text="
+        message ||
+        (busy && !offerOpen
+          ? '超級を準備しています…'
+          : syncing && account
+            ? '超級の記録を送信しています…'
+            : '')
+      "
+    ></p>
+    <!-- Mounted while empty (v-if leaves only a comment), so the change is
+         announced. -->
+    <p role="status">
+      <template v-if="syncMessage"
+        >{{ syncMessage
+        }}<button
+          type="button"
+          class="icon-button retry-button"
+          aria-label="今すぐ送り直す"
+          title="今すぐ送り直す"
+          :disabled="syncing || !connected"
+          @click="retry(true)"
+        >
+          <UiIcon name="reset" /></button
+      ></template>
     </p>
   </section>
   <div
@@ -888,13 +947,14 @@ defineExpose({
       <p v-if="sharedCode">
         共有された10×10の超級です。挑戦権や通常問題のクリア数は変わりません。
       </p>
-      <p v-else>
-        10×10・タコ10匹の超級です。OKで開始するまで挑戦権は使いません。あとで挑戦することもできます。
+      <p v-else-if="right">
+        10×10・タコ10匹の超級です。「挑戦する」を押しても、READY
+        画面で「OK」を押すまでは挑戦権を使いません。今は挑戦せず、あとで挑戦することもできます。
       </p>
       <template v-if="!sharedCode && !right">
-        <p>初級・中級・上級より難しい、10×10のパズルに挑戦できます。</p>
+        <p>初級・中級・上級より難しい、10×10・タコ10匹のパズルです。</p>
         <p>
-          ログインしてゲーム名を設定し、公開ルールに同意した後、通常問題を合計10回クリアすると、1回分の挑戦権を獲得できます。
+          ログインしてプレイヤー名を設定し、公開ルールに同意してから、通常問題を合計10回クリアすると、挑戦権を1回分もらえます。
         </p>
         <p>
           デイリー・超級・練習は加算しません。挑戦権は1回分だけ保留でき、保留中のクリアは次の分へ繰り越しません。
@@ -903,32 +963,34 @@ defineExpose({
           まずログインしてください。未ログイン中のクリアは加算されません。
         </p>
         <p v-else-if="!gameName">
-          ゲーム名の設定と公開ルールへの同意が必要です。
+          プレイヤー名の設定と公開ルールへの同意が必要です。
         </p>
         <p v-else-if="progress">
           現在 {{ progress.count }} / 10回クリア。あと{{
             remainingSuperPlays(progress)
           }}回です。
         </p>
-        <p v-else>クリア数を確認しています。通信状態を確認してください。</p>
+        <p v-else-if="connected">クリア数を確認しています…</p>
+        <p v-else>クリア数は、接続が戻ると確認できます。</p>
       </template>
       <p v-if="!connected">超級の開始・再開にはオンライン接続が必要です。</p>
       <p v-if="!complete && (sharedCode || right)">
         現在の盤面から超級へ切り替えます。通常の進行は端末に保存します。
       </p>
       <p role="status" v-text="message"></p>
-      <p v-if="syncMessage" role="status">
-        {{ syncMessage
-        }}<button
-          type="button"
-          class="icon-button retry-button"
-          aria-label="再試行"
-          title="再試行"
-          :disabled="syncing || !connected"
-          @click="retry(true)"
-        >
-          <UiIcon name="reset" />
-        </button>
+      <p role="status">
+        <template v-if="syncMessage"
+          >{{ syncMessage
+          }}<button
+            type="button"
+            class="icon-button retry-button"
+            aria-label="今すぐ送り直す"
+            title="今すぐ送り直す"
+            :disabled="syncing || !connected"
+            @click="retry(true)"
+          >
+            <UiIcon name="reset" /></button
+        ></template>
       </p>
       <div class="dialog-actions">
         <SignInButton v-if="!isSignedIn"
@@ -942,16 +1004,20 @@ defineExpose({
             emit('account');
           "
         >
-          ゲーム名を設定する
+          プレイヤー名を設定する
         </button>
         <button
           v-else-if="sharedCode || right"
           type="button"
-          :disabled="busy || !connected"
+          :disabled="!connected"
+          :aria-disabled="busy || undefined"
+          :aria-busy="busy || undefined"
           @click="prepare(sharedCode)"
         >
-          挑戦する</button
-        ><button type="button" @click="closeOffer">あとで</button>
+          {{ busy ? "準備しています…" : "挑戦する" }}</button
+        ><button type="button" class="secondary-button" @click="closeOffer">
+          {{ canPostpone ? "あとで" : "閉じる" }}
+        </button>
       </div>
     </section>
   </div>
@@ -963,6 +1029,7 @@ defineExpose({
     :complete="complete"
     :game-name="gameName"
     title="超級のランキング"
+    :note="SUPER_RANKING_NOTE"
     :fetch-entries="fetchRanking"
     @close="closeRanking"
   />

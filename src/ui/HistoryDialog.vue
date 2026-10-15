@@ -15,6 +15,7 @@ import { isComplete } from "../core/rules";
 import { dailyDate } from "../core/daily-puzzle";
 import { rankingScore } from "../core/ranking-score";
 import { trapDialogFocus } from "./dialog";
+import { scrollBehavior } from "./scroll";
 import UiIcon from "./UiIcon.vue";
 
 const props = defineProps<{
@@ -190,6 +191,16 @@ watch(
   },
   { immediate: true },
 );
+/**
+ * Opened at the bottom of the scroll area, the list would stay out of view;
+ * its summary moves to the top of the area, showing as much of it as fits.
+ */
+function revealRecent(event: Event): void {
+  const details = event.currentTarget as HTMLDetailsElement;
+  if (!details.open) return;
+  details.scrollIntoView({ block: "start", behavior: scrollBehavior() });
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -282,14 +293,14 @@ onUnmounted(() => {
             {{ tab.label }}
           </button>
         </div>
-        <p v-if="busy" role="status">成績を読み込んでいます。</p>
-        <p v-if="message" class="retry-status" role="status">
+        <p role="status" v-text="busy ? '成績を読み込んでいます…' : ''"></p>
+        <p v-if="message" class="retry-status" role="alert">
           <span>{{ message }}</span>
           <button
             type="button"
             class="icon-button"
-            aria-label="再読み込み"
-            title="再読み込み"
+            aria-label="もう一度読み込む"
+            title="もう一度読み込む"
             :disabled="busy"
             @click="refresh"
           >
@@ -356,7 +367,11 @@ onUnmounted(() => {
                 <text x="3" y="105">0</text>
               </svg>
             </figure>
-            <details :key="selected" class="history-recent">
+            <details
+              :key="selected"
+              class="history-recent"
+              @toggle="revealRecent"
+            >
               <summary>最近のプレイ（{{ view.recent.length }}件）</summary>
               <ul>
                 <li

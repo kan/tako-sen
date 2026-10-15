@@ -5,6 +5,7 @@ import {
   saveCachedProfile,
   validateGameName,
   gameNameParts,
+  gameNameProblem,
 } from "../src/core/account-profile";
 import type { PlayResult } from "../src/core/results";
 
@@ -35,6 +36,14 @@ function play(id = crypto.randomUUID()): PlayResult {
 }
 
 describe("game names", () => {
+  it("says why a name is refused, for the hint under the field", () => {
+    expect(gameNameProblem("タコ")).toBeUndefined();
+    expect(gameNameProblem("タ")).toBe("length");
+    expect(gameNameProblem("タ".repeat(21))).toBe("length");
+    expect(gameNameProblem("タコ・テスト")).toBe("chars");
+    expect(gameNameProblem(" 🐙タ ")).toBeUndefined();
+  });
+
   it("caches consent per account for offline queueing without inferring it for other accounts", () => {
     const local = storage();
     const profile = { displayName: "端末タコ", consentVersion: 1 };
@@ -169,6 +178,19 @@ describe("account-owned synchronization outbox", () => {
     expect(await draining).toBe(1);
     expect(send).toHaveBeenCalledTimes(1);
     expect(outbox.count("account-a")).toBe(1);
+  });
+
+  it("drops a play the server rejects and keeps sending the ones behind it", async () => {
+    const outbox = new SyncOutbox([], storage());
+    const conflicting = play();
+    const next = play();
+    outbox.capture([conflicting, next], "account-a");
+    const send = vi.fn(async (sent: PlayResult) =>
+      sent.id === conflicting.id ? ("rejected" as const) : undefined,
+    );
+    expect(await outbox.drain("account-a", () => true, send)).toBe(1);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(outbox.count("account-a")).toBe(0);
   });
 
   it("removes only deleted account queues and preserves other accounts", () => {

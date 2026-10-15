@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuth } from "./auth";
 import {
+  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -10,9 +11,14 @@ import {
 } from "vue";
 import GameName from "./GameName.vue";
 import { trapDialogFocus } from "./dialog";
+import { PLAY_CONTINUES } from "./notice-text";
 import { createCompletedPlayUpload } from "../core/online-history";
 import {
+  GAME_NAME_MAX,
+  GAME_NAME_MIN,
   RANKING_CONSENT_VERSION,
+  gameNameParts,
+  gameNameProblem,
   validateGameName,
   loadCachedProfile,
   saveCachedProfile,
@@ -53,9 +59,31 @@ const busy = ref(false);
 const syncing = ref(false);
 const message = ref("");
 const syncMessage = ref("");
+const pendingCount = ref(0);
 let epoch = 0;
 let disposed = false;
 let retryTimer: ReturnType<typeof setInterval> | undefined;
+
+/** What is wrong with the typed name, once there is something typed. */
+const nameProblem = computed(() => {
+  const name = gameName.value.normalize("NFC").trim();
+  const problem = name ? gameNameProblem(name) : undefined;
+  return problem === "length"
+    ? `プレイヤー名は${GAME_NAME_MIN}〜${GAME_NAME_MAX}文字にしてください（いま${gameNameParts(name).length}文字）。`
+    : problem === "chars"
+      ? "使えない文字が入っています。「・」や「！」などの記号は使えません。"
+      : "";
+});
+/** Why the submit button does nothing yet, said beside it. */
+const submitHint = computed(() =>
+  !gameName.value.trim()
+    ? "プレイヤー名を入力してください。"
+    : nameProblem.value
+      ? "プレイヤー名を直してください。"
+      : !consent.value
+        ? "公開ルールに同意すると設定できます。"
+        : "",
+);
 
 watch(
   () => props.open,
@@ -148,8 +176,7 @@ async function loadProfile(): Promise<void> {
     if (current === epoch) await synchronize();
   } catch {
     if (current === epoch && !disposed)
-      message.value =
-        "オンライン設定を確認できません。再試行できます。オフラインでのプレイは続けられます。";
+      message.value = `オンライン設定を確認できません。接続を確認して、アカウントを開き直してください。${PLAY_CONTINUES}`;
     if (current === epoch) await synchronize();
   } finally {
     if (current === epoch) profileLoading.value = false;
@@ -173,7 +200,8 @@ async function registerProfile(): Promise<void> {
     });
     if (current !== epoch) return;
     if (response.status === 409) {
-      message.value = "この名前は使われています。別の名前を選んでください。";
+      message.value =
+        "このプレイヤー名はほかの人が使っています。別の名前にしてください。";
       return;
     }
     if (!response.ok) throw new Error("Registration failed.");
@@ -184,33 +212,47 @@ async function registerProfile(): Promise<void> {
     emit("profile", data.profile.displayName);
     emit("setupRequired", false);
     message.value =
-      "設定しました。これからのクリアを自動同期します。過去のローカル履歴は送信しません。";
+      "設定しました。これからのクリアを自動で送ります。過去のローカル履歴は送りません。";
     await synchronize();
   } catch {
     if (current === epoch)
-      message.value = "設定を保存できません。再試行してください。";
+      message.value =
+        "プレイヤー名を設定できません。接続を確認して、もう一度押してください。";
   } finally {
     busy.value = false;
   }
+}
+
+const waitingText = (count: number) =>
+  `未送信${count}件。接続が戻ると自動で送ります。`;
+
+/** After a send: what was dropped for good, and what still waits. */
+function syncResultText(waiting: number, rejected: number): string {
+  const dropped = rejected
+    ? `${rejected}件はサーバーにある記録と食い違うため送りませんでした。この端末の履歴には残っています。`
+    : "";
+  if (waiting) return `${dropped}${waitingText(waiting)}`;
+  return dropped || "同期済み";
 }
 
 async function synchronize(): Promise<void> {
   const accountId = userId.value;
   if (!accountId || !profile.value || syncing.value || disposed) return;
   const current = epoch;
-  const pending = outbox.count(accountId);
-  if (!pending) {
+  pendingCount.value = outbox.count(accountId);
+  if (!pendingCount.value) {
     syncMessage.value = "同期済み";
     return;
   }
   if (!navigator.onLine) {
-    syncMessage.value = `未送信 ${pending} 件 · 接続後に自動再送します`;
+    syncMessage.value = waitingText(pendingCount.value);
     return;
   }
   syncing.value = true;
-  syncMessage.value = "同期中…";
+  syncMessage.value = "送信しています…";
   emit("sending", true);
   let ranking: SyncedRanking | undefined;
+  let rejected = 0;
   try {
     const sent = await outbox.drain(
       accountId,
@@ -223,10 +265,13 @@ async function synchronize(): Promise<void> {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(upload),
         });
-        if (!response.ok)
-          throw new Error(
-            response.status === 409 ? "conflict" : "upload_failed",
-          );
+        // The server holds a different record under this play's ID and keeps
+        // it; sending again cannot change that.
+        if (response.status === 409) {
+          rejected += 1;
+          return "rejected";
+        }
+        if (!response.ok) throw new Error("upload_failed");
         // 記録は登録済みなので、ランキングを読めなくても送信は成功とする。
         const body = (await response.json().catch(() => null)) as {
           entries?: unknown;
@@ -247,23 +292,22 @@ async function synchronize(): Promise<void> {
       },
     );
     if (current !== epoch || disposed) return;
-    syncMessage.value = outbox.count(accountId)
-      ? `未送信 ${outbox.count(accountId)} 件`
-      : "同期済み";
+    syncMessage.value = syncResultText(outbox.count(accountId), rejected);
     if (sent) {
       emit("synced", ranking);
     }
-  } catch (error) {
+  } catch {
     if (current === epoch && !disposed)
-      syncMessage.value = String(error).includes("conflict")
-        ? "記録が競合しています。ローカル記録は保持しています。"
-        : `未送信 ${outbox.count(accountId)} 件 · 再接続後に自動再送します`;
+      syncMessage.value = syncResultText(outbox.count(accountId), rejected);
   } finally {
     syncing.value = false;
     emit("sending", false);
-    if (current === epoch && outbox.persistenceFailed)
-      syncMessage.value +=
-        " · 未送信データを端末に保存できません。この画面を閉じると再送できない場合があります。";
+    if (current === epoch) {
+      pendingCount.value = outbox.count(accountId);
+      if (outbox.persistenceFailed)
+        syncMessage.value +=
+          " 送信待ちの記録をこの端末に保存できません。この画面を閉じると送れなくなる場合があります。";
+    }
   }
 }
 
@@ -274,7 +318,7 @@ async function deleteAccount(): Promise<void> {
     !(await askConfirm({
       title: "退会しますか？",
       message:
-        "アカウント、ゲーム名、オンライン履歴、すべてのランキング記録を削除します。端末のローカル履歴は残ります。元に戻せません。",
+        "アカウント、プレイヤー名、オンライン履歴、すべてのランキング記録を削除します。端末のローカル履歴は残ります。元に戻せません。",
       confirmLabel: "退会する",
     }))
   )
@@ -295,7 +339,7 @@ async function deleteAccount(): Promise<void> {
   } catch {
     if (userId.value === accountId)
       message.value =
-        "退会処理を確認できません。ログインできる場合は再試行してください。";
+        "退会できたか確認できません。接続を確認して、もう一度「退会してオンライン履歴を削除」を押してください。";
   } finally {
     busy.value = false;
   }
@@ -337,7 +381,7 @@ onUnmounted(() => {
     >
       <div class="dialog-header">
         <h2 id="account-title">
-          {{ setupOnly ? "ゲーム名を設定" : "アカウント" }}
+          {{ setupOnly ? "プレイヤー名を設定" : "アカウント" }}
         </h2>
         <button
           v-if="!setupOnly"
@@ -349,68 +393,98 @@ onUnmounted(() => {
           <span aria-hidden="true">×</span>
         </button>
       </div>
-      <p v-if="!isLoaded || profileLoading">オンライン設定を確認しています。</p>
+      <p v-if="!isLoaded || profileLoading" role="status">
+        オンライン設定を確認しています…
+      </p>
       <template v-else-if="isSignedIn">
-        <form v-if="!profile" @submit.prevent="registerProfile">
-          <h2 v-if="!setupOnly">ゲーム名を決める</h2>
-          <label
-            >ゲーム名
-            <input
-              ref="nameInputRef"
-              v-model="gameName"
-              required
-              autocomplete="off"
-          /></label>
-          <p>
-            2〜20文字の文字・数字・絵文字・空白・ハイフン・下線を使えます。本名やメールアドレスは使わないでください。名前はランキングに表示されます。
+        <form
+          v-if="!profile"
+          class="account-setup"
+          @submit.prevent="registerProfile"
+        >
+          <h3 v-if="!setupOnly">プレイヤー名を決める</h3>
+          <label for="account-name">プレイヤー名</label>
+          <input
+            id="account-name"
+            ref="nameInputRef"
+            v-model="gameName"
+            required
+            autocomplete="off"
+            :aria-invalid="nameProblem ? 'true' : undefined"
+            aria-describedby="account-name-rules account-name-problem"
+          />
+          <p
+            id="account-name-problem"
+            class="account-problem"
+            aria-live="polite"
+            v-text="nameProblem"
+          ></p>
+          <p id="account-name-rules" class="account-note">
+            {{ GAME_NAME_MIN }}〜{{
+              GAME_NAME_MAX
+            }}文字。文字・数字・絵文字・空白・ハイフン（-）・下線（_）を使えます。「・」などの記号は使えません。ランキングに表示されるので、本名やメールアドレスは使わないでください。
           </p>
-          <p>
-            設定後はログイン中のクリアを自動同期し、各問題で最初にサーバーへ登録された成績を公開ランキングに載せます。再挑戦は個人履歴だけに残ります。過去のローカル履歴は送信しません。
+          <p class="account-note">
+            設定後は、ログイン中のクリアを自動で送ります。各問題で最初の成績が公開ランキングに載り、再挑戦は自分の履歴だけに残ります。過去の履歴は送りません。非公開の設定はなく、退会すると公開記録とプレイヤー名を削除します（他の人が保存したコピーは消せません）。
           </p>
-          <p>
-            個別の非公開設定はありません。公開記録とゲーム名は退会すると削除されます。第三者が保存したコピーは回収できません。
-          </p>
-          <label
+          <label class="account-consent"
             ><input v-model="consent" type="checkbox" required />
             この公開ルールに同意する</label
           >
           <button
             type="submit"
-            :disabled="busy || !consent || !validateGameName(gameName)"
+            :disabled="!!submitHint"
+            :aria-describedby="submitHint ? 'account-submit-hint' : undefined"
           >
-            ゲーム名を設定して参加する
+            プレイヤー名を設定して参加する
           </button>
+          <p v-if="submitHint" id="account-submit-hint" class="account-note">
+            {{ submitHint }}
+          </p>
         </form>
         <template v-else-if="!setupOnly">
-          <p>
+          <p class="account-sync">
             <GameName :name="profile.displayName" /> ·
             <span aria-live="polite">{{ syncMessage }}</span>
+            <button
+              v-if="pendingCount && !syncing"
+              type="button"
+              class="account-resend"
+              @click="synchronize"
+            >
+              今すぐ送る
+            </button>
           </p>
           <p>
             ランキングは各問題の初回クリアのみ。再挑戦も個人履歴に自動保存します。
           </p>
         </template>
+      </template>
+      <p v-else>
+        ログインしてプレイヤー名を設定すると、クリアの自動同期とランキング参加ができます。ログインなしでも遊べます。
+      </p>
+      <p class="account-message" aria-live="polite" v-text="message"></p>
+      <!-- Busy leaves these enabled, so a focused button keeps focus; the
+           handlers ignore a press while busy. -->
+      <div v-if="isSignedIn" class="account-actions">
         <button
-          v-if="!setupOnly"
           type="button"
-          :disabled="busy"
-          @click="signOut()"
+          :aria-disabled="busy || undefined"
+          @click="!busy && signOut()"
         >
           ログアウト
         </button>
-      </template>
-      <p v-else>
-        ログインしてゲーム名を設定すると、クリアの自動同期とランキング参加ができます。ログインなしでも遊べます。
-      </p>
-      <p v-if="message" aria-live="polite">{{ message }}</p>
-      <button
-        v-if="isSignedIn && !setupOnly"
-        type="button"
-        :disabled="busy"
-        @click="deleteAccount"
-      >
-        退会してオンライン履歴を削除
-      </button>
+      </div>
+      <div v-if="isSignedIn && !setupOnly" class="account-danger">
+        <button
+          type="button"
+          class="danger-button"
+          :aria-disabled="busy || undefined"
+          @click="deleteAccount"
+        >
+          退会してオンライン履歴を削除
+        </button>
+      </div>
     </section>
   </div>
 </template>

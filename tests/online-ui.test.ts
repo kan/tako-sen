@@ -439,7 +439,7 @@ describe("board pointer input", () => {
       expect(rankingRequests()).toBe(0);
       expect(preview()).toBeUndefined();
       expect(
-        find(container, (n) => n.text === "ランキングを取得しています。"),
+        find(container, (n) => n.text === "ランキングを取得しています…"),
       ).toBeDefined();
 
       if (upload === "slow") {
@@ -1916,8 +1916,8 @@ describe("weekly ranking dialog", () => {
       ).toBeDefined(),
     );
     expect(
-      find(container, (n) => n.props["aria-label"] === "再読み込み")!.props
-        .class,
+      find(container, (n) => n.props["aria-label"] === "もう一度読み込む")!
+        .props.class,
     ).toContain("icon-button");
     pending[0](
       Response.json({
@@ -2269,8 +2269,10 @@ describe("history and results dialog", () => {
       ).toBeDefined(),
     );
     expect(
-      find(failed.container, (n) => n.props["aria-label"] === "再読み込み")!
-        .props.class,
+      find(
+        failed.container,
+        (n) => n.props["aria-label"] === "もう一度読み込む",
+      )!.props.class,
     ).toContain("icon-button");
     expect(
       find(
@@ -2312,7 +2314,7 @@ describe("super challenge flow", () => {
     await vi.waitFor(() => expect(request).toHaveBeenCalled());
     await vi.waitFor(() =>
       expect(
-        find(container, (n) => n.text === "超級の記録を同期しています。"),
+        find(container, (n) => n.text === "超級の記録を送信しています…"),
       ).toBeUndefined(),
     );
     expect(
@@ -2336,7 +2338,7 @@ describe("super challenge flow", () => {
     await nextTick();
     const retryButton = find(
       container,
-      (n) => n.props["aria-label"] === "再試行",
+      (n) => n.props["aria-label"] === "今すぐ送り直す",
     )!;
     expect(retryButton.props.class).toContain("icon-button");
     expect(find(retryButton, (n) => n.tag === "svg")).toBeDefined();
@@ -2509,7 +2511,8 @@ describe("super challenge flow", () => {
         (
           find(
             container,
-            (n) => n.tag === "button" && n.text.trim() === "ゲーム名を設定する",
+            (n) =>
+              n.tag === "button" && n.text.trim() === "プレイヤー名を設定する",
           )!.props.onClick as () => void
         )();
         await nextTick();
@@ -2630,9 +2633,11 @@ describe("super challenge flow", () => {
     expect(
       find(
         s.container,
-        (n) => n.tag === "button" && n.props["aria-label"] === "超級に挑戦",
+        (n) =>
+          n.tag === "button" &&
+          n.props["aria-label"] === "超級に挑戦（挑戦権があります）",
       )?.props.class,
-    ).toBe("icon-button super-challenge-button");
+    ).toBe("icon-button super-challenge-button has-right");
     expect(
       find(
         s.container,
@@ -2642,7 +2647,7 @@ describe("super challenge flow", () => {
     expect(
       find(s.container, (n) => n.text === "超級の記録を同期しました。"),
     ).toBeUndefined();
-    await s.click("超級に挑戦");
+    await s.click("超級に挑戦（挑戦権があります）");
     await s.click("挑戦する");
     expect(s.start).toHaveBeenCalledOnce();
     expect(
@@ -2699,8 +2704,12 @@ describe("super challenge flow", () => {
       ).toBe("あと10"),
     );
     expect(
-      find(s.container, (n) => n.props["aria-label"] === "超級に挑戦")?.props
-        .disabled,
+      find(
+        s.container,
+        (n) =>
+          n.props["aria-label"] ===
+          "超級に挑戦（あと10回クリアすると挑戦できます）",
+      )?.props.disabled,
     ).toBe(false);
   });
   it("admits shared seeds without a right and pauses an active trial on offline and account change", async () => {
@@ -2729,6 +2738,7 @@ describe("super challenge flow", () => {
     expect(s.pause).toHaveBeenCalled();
     expect(s.controller.value!.canPlay()).toBe(false);
     const before = request.mock.calls.length;
+    // Refused with the reason READY shows, rather than true.
     expect(
       await s.controller.value!.claimReady(
         s.generated,
@@ -2736,7 +2746,7 @@ describe("super challenge flow", () => {
         saved.game.playId!,
         saved.game.timer,
       ),
-    ).toBe(false);
+    ).toBe("ログインとオンライン接続が必要です。");
     expect(request.mock.calls.length).toBe(before);
     auth.user!.value = "another-account";
     await nextTick();
@@ -2781,7 +2791,7 @@ describe("super challenge flow", () => {
     vi.spyOn(localStorage, "setItem").mockImplementation(() => {
       throw new Error("quota");
     });
-    await s.click("超級に挑戦");
+    await s.click("超級に挑戦（挑戦権があります）");
     await s.click("挑戦する");
     expect(s.start).not.toHaveBeenCalled();
     expect(
@@ -3042,7 +3052,8 @@ describe("public leaderboard dialog", () => {
         .onClick as () => void
     )();
     await nextTick();
-    expect(footerMessage()).toBeUndefined();
+    // The region stays mounted and empties.
+    expect(footerMessage() ?? "").toBe("");
   });
 
   it("leaves the per-board ranking out of the menu", async () => {
@@ -3209,7 +3220,9 @@ describe("account modal", () => {
       container,
       (n) => n.props["aria-labelledby"] === "account-title",
     )!;
-    expect(find(dialog, (n) => n.tag === "h2")?.text).toBe("ゲーム名を設定");
+    expect(find(dialog, (n) => n.tag === "h2")?.text).toBe(
+      "プレイヤー名を設定",
+    );
     expect(find(dialog, (n) => n.tag === "input")).toBeDefined();
     expect(find(dialog, (n) => n.text === "ログアウト")).toBeUndefined();
     expect(

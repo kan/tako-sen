@@ -1,13 +1,21 @@
-import { generatePuzzleWithAnalysis } from "../core/generator";
-import type { WorkerReply, WorkerRequest } from "./puzzle-generation";
+import { SuperSeedError } from "../core/super-puzzle";
+import {
+  runGenerationJob,
+  type WorkerReply,
+  type WorkerRequest,
+} from "./puzzle-generation";
 
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
-  const { id, options } = event.data;
+  const { id, ...job } = event.data;
   let reply: WorkerReply;
   try {
-    reply = { id, generated: generatePuzzleWithAnalysis(options) };
+    reply = { id, generated: runGenerationJob(job) };
   } catch (error) {
-    reply = { id, error: String(error) };
+    reply = {
+      id,
+      error: error instanceof Error ? error.message : String(error),
+      superSeedError: error instanceof SuperSeedError,
+    };
   }
   self.postMessage(reply);
 });

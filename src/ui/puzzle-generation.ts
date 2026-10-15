@@ -3,26 +3,44 @@ import {
   type GenerateOptions,
   type GeneratedPuzzle,
 } from "../core/generator";
-import type { PuzzleDifficulty } from "../core/model";
+import type { Puzzle, PuzzleDifficulty } from "../core/model";
+import { generateSuperPuzzle, SuperSeedError } from "../core/super-puzzle";
 
-export interface WorkerRequest {
-  readonly id: number;
-  readonly options: GenerateOptions;
-}
+/** An ordinary board from its options, or a super board from its seed. */
+export type GenerationJob =
+  | { readonly options: GenerateOptions }
+  | { readonly superSeed: { readonly seed: string; readonly version: string } };
+export type WorkerRequest = GenerationJob & { readonly id: number };
 export type WorkerReply =
-  | { readonly id: number; readonly generated: GeneratedPuzzle }
-  | { readonly id: number; readonly error: string };
+  | { readonly id: number; readonly generated: GeneratedPuzzle | Puzzle }
+  | {
+      readonly id: number;
+      readonly error: string;
+      /** Set for a SuperSeedError, which callers tell apart from a bug. */
+      readonly superSeedError?: boolean;
+    };
+
+/** Runs a job where it is called: in the worker, or as the fallback here. */
+export function runGenerationJob(job: GenerationJob): GeneratedPuzzle | Puzzle {
+  return "options" in job
+    ? generatePuzzleWithAnalysis(job.options)
+    : generateSuperPuzzle(job.superSeed.seed, job.superSeed.version);
+}
 
 interface PendingGeneration {
-  readonly options: GenerateOptions;
-  readonly resolve: (generated: GeneratedPuzzle) => void;
+  readonly job: GenerationJob;
+  readonly resolve: (generated: GeneratedPuzzle | Puzzle) => void;
   readonly reject: (error: unknown) => void;
   readonly timeout: ReturnType<typeof setTimeout>;
 }
 
 // Generation takes well under a second; a worker silent for this long was
-// most likely discarded by the browser.
+// most likely discarded by the browser. A 10×10 super board takes up to a
+// quarter second on a desktop and several times that on a slow phone, and may
+// wait behind an ordinary job, so it gets more room before the worker is given
+// up and the board is built on the main thread.
 const REPLY_TIMEOUT_MS = 10000;
+const SUPER_REPLY_TIMEOUT_MS = 30000;
 
 let worker: Worker | undefined;
 let workerFailed = false;
@@ -76,22 +94,52 @@ export function generateInBackground(
   options: GenerateOptions,
   signal?: AbortSignal,
 ): Promise<GeneratedPuzzle> {
-  return new Promise((resolve, reject) => {
+  return runInBackground({ options }, signal);
+}
+
+/**
+ * The super board a seed decides, built off the main thread: a 10×10 board
+ * takes seconds, which would otherwise freeze the screen. A seed that reaches
+ * no board rejects with SuperSeedError, as generateSuperPuzzle does.
+ */
+export function generateSuperInBackground(
+  seed: string,
+  version: string,
+  signal?: AbortSignal,
+): Promise<Puzzle> {
+  return runInBackground({ superSeed: { seed, version } }, signal);
+}
+
+/** What a job produces: a rated board for options, a bare board for a seed. */
+type JobResult<J extends GenerationJob> = J extends {
+  readonly options: GenerateOptions;
+}
+  ? GeneratedPuzzle
+  : Puzzle;
+
+function runInBackground<J extends GenerationJob>(
+  job: J,
+  signal?: AbortSignal,
+): Promise<JobResult<J>> {
+  return new Promise<GeneratedPuzzle | Puzzle>((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
     const active = startWorker();
     if (!active) {
-      generateNow(options, resolve, reject);
+      generateNow(job, resolve, reject);
       return;
     }
-    const request: WorkerRequest = { id: nextId++, options };
+    const request: WorkerRequest = { ...job, id: nextId++ };
     pending.set(request.id, {
-      options,
+      job,
       resolve,
       reject,
-      timeout: setTimeout(abandonWorker, REPLY_TIMEOUT_MS),
+      timeout: setTimeout(
+        abandonWorker,
+        "superSeed" in job ? SUPER_REPLY_TIMEOUT_MS : REPLY_TIMEOUT_MS,
+      ),
     });
     active.postMessage(request);
     signal?.addEventListener(
@@ -104,16 +152,17 @@ export function generateInBackground(
       },
       { once: true },
     );
-  });
+    // runGenerationJob answers each job with its own kind of board.
+  }) as Promise<JobResult<J>>;
 }
 
 function generateNow(
-  options: GenerateOptions,
-  resolve: (generated: GeneratedPuzzle) => void,
+  job: GenerationJob,
+  resolve: (generated: GeneratedPuzzle | Puzzle) => void,
   reject: (error: unknown) => void,
 ): void {
   try {
-    resolve(generatePuzzleWithAnalysis(options));
+    resolve(runGenerationJob(job));
   } catch (error) {
     reject(error);
   }
@@ -138,7 +187,7 @@ function abandonWorker(): void {
   stopWorker();
   for (const id of [...pending.keys()]) {
     const entry = take(id)!;
-    generateNow(entry.options, entry.resolve, entry.reject);
+    generateNow(entry.job, entry.resolve, entry.reject);
   }
 }
 
@@ -154,8 +203,8 @@ function restartWorker(): void {
     abandonWorker();
     return;
   }
-  for (const [id, { options }] of pending) {
-    const request: WorkerRequest = { id, options };
+  for (const [id, { job }] of pending) {
+    const request: WorkerRequest = { ...job, id };
     active.postMessage(request);
   }
 }
@@ -176,7 +225,12 @@ function startWorker(): Worker | undefined {
     const entry = take(reply.id);
     if (!entry) return;
     if ("generated" in reply) entry.resolve(reply.generated);
-    else entry.reject(new Error(reply.error));
+    else
+      entry.reject(
+        reply.superSeedError
+          ? new SuperSeedError(reply.error)
+          : new Error(reply.error),
+      );
   });
   // The worker script failed to load, crashed, or sent an unreadable reply.
   worker.addEventListener("error", abandonWorker);

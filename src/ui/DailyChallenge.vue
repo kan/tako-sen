@@ -16,6 +16,8 @@ import type {
 } from "../worker/daily";
 import GameName from "./GameName.vue";
 import UiIcon from "./UiIcon.vue";
+import { dailyStartFailureText } from "./daily-start";
+import { PLAY_CONTINUES, START_FAILURE, accountChanged } from "./notice-text";
 
 const props = defineProps<{
   activeDate?: string;
@@ -118,7 +120,7 @@ async function refresh(): Promise<void> {
     if (data.attempt === "completed") await showRanking(data.date);
     else if (showingRanking.value) closeRanking();
   } catch {
-    message.value = "通信できません。通常のプレイは続けられます。";
+    message.value = `デイリーチャレンジを読み込めません。接続を確認して、もう一度デイリーのボタンを押してください。${PLAY_CONTINUES}`;
   } finally {
     busy.value = false;
   }
@@ -161,25 +163,34 @@ async function begin(): Promise<void> {
   }
 }
 
-async function claimStart(date: string, playId: string): Promise<boolean> {
-  if (!userId.value || !status.value || status.value.date !== date)
-    return false;
+/** Claims the start on READY's OK: true, or what the player should do. */
+async function claimStart(
+  date: string,
+  playId: string,
+): Promise<true | string> {
+  if (!userId.value) return accountChanged("デイリー");
+  if (!status.value)
+    return "今日のデイリーの状態を確認できていません。通常プレイに戻り、デイリーを開き直してください。";
+  if (status.value.date !== date) return dailyStartFailureText(409, "expired");
+  let response: Response;
   try {
-    const response = await request("/api/daily/start", {
+    response = await request("/api/daily/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, playId }),
     });
-    if (response.status === 403) emit("account");
-    if (!response.ok)
-      throw new Error("今日の挑戦は既に始まっているか、日付が変わりました。");
+  } catch {
+    return START_FAILURE.offline;
+  }
+  if (response.ok) {
     status.value = { ...status.value, attempt: "active", playId };
     return true;
-  } catch {
-    message.value =
-      "開始できません。接続とログイン状態を確認して、もう一度 OK を押してください。";
-    return false;
   }
+  if (response.status === 403) emit("account");
+  const body = (await response.json().catch(() => null)) as {
+    status?: unknown;
+  } | null;
+  return dailyStartFailureText(response.status, body?.status);
 }
 
 defineExpose({ claimStart, openRanking: showRanking });
@@ -228,6 +239,15 @@ function onRankingKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     closeRanking();
   } else trapDialogFocus(event, rankingDialogRef.value);
+}
+
+/** 2026-10-15 as 10月15日（木）; the date is the daily's own, not local time. */
+function dailyDateLabel(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const weekday = "日月火水木金土"[
+    new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  ];
+  return `${month}月${day}日（${weekday}）`;
 }
 
 function pendingKey(accountId: string, date: string): string {
@@ -348,14 +368,22 @@ onUnmounted(() => {
       v-else
       ref="entryButtonRef"
       class="icon-button daily-challenge-button"
-      :aria-label="busy ? '読み込み中…' : 'デイリーチャレンジ'"
-      :title="busy ? '読み込み中…' : 'デイリーチャレンジ'"
+      aria-label="デイリーチャレンジ"
+      :title="
+        busy ? 'デイリーチャレンジを読み込んでいます…' : 'デイリーチャレンジ'
+      "
+      :aria-busy="busy || undefined"
       type="button"
       :disabled="busy"
       @click="openPanel"
     >
       <UiIcon name="daily" />
     </button>
+    <p
+      class="daily-entry-status"
+      role="status"
+      v-text="busy && !panelOpen ? 'デイリーチャレンジを読み込んでいます…' : ''"
+    ></p>
     <Teleport v-if="panelOpen" to="body">
       <div
         class="dialog-backdrop daily-panel-backdrop"
@@ -383,13 +411,15 @@ onUnmounted(() => {
             </button>
           </div>
           <p v-if="message" role="alert">{{ message }}</p>
-          <p v-if="status">{{ status.date }} · 10×10 · タコ10匹 · 上級</p>
+          <p v-if="status">
+            {{ dailyDateLabel(status.date) }} · 10×10 · タコ10匹 · 上級
+          </p>
           <button
             v-if="!status"
             type="button"
             class="icon-button retry-button"
-            aria-label="再試行"
-            title="再試行"
+            aria-label="もう一度読み込む"
+            title="もう一度読み込む"
             @click="openPanel"
           >
             <UiIcon name="reset" />
@@ -397,10 +427,17 @@ onUnmounted(() => {
           <button
             v-else-if="status.attempt !== 'completed'"
             type="button"
-            :disabled="busy"
+            :aria-disabled="busy || undefined"
+            :aria-busy="busy || undefined"
             @click="begin"
           >
-            {{ status.attempt === "active" ? "挑戦を続ける" : "挑戦を始める" }}
+            {{
+              busy
+                ? "準備しています…"
+                : status.attempt === "active"
+                  ? "挑戦を続ける"
+                  : "挑戦を始める"
+            }}
           </button>
         </section>
       </div>
@@ -435,9 +472,14 @@ onUnmounted(() => {
             <p class="ranking-note">
               スコアは10,000点からクリア秒数、ミス1回につき180点、ヒント1回につき30点を引きます。高得点順で、同点は時間・ミス数・ヒント数の順に比較します。記録は参考値です。
             </p>
-            <p v-if="rankingLoading" role="status">読み込み中…</p>
-            <p v-else-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
-            <p v-else-if="!entries.length">まだ記録がありません。</p>
+            <p
+              role="status"
+              v-text="rankingLoading ? 'ランキングを取得しています…' : ''"
+            ></p>
+            <p v-if="rankingMessage" role="alert">{{ rankingMessage }}</p>
+            <p v-else-if="!rankingLoading && !entries.length">
+              まだ記録がありません。
+            </p>
             <ol v-else class="ranking-entries">
               <li
                 v-for="entry in entries"
@@ -453,7 +495,9 @@ onUnmounted(() => {
                     >
                   </div>
                   <strong>{{ rankingScore(entry) }}点</strong>
-                  <span class="ranking-time">{{ entry.elapsedSeconds }}秒</span>
+                  <strong class="ranking-time"
+                    >{{ entry.elapsedSeconds }}秒</strong
+                  >
                 </div>
                 <div class="ranking-score-meta">
                   <span

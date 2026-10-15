@@ -1,20 +1,60 @@
-export type ConnectionFailure =
-  "network" | "timeout" | "auth" | "profile" | "server" | "rate" | "invalid";
+import { START_FAILURE } from "./notice-text";
 
+export type ConnectionFailure =
+  | "network"
+  | "timeout"
+  | "auth"
+  | "profile"
+  | "server"
+  | "rate"
+  | "conflict"
+  | "invalid";
+
+/** What went wrong and what happens next, for the background sync. */
 export class SuperConnectionError extends Error {
   constructor(readonly kind: ConnectionFailure) {
     super(
       {
-        network: "通信が不安定です。接続が戻ると超級の記録を再同期します。",
+        network:
+          "通信が不安定です。接続が戻ると超級の記録を自動で送り直します。",
         timeout:
-          "通信がタイムアウトしました。接続を確認し、少し待って再試行します。",
-        auth: "ログイン状態を確認してください。再ログイン後に超級の記録を同期します。",
-        profile: "ゲーム名と公開ルールへの同意を確認してください。",
-        server: "サーバーが一時的に応答できません。少し待って再試行します。",
-        rate: "送信が混み合っています。少し待って再試行します。",
-        invalid: "サーバーの応答を確認できません。再試行してください。",
+          "通信がタイムアウトしました。少し待ってから自動で送り直します。",
+        auth: "ログイン状態を確認できません。ログインし直すと超級の記録を送り直します。",
+        profile:
+          "プレイヤー名と公開ルールへの同意が必要です。アカウントから設定してください。",
+        server:
+          "サーバーが一時的に応答できません。少し待ってから自動で送り直します。",
+        rate: "送信が混み合っています。少し待ってから自動で送り直します。",
+        conflict:
+          "サーバーの記録と食い違うため受け付けられませんでした。超級の案内を開き直してください。",
+        invalid:
+          "サーバーの応答を確認できません。少し待ってから、もう一度お試しください。",
       }[kind],
     );
+  }
+}
+
+/** Why pressing OK on READY did not start the board, and what to do. */
+export function superStartFailureText(error: unknown): string {
+  const kind = error instanceof SuperConnectionError ? error.kind : undefined;
+  switch (kind) {
+    case "network":
+    case "timeout":
+      return START_FAILURE.offline;
+    case "auth":
+      return START_FAILURE.auth;
+    case "profile":
+      return START_FAILURE.profile;
+    case "conflict":
+      return "この挑戦権は使用済みか、別の画面で開始されています。通常プレイに戻り、超級の案内を開き直してください。";
+    case "server":
+    case "rate":
+      return START_FAILURE.busy;
+    default:
+      return superNoticeText(
+        error,
+        "超級を開始できません。少し待ってから、もう一度 OK を押してください。",
+      );
   }
 }
 
@@ -48,9 +88,11 @@ export async function fetchSuperResponse(
             ? "profile"
             : response.status === 429
               ? "rate"
-              : response.status >= 500
-                ? "server"
-                : "invalid",
+              : response.status === 409
+                ? "conflict"
+                : response.status >= 500
+                  ? "server"
+                  : "invalid",
       );
     const body = await response.text();
     return new Response(body, {

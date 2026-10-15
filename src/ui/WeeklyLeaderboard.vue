@@ -114,7 +114,9 @@ onUnmounted(() => {
       @keydown="onKeydown"
     >
       <div class="dialog-header ranking-header">
-        <h2 id="weekly-ranking-title">週間プレイヤーランキング</h2>
+        <h2 id="weekly-ranking-title">
+          週間<wbr />プレイヤー<wbr />ランキング
+        </h2>
         <button
           type="button"
           class="dialog-close"
@@ -163,21 +165,27 @@ onUnmounted(() => {
           {{ dateFormat.format(data.start) }} 0:00 〜
           {{ dateFormat.format(data.end) }} 0:00（日本時間）
         </p>
-        <p v-if="busy" role="status">週間ランキングを取得しています。</p>
-        <p v-else-if="message" class="retry-status" role="status">
+        <p
+          role="status"
+          v-text="
+            busy
+              ? '週間ランキングを取得しています…'
+              : data && !data.entries.length && !message
+                ? '今週の対象となる公開記録はありません。'
+                : ''
+          "
+        ></p>
+        <p v-if="!busy && message" class="retry-status" role="alert">
           <span>{{ message }}</span>
           <button
             type="button"
             class="icon-button"
-            aria-label="再読み込み"
-            title="再読み込み"
+            aria-label="もう一度読み込む"
+            title="もう一度読み込む"
             @click="refresh"
           >
             <UiIcon name="reset" />
           </button>
-        </p>
-        <p v-else-if="data && !data.entries.length" role="status">
-          今週の対象となる公開記録はありません。
         </p>
         <ol v-if="data?.entries.length" class="public-ranking-entries">
           <li

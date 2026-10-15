@@ -459,7 +459,7 @@ function onKeydown(event: KeyboardEvent): void {
           8匹のタコを置けました！各行・列・エリアに1匹ずつ、タコ同士は隣接できません。
         </p>
         <p>
-          ログインしてゲーム名を設定し、公開ルールに同意すると、これからのクリアが同期され、初回スコアがランキングに載ります。
+          ログインしてプレイヤー名を設定し、公開ルールに同意すると、これからのクリアが同期され、初回スコアがランキングに載ります。
         </p>
         <div v-if="onlineEnabled" class="dialog-actions">
           <Show when="signed-out"

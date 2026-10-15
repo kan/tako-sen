@@ -11,7 +11,9 @@ import {
   SuperConnectionError,
   SuperNotice,
   superNoticeText,
+  superStartFailureText,
 } from "../src/ui/super-connection";
+import { dailyStartFailureText } from "../src/ui/daily-start";
 
 describe("cell accessible names", () => {
   const puzzle = generatePuzzle({ seed: "cell-label" });
@@ -70,5 +72,32 @@ describe("super failure text", () => {
       fallback,
     );
     expect(superNoticeText(new SyntaxError("JSON"), fallback)).toBe(fallback);
+  });
+});
+
+describe("start failure text", () => {
+  it("tells each refused super start apart and says what to press next", () => {
+    expect(superStartFailureText(new SuperConnectionError("conflict"))).toBe(
+      "この挑戦権は使用済みか、別の画面で開始されています。通常プレイに戻り、超級の案内を開き直してください。",
+    );
+    expect(superStartFailureText(new SuperConnectionError("auth"))).toContain(
+      "ログインし直して",
+    );
+    expect(superStartFailureText(new SuperNotice("日本語の案内"))).toBe(
+      "日本語の案内",
+    );
+    expect(superStartFailureText(new Error("bug"))).toContain("もう一度 OK");
+  });
+
+  it("reads the daily refusal from the 409 body", () => {
+    expect(dailyStartFailureText(409, "expired")).toContain("日付が変わった");
+    expect(dailyStartFailureText(409, "already_started")).toContain(
+      "別の画面で始まっています",
+    );
+    expect(dailyStartFailureText(409, "completed")).toContain("クリア済み");
+    expect(dailyStartFailureText(409, "toString")).toContain("サーバー");
+    expect(dailyStartFailureText(403)).toContain("プレイヤー名");
+    expect(dailyStartFailureText(401)).toContain("ログインし直して");
+    expect(dailyStartFailureText(500)).toContain("少し待って");
   });
 });

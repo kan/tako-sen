@@ -25,6 +25,7 @@ import HistoryDialog from "./ui/HistoryDialog.vue";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import CellMark from "./ui/CellMark.vue";
+import { scrollBehavior } from "./ui/scroll";
 import { askConfirm, type ConfirmRequest } from "./ui/confirm-dialog";
 import { isDailyVersion } from "./core/daily-puzzle";
 import { isSuperVersion, parseSuperSeed } from "./core/super-puzzle";
@@ -375,7 +376,7 @@ watch(
     clearRankingWaiting = false;
     window.clearTimeout(clearRankingWaitTimer);
     clearRankingEntries.value = [];
-    clearRankingMessage.value = "ランキングを取得しています。";
+    clearRankingMessage.value = "ランキングを取得しています…";
     if (activeDialog.value !== "clear") return;
     const special = isSpecial.value;
     try {
@@ -447,7 +448,7 @@ function showClearRanking(
   clearRankingMessage.value = clearRankingEntries.value.length
     ? ""
     : canJoin
-      ? "ログインしてゲーム名を設定すると、次の問題からランキングに載ります。"
+      ? "ログインしてプレイヤー名を設定すると、次の問題からランキングに載ります。"
       : "あなたの公開ランキング記録はありません。";
 }
 const contradictionCells = computed(() =>
@@ -568,7 +569,9 @@ watch(activeDialog, async (dialog, previous) => {
   await nextTick();
   if (dialog) {
     if (dialog === "menu") {
-      if (previous === "account") accountMenuButton.value?.focus();
+      // After logging out the account button is gone; the menu keeps focus.
+      if (previous === "account" && accountMenuButton.value?.isConnected)
+        accountMenuButton.value.focus();
       else menuDialogRef.value?.focus();
     } else if (dialog === "settings" || dialog === "share")
       toolsDialogRef.value?.focus();
@@ -838,9 +841,10 @@ async function confirmReady(): Promise<void> {
     );
     dailyClaiming.value = false;
     if (!isSuper.value || expected !== playId.value) return;
-    if (!claimed) {
+    if (claimed !== true) {
       dailyReadyMessage.value =
-        "超級を開始・再開できません。保存・ログイン・通信状態を確認してください。";
+        claimed ??
+        "超級を開始できません。通常プレイに戻り、超級の案内を開き直してください。";
       return;
     }
     dailyReadyMessage.value = "";
@@ -861,9 +865,10 @@ async function confirmReady(): Promise<void> {
       playId.value !== expectedPlayId
     )
       return;
-    if (!claimed) {
+    if (claimed !== true) {
       dailyReadyMessage.value =
-        "開始できません。通信状態を確認して再試行してください。";
+        claimed ??
+        "開始できません。通常プレイに戻り、デイリーを開き直してください。";
       return;
     }
     dailyClaimed.value = true;
@@ -1303,9 +1308,7 @@ function leaveDaily(): void {
 }
 
 function centerBoardAfterPuzzleChange(): void {
-  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ? "auto"
-    : "smooth";
+  const behavior = scrollBehavior();
   void nextTick(() =>
     boardWrap.value?.scrollIntoView({ block: "center", behavior }),
   );
@@ -2137,8 +2140,8 @@ function formatElapsed(seconds: number): string {
                 @click="accountDialogOpen = true"
               >
                 <template v-if="onlineGameName"
-                  >プレイヤー: <GameName :name="onlineGameName" /></template
-                ><template v-else>ゲーム名を設定</template>
+                  >プレイヤー：<GameName :name="onlineGameName" /></template
+                ><template v-else>プレイヤー名を設定</template>
               </button></Show
             >
           </nav>
@@ -2320,23 +2323,16 @@ function formatElapsed(seconds: number): string {
           @synced="rankingRevision += 1"
         />
       </div>
-      <p v-if="nextPuzzleLoading" class="play-footer-message" role="status">
-        次の問題を選んでいます。
-      </p>
+      <!-- One region that stays mounted, so each change is announced. -->
       <p
-        v-else-if="nextPuzzleMessage"
         class="play-footer-message"
         role="status"
-      >
-        {{ nextPuzzleMessage }}
-      </p>
-      <p
-        v-else-if="sharedLinkMessage"
-        class="play-footer-message"
-        role="status"
-      >
-        {{ sharedLinkMessage }}
-      </p>
+        v-text="
+          nextPuzzleLoading
+            ? '次の問題を選んでいます…'
+            : nextPuzzleMessage || sharedLinkMessage || ''
+        "
+      ></p>
     </div>
 
     <div

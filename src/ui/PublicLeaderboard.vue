@@ -15,6 +15,8 @@ const props = defineProps<{
   open: boolean;
   gameName?: string;
   title?: string;
+  /** Who the board ranks and how to join, when not the ordinary boards'. */
+  note?: { readonly lead: string; readonly join: string };
   fetchEntries?: (id: string) => Promise<Response>;
 }>();
 const emit = defineEmits<{ close: [] }>();
@@ -60,7 +62,7 @@ async function refresh(): Promise<void> {
     if (current !== generation) return;
     entries.value = data.entries;
     message.value = data.entries.length
-      ? `${data.entries.length} 人の初回成績を取得しました。`
+      ? `${data.entries.length}人の初回成績を取得しました。`
       : "この問題には公開された記録がありません。";
   } catch {
     if (current === generation)
@@ -123,10 +125,15 @@ onUnmounted(() => {
       </div>
       <div class="ranking-dialog-body">
         <p class="ranking-note">
-          公開に同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。
+          {{
+            props.note?.lead ??
+            "公開に同意した参加者の初回成績です。自己申告の参考記録で、未ログインでも閲覧できます。"
+          }}
         </p>
-        <p v-if="busy" role="status">ランキングを取得しています。</p>
-        <p v-else-if="message" aria-live="polite">{{ message }}</p>
+        <p
+          role="status"
+          v-text="busy ? 'ランキングを取得しています…' : message"
+        ></p>
         <ol v-if="entries.length" class="public-ranking-entries">
           <li
             v-for="entry in entries"
@@ -166,7 +173,10 @@ onUnmounted(() => {
           </p>
         </details>
         <p class="ranking-note">
-          ログインしてゲーム名を設定すると自動参加します。再挑戦では記録を更新しません。退会で公開記録を削除できます。
+          {{
+            props.note?.join ??
+            "ログインしてプレイヤー名を設定すると自動参加します。再挑戦では記録を更新しません。退会で公開記録を削除できます。"
+          }}
         </p>
       </div>
     </section>

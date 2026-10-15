@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generatePuzzleWithAnalysis } from "../src/core/generator";
+import { generateSuperPuzzle } from "../src/core/super-puzzle";
 
 type Listener = (event: { data?: unknown }) => void;
 
@@ -200,5 +201,33 @@ describe("background puzzle generation", () => {
     expect(await generateInBackground(options)).toEqual(
       generatePuzzleWithAnalysis(options),
     );
+  });
+
+  it("builds super boards on the worker and keeps SuperSeedError apart", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const { generateSuperInBackground } = await load();
+    const board = generateSuperInBackground("seed", "super-v2");
+    const missed = generateSuperInBackground("other", "super-v2");
+    const [worker] = FakeWorker.instances;
+    expect(worker.posted[0]).toMatchObject({
+      superSeed: { seed: "seed", version: "super-v2" },
+    });
+    worker.emit("message", { id: worker.posted[0].id, generated: "board" });
+    worker.emit("message", {
+      id: worker.posted[1].id,
+      error: "no board",
+      superSeedError: true,
+    });
+    expect(await board).toBe("board");
+    // load() reset the modules, so the class is the reloaded one.
+    const { SuperSeedError } = await import("../src/core/super-puzzle");
+    await expect(missed).rejects.toBeInstanceOf(SuperSeedError);
+  });
+
+  it("builds the same super board on the main thread without Workers", async () => {
+    const { generateSuperInBackground } = await load();
+    expect(
+      await generateSuperInBackground("super-regression:0", "super-v2"),
+    ).toEqual(generateSuperPuzzle("super-regression:0", "super-v2"));
   });
 });

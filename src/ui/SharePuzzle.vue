@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import UiIcon from "./UiIcon.vue";
 import { useAuth } from "./auth";
-import { ref, watch } from "vue";
+import { PLAY_CONTINUES } from "./notice-text";
+import { onUnmounted, ref, watch } from "vue";
 
 const props = defineProps<{ seedCode: string }>();
 const { getToken, isSignedIn, userId } = useAuth();
 const busy = ref(false);
 const message = ref("");
 const shareUrl = ref("");
+/** Briefly true after the link reached the clipboard: the icon turns to ✓. */
+const copied = ref(false);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+onUnmounted(() => clearTimeout(copiedTimer));
 
 watch(userId, () => {
   shareUrl.value = "";
@@ -49,14 +54,16 @@ async function share(seedCode: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(shareUrl.value);
       message.value = "共有リンクをコピーしました。";
+      copied.value = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied.value = false), 2000);
     } catch {
       message.value =
         "リンクをコピーできませんでした。下の URL を選択してください。";
     }
   } catch {
     if (userId.value === accountId)
-      message.value =
-        "共有リンクを作成できません。ローカルプレイは続けられます。";
+      message.value = `共有リンクを作成できません。接続を確認して、もう一度押してください。${PLAY_CONTINUES}`;
   } finally {
     busy.value = false;
   }
@@ -68,11 +75,13 @@ async function share(seedCode: string): Promise<void> {
     <button
       type="button"
       class="share-link-button"
-      aria-label="問題の共有リンクを作成"
-      :disabled="busy || !isSignedIn"
+      :disabled="!isSignedIn"
+      :aria-disabled="busy || undefined"
       @click="share(seedCode)"
     >
-      <UiIcon name="share" />問題の共有リンクを作成
+      <UiIcon :name="copied ? 'check' : 'share'" />{{
+        busy ? "作成しています…" : "問題の共有リンクを作成"
+      }}
     </button>
     <p v-if="!isSignedIn">共有リンクの作成にはログインが必要です。</p>
     <p aria-live="polite" v-text="message"></p>
