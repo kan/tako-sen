@@ -412,7 +412,7 @@ onUnmounted(() => {
           </div>
           <p v-if="message" role="alert">{{ message }}</p>
           <p v-if="status">
-            {{ dailyDateLabel(status.date) }} · 10×10 · タコ10匹 · 上級
+            {{ dailyDateLabel(status.date) }} · 10×10 · タコ10匹
           </p>
           <button
             v-if="!status"

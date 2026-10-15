@@ -320,10 +320,15 @@ const activeDialog = computed<
   return undefined;
 });
 const puzzleSeedCode = computed(() => encodePuzzleSeed(puzzle.value));
+// Daily and super boards are stored as "hard" (puzzle IDs and the shared
+// snapshot check depend on it), but they are their own modes, not 上級.
+// 「デイリー」 alone: with 「/ 10×10」 the status bar overflows at 320px.
 const actualDifficultyLabel = computed(() =>
   isSuper.value
     ? "超級 / 10×10"
-    : difficultyLabel(difficultyAnalysis.value.rating),
+    : isDaily.value
+      ? "デイリー"
+      : difficultyLabel(difficultyAnalysis.value.rating),
 );
 const regionColorIndexes = computed(() =>
   assignRegionColorIndexes(puzzle.value),
@@ -2669,7 +2674,9 @@ function formatElapsed(seconds: number): string {
               <UiIcon name="difficulty" /><span class="sr-only">難易度</span>
             </dt>
             <dd :title="actualDifficultyLabel">
-              {{ isSuper ? "超級" : isDaily ? "上級" : actualDifficultyLabel }}
+              {{
+                isSuper ? "超級" : isDaily ? "デイリー" : actualDifficultyLabel
+              }}
             </dd>
           </div>
           <div class="result-primary">
