@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useAuth } from "@clerk/vue";
+import { useAuth } from "./auth";
 import {
   nextTick,
   onBeforeUnmount,
@@ -120,7 +120,7 @@ async function authenticatedFetch(
   const current = epoch;
   if (disposed || current !== epoch || userId.value !== accountId)
     throw new Error("Account changed.");
-  const token = await getToken.value();
+  const token = await getToken();
   if (disposed || current !== epoch || userId.value !== accountId)
     throw new Error("Account changed.");
   if (!token) throw new Error("Session unavailable.");
@@ -291,7 +291,7 @@ async function deleteAccount(): Promise<void> {
     profile.value = null;
     emit("profile", "");
     emit("synced");
-    await signOut.value();
+    await signOut();
   } catch {
     if (userId.value === accountId)
       message.value =

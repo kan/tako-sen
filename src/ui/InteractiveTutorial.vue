@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
-import { Show, SignInButton } from "@clerk/vue";
+import { Show, SignInButton } from "./auth";
 import { tutorialLesson } from "./tutorial-lesson";
 import { createInitialPlayerState } from "../core/model";
 import { cellLabel } from "./cell-label";

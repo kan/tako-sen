@@ -1,5 +1,5 @@
-import { createClerkClient } from "@clerk/backend";
 import { verifyWebhook } from "@clerk/backend/webhooks";
+import { authenticateAccount, deleteSignInAccount } from "./auth";
 import { verifyCompletedPlayUpload } from "../core/online-history";
 import { createSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import {
@@ -229,15 +229,11 @@ export default {
     }
 
     try {
-      const clerk = createClerkClient({
-        publishableKey: env.CLERK_PUBLISHABLE_KEY,
-        secretKey: env.CLERK_SECRET_KEY,
-      });
-      const auth = await clerk.authenticateRequest(request, {
-        acceptsToken: "session_token",
+      const accountId = await authenticateAccount(
+        request,
+        env,
         authorizedParties,
-      });
-      const accountId = auth.isAuthenticated ? auth.toAuth().userId : null;
+      );
       if (!accountId) return json({ error: "unauthorized" }, 401);
 
       if (isSuper) {
@@ -346,7 +342,7 @@ export default {
 
       if (isAccountDeletion) {
         await deleteAccountHistory(env.DB, accountId);
-        await clerk.users.deleteUser(accountId);
+        await deleteSignInAccount(env, accountId);
         return json({ status: "deleted" });
       }
 

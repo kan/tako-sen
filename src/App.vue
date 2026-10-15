@@ -10,7 +10,13 @@ import {
   toRaw,
   watch,
 } from "vue";
-import { Show, SignInButton, SignUpButton, useAuth } from "@clerk/vue";
+import {
+  Show,
+  SignInButton,
+  SignUpButton,
+  onlineAuthEnabled,
+  useAuth,
+} from "./ui/auth";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
@@ -145,7 +151,6 @@ const InteractiveTutorial = defineAsyncComponent(
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const soundStorageKey = "tako-sen:sound-enabled";
-const onlineAuthEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");
@@ -388,7 +393,7 @@ watch(
         );
         return;
       }
-      const token = special ? await onlineAuth?.getToken.value() : undefined;
+      const token = special ? await onlineAuth?.getToken() : undefined;
       if (special && !token) {
         if (generation === clearRankingGeneration)
           clearRankingMessage.value =
@@ -745,7 +750,7 @@ async function loadHistoryOnline(
   const account = historyAccountId.value;
   if (!account || navigator.onLine === false)
     throw new Error("Offline history.");
-  const token = await onlineAuth?.getToken.value();
+  const token = await onlineAuth?.getToken();
   if (!token || account !== historyAccountId.value)
     throw new Error("History account changed.");
   const controller = new AbortController();
@@ -1078,7 +1083,7 @@ async function pickRankedPuzzle(
 ): Promise<NextPuzzle | undefined> {
   const accountId = onlineAuth?.userId.value;
   if (!accountId) return undefined;
-  const token = await onlineAuth?.getToken.value();
+  const token = await onlineAuth?.getToken();
   if (!token || accountId !== onlineAuth?.userId.value)
     throw new Error("Session unavailable.");
   const controller = new AbortController();

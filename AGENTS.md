@@ -50,7 +50,7 @@ Cloudflare固有の処理をパズルのコアロジックへ持ち込まない�
 
 ## ローカルでの開発サーバー
 
-API（`wrangler dev`）と画面（`vite`）は `scripts/dev.mjs` が一括で起動します。起動には次の 2 つの npm script を使います。
+API（`wrangler dev`）と画面（`vite`）は `scripts/dev.mjs` が一括で起動します。起動には次の 2 つの npm script を使います（ログイン後の画面を確かめるときは、後述の「ログインを省いて起動する」を参照）。
 
 | コマンド           | 用途                                                                                                |
 | ------------------ | --------------------------------------------------------------------------------------------------- |
@@ -66,6 +66,16 @@ API（`wrangler dev`）と画面（`vite`）は `scripts/dev.mjs` が一括で�
 - roji を通す場合、`scripts/dev.mjs` は roji が付けた URL の origin を `ALLOWED_ORIGINS` として API へ渡します。`.dev.vars` の `ALLOWED_ORIGINS` はその起動では使われません。`.dev.vars` に roji の URL を書き足さないでください。
 - 終了は `Ctrl+C` です。API と画面の両方が止まり、roji のルートも取り消されます。片方が落ちた場合も、もう片方を止めて終了します。
 - 初回と、マイグレーションを足した後は、起動の前に `npx wrangler d1 migrations apply tako-sen-dev --local` を実行してください。
+
+### ログインを省いて起動する（ログイン後の画面の確認用）
+
+ログイン後の画面（アカウント、デイリー、超級、オンラインの履歴など）を、Clerk へのログインなしで確かめるときは、上の 2 つではなく `npm run dev:roji:bypass`（roji なしなら `npm run dev:all:bypass`）で起動してください。
+
+- テスト用アカウントで自動的にログインした状態になります。アカウントは URL の `?as=dev-<名前>` で切り替え、ページを読み込み直したときに反映されます（既定は `dev-player`。名前は英小文字・数字・ハイフンで 20 文字まで）。
+- ログアウトはタブを閉じるまで続き、読み込み直してもログアウトしたままです。ログインのボタンを押すと戻ります。
+- 仕組みは `src/ui/auth.ts`（画面）と `src/worker/auth.ts`（Worker）にあります。画面は Vite の開発時（`import.meta.env.DEV`）で `VITE_AUTH_BYPASS=1` のとき、Worker は起動時の `--var AUTH_BYPASS:1` があり、かつリクエスト先が `localhost` / `127.0.0.1` のときだけ有効になります。
+- **`AUTH_BYPASS` と `VITE_AUTH_BYPASS` を `wrangler.jsonc`・`.dev.vars`・`.env*` に書かないでください。** 書くと、デプロイ先や普段の起動でもログインを省いてしまうおそれがあります。有効にするのは上の npm script だけです。
+- 記録はローカルの D1（`tako-sen-dev --local`）に入ります。テスト用アカウントの ID は `dev-` で始まるので、Clerk のアカウントの ID と区別できます。
 
 ## アーキテクチャ
 

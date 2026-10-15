@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "./UiIcon.vue";
-import { useAuth } from "@clerk/vue";
+import { useAuth } from "./auth";
 import { ref, watch } from "vue";
 
 const props = defineProps<{ seedCode: string }>();
@@ -28,7 +28,7 @@ async function share(seedCode: string): Promise<void> {
   message.value = "";
   shareUrl.value = "";
   try {
-    const token = await getToken.value();
+    const token = await getToken();
     if (!token || userId.value !== accountId)
       throw new Error("ログイン状態を確認できませんでした。");
     const response = await fetch("/api/puzzles", {

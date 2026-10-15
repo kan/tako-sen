@@ -29,6 +29,12 @@ if (rojiUrl)
     `ALLOWED_ORIGINS:${new URL(rojiUrl).origin},http://localhost:${screenPort}`,
   );
 
+// --bypass signs in a test account without Clerk, for auditing signed-in
+// screens (src/ui/auth.ts, src/worker/auth.ts). It is passed on the command
+// line only, never written to .dev.vars, so it cannot outlive this run.
+const bypass = process.argv.includes("--bypass");
+if (bypass) apiArgs.push("--var", "AUTH_BYPASS:1");
+
 // npm puts .cmd shims on the PATH on Windows; those need a shell.
 const shell = process.platform === "win32";
 const children = [
@@ -38,7 +44,11 @@ const children = [
   spawn("vite", ["--port", screenPort, "--strictPort"], {
     stdio: ["ignore", "inherit", "inherit"],
     shell,
-    env: { ...process.env, TAKO_API_PORT: apiPort },
+    env: {
+      ...process.env,
+      TAKO_API_PORT: apiPort,
+      ...(bypass ? { VITE_AUTH_BYPASS: "1" } : {}),
+    },
   }),
 ];
 

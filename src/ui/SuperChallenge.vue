@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useAuth, SignInButton } from "@clerk/vue";
+import { useAuth, SignInButton } from "./auth";
 import UiIcon from "./UiIcon.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
@@ -135,7 +135,7 @@ async function request(path: string, body?: unknown): Promise<Response> {
   try {
     let token: string | null;
     try {
-      token = await getToken.value();
+      token = await getToken();
     } catch {
       throw new SuperConnectionError("network");
     }

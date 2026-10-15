@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useAuth, SignInButton } from "@clerk/vue";
+import { useAuth, SignInButton } from "./auth";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
 import { maximumHintStage, hintStageLabel } from "../core/hint-progress";
@@ -59,7 +59,7 @@ const signedIn = computed(() => isLoaded.value && isSignedIn.value);
 let retryTimer: ReturnType<typeof setInterval> | undefined;
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  const token = await getToken.value();
+  const token = await getToken();
   if (!token) throw new Error("ログインが必要です。");
   return fetch(path, {
     ...init,
