@@ -1032,10 +1032,7 @@ async function newGame(): Promise<void> {
   const { generated, recommendedId } = next;
   if (recommendedId) offeredPuzzleIds.add(recommendedId);
   nextPuzzleLoading.value = false;
-  activeDailyDate.value = undefined;
-  activeDailyAccountId.value = undefined;
-  dailyClaimed.value = false;
-  dailyReadyMessage.value = "";
+  putAwayBoard();
   clearSharedPuzzleUrl();
   puzzle.value = generated.puzzle;
   difficultyAnalysis.value = generated.analysis;
@@ -1244,10 +1241,8 @@ function startDaily(
 
 function startSuper(superPuzzle: Puzzle, saved: SavedSuperGame): void {
   cancelPendingNextPuzzle();
-  pauseGame();
+  putAwayBoard();
   clearSharedPuzzleUrl();
-  activeDailyDate.value = undefined;
-  activeDailyAccountId.value = undefined;
   puzzle.value = superPuzzle;
   difficultyAnalysis.value = analyzePuzzleDifficulty(superPuzzle);
   state.value = saved.game.state;
@@ -1264,7 +1259,6 @@ function startSuper(superPuzzle: Puzzle, saved: SavedSuperGame): void {
   clearElapsedSeconds.value = complete.value
     ? Math.floor(elapsedTimerMs(timer.value, Date.now()) / 1000)
     : undefined;
-  dailyReadyMessage.value = "";
   void navigateTo("play");
   saveCurrentGame();
   centerBoardAfterPuzzleChange();
@@ -1282,14 +1276,25 @@ function onSuperClosed(): void {
   resumeAfterMenu = false;
 }
 
-function leaveDaily(): void {
-  cancelPendingNextPuzzle();
+/**
+ * Pauses and saves the current board, then drops the daily state, before
+ * another board replaces it. Every path that leaves a board for a normal or
+ * super board goes through here (startDaily sets the daily state itself): a
+ * daily or super board keeps its progress in its own slot, and saving it
+ * unpaused would lose the time since the last save.
+ */
+function putAwayBoard(): void {
   pauseGame();
   saveCurrentGame();
   activeDailyDate.value = undefined;
   activeDailyAccountId.value = undefined;
   dailyClaimed.value = false;
   dailyReadyMessage.value = "";
+}
+
+function leaveDaily(): void {
+  cancelPendingNextPuzzle();
+  putAwayBoard();
   const saved = loadGame();
   if (!saved) {
     newGame();
@@ -1376,7 +1381,10 @@ async function restoreSeed(code: string): Promise<boolean> {
       "このシードからは問題を作れません。別のシードを入力するか、次の問題へ進んでください。";
     return false;
   }
+  // A daily or super board keeps its progress in its own slot, so do not ask,
+  // as newGame does not. The saved normal board is still overwritten.
   if (
+    !isSpecial.value &&
     !(await confirmDiscardProgress({
       title: "この問題を開きますか？",
       message: "この盤面の途中のタコと×は消えます。",
@@ -1388,6 +1396,7 @@ async function restoreSeed(code: string): Promise<boolean> {
     return false;
   }
   cancelPendingNextPuzzle();
+  putAwayBoard();
   clearSharedPuzzleUrl();
   puzzle.value = generated.puzzle;
   difficultyAnalysis.value = generated.analysis;
@@ -1436,8 +1445,10 @@ async function openSharedPuzzleFromUrl(
     const data: { puzzle: unknown } = await response.json();
     const shared = await restoreSharedPuzzleSnapshot(data.puzzle);
     // Judge by the live board: the player may have marked it while the
-    // shared puzzle was loading.
+    // shared puzzle was loading. A daily or super board is not asked about,
+    // as in restoreSeed.
     if (
+      !isSpecial.value &&
       !(await confirmDiscardProgress({
         title: "共有された問題を開きますか？",
         message: "この端末で進行中の盤面を置き換えます。",
@@ -1446,6 +1457,7 @@ async function openSharedPuzzleFromUrl(
     )
       return;
     cancelPendingNextPuzzle();
+    putAwayBoard();
     puzzle.value = shared;
     difficultyAnalysis.value = analyzePuzzleDifficulty(shared);
     state.value = createInitialPlayerState(undefined, shared.givens);
