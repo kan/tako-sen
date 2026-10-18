@@ -165,16 +165,27 @@ describe("moving the old URL's records to kan-game.app IDs", () => {
     ).toEqual({ id: bob.id, at: T + 1_000_000 });
   });
 
-  it("gives the old URL each account's token", () => {
+  it("gives the old URL each account's token, then the mark that all are in", () => {
     const result = migrate();
+    // As legacy-clerk's migrations/0013_migration_handoffs.sql creates them.
     const db = load(`CREATE TABLE migration_handoffs (
       clerk_user_id TEXT PRIMARY KEY, token TEXT NOT NULL);
+      CREATE TABLE migration_handoffs_loaded (
+        id INTEGER PRIMARY KEY CHECK (id = 1), loaded_at INTEGER NOT NULL);
       ${result.legacy}`);
     expect(
       db
         .prepare("SELECT token FROM migration_handoffs WHERE clerk_user_id = ?")
         .get(BOB)?.token,
     ).toBe(result.accounts[1].token);
+    // The mark comes last, so a load cut short leaves it out.
+    expect(result.legacy.trim().split("\n").at(-1)).toMatch(
+      /^INSERT INTO migration_handoffs_loaded /,
+    );
+    expect(
+      db.prepare("SELECT loaded_at AS at FROM migration_handoffs_loaded").get()
+        ?.at,
+    ).toBe(T + 500);
   });
 
   it("refuses a database whose IDs are not Clerk's", () => {

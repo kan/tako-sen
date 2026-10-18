@@ -162,7 +162,7 @@ export function migrateLegacy(options: MigrateOptions): MigrationResult {
       accounts,
       tako: dumpDatabase(db),
       kanGame: kanGameSql(accounts, tokensExpireAt, now),
-      legacy: legacySql(accounts),
+      legacy: legacySql(accounts, now),
     };
   } finally {
     db.close();
@@ -336,11 +336,17 @@ function kanGameSql(
   return `${lines.join("\n")}\n`;
 }
 
-function legacySql(accounts: readonly MigratedAccount[]): string {
-  return `${accounts
-    .map(
+/**
+ * The tokens, then the mark that they are all in (legacy-clerk's
+ * migrations/0013): until the mark, the old URL tells a player without a
+ * token to wait rather than that they have no records.
+ */
+function legacySql(accounts: readonly MigratedAccount[], now: number): string {
+  return `${[
+    ...accounts.map(
       ({ clerkUserId, token }) =>
         `INSERT INTO migration_handoffs (clerk_user_id, token) VALUES (${sqlLiteral(clerkUserId)}, ${sqlLiteral(token)});`,
-    )
-    .join("\n")}\n`;
+    ),
+    `INSERT INTO migration_handoffs_loaded (id, loaded_at) VALUES (1, ${now});`,
+  ].join("\n")}\n`;
 }
