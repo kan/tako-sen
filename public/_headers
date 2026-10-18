@@ -1,5 +1,9 @@
+# The development environment stays out of search engines for good.
+https://tako-dev.kan-game.app/*
+  X-Robots-Tag: noindex
+
+# Until the announcement (R4 of docs/NEXT_PHASE.md「本番リリース計画」):
+# production too, as kan/game does. At R4, remove this block only
+# (docs/DEPLOY_PROD.md).
 /*
-  # Until the announcement (R4 of docs/NEXT_PHASE.md「本番リリース計画」): keep
-  # dev and production out of search engines, as kan/game does. At R4, remove
-  # it (docs/DEPLOY_PROD.md).
   X-Robots-Tag: noindex

@@ -86,7 +86,7 @@ npx wrangler d1 create tako-prod   # 新しい database_id を env.production �
    - `tako-import.sql` を `tako-prod` へ（「本番の構築」の 2）
    - `kan-game-import.sql` を `kan-game-prod` へ（kan/game 側）
    - `legacy-handoffs.sql` を `tako-sen-dev` へ
-5. `public/_headers` から `X-Robots-Tag` を消し、`tako` をデプロイし直す。kan/game 側も同じ時点で外す
+5. `public/_headers` から、全体（`/*`）に `X-Robots-Tag` を付けるまとまりだけを消し、`tako` をデプロイし直す。開発環境（`https://tako-dev.kan-game.app/*`）の `noindex` は残す。kan/game 側も同じ時点で外す
 6. 確かめる: 本番で ID の発行、同期、ランキング、デイリー、超級、退会。旧 URL の共有リンクから本番の同じ問題が開けること。実際のアカウントで旧 URL から引き継げること。移行の前後の比較（`compareMigration`、ランキング API）
 
 ## 運用
