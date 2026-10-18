@@ -29,11 +29,10 @@ if (rojiUrl)
     `ALLOWED_ORIGINS:${new URL(rojiUrl).origin},http://localhost:${screenPort}`,
   );
 
-// --bypass signs in a test account without Clerk, for auditing signed-in
-// screens (src/ui/auth.ts, src/worker/auth.ts). It is passed on the command
-// line only, never written to .dev.vars, so it cannot outlive this run.
+// --bypass signs the screen in to a test account without Clerk
+// (src/ui/auth.ts). The Worker no longer accepts it: the release plan's R2
+// replaces both with the kan-game.app ID.
 const bypass = process.argv.includes("--bypass");
-if (bypass) apiArgs.push("--var", "AUTH_BYPASS:1");
 
 // npm puts .cmd shims on the PATH on Windows; those need a shell.
 const shell = process.platform === "win32";

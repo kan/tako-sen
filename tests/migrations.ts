@@ -33,6 +33,7 @@ export async function migrateTestDatabase(
     "0010_weekly_ranking_index.sql",
     "0011_super_query_indexes.sql",
     "0012_daily_version.sql",
+    "0013_deleted_accounts.sql",
   ]) {
     if (file === "0004_automatic_ranking.sql") await beforeAutomaticRanking?.();
     if (file === "0005_hint_stage.sql") await beforeHintStage?.();

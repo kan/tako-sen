@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { explainQueryPlan, migrateTestDatabase } from "./migrations";
+import { auth } from "./auth-mock";
 import { registerAccountProfile } from "../src/worker/profile";
-import { deleteAccountHistory } from "../src/worker/history";
+import { deleteAccount } from "../src/worker/history";
 import { encodeSuperSeed, generateSuperPuzzle } from "../src/core/super-puzzle";
 import {
   restoreSharedPuzzleSnapshot,
@@ -27,16 +28,7 @@ import {
 } from "../src/worker/super";
 import worker from "../src/worker/index";
 
-const auth = vi.hoisted(() => ({ account: null as string | null }));
-vi.mock("@clerk/backend", () => ({
-  createClerkClient: () => ({
-    authenticateRequest: async () => ({
-      isAuthenticated: !!auth.account,
-      toAuth: () => ({ userId: auth.account }),
-    }),
-    users: { deleteUser: async () => undefined },
-  }),
-}));
+vi.mock("../src/worker/auth", () => import("./auth-mock"));
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 let snapshot: SharedPuzzleSnapshot;
 const now = 1_800_000_000_000;
@@ -380,7 +372,7 @@ describe("super challenge server", () => {
     expect(await listSuperCandidates(db, "scorea")).not.toContainEqual(
       expect.objectContaining({ puzzleId: snapshot.id }),
     );
-    await deleteAccountHistory(db, "scorea");
+    await deleteAccount(db, "scorea");
     expect(await listSuperHistory(db, "scorea")).toHaveLength(0);
     expect(await listSuperRanking(db, "creator", snapshot.id)).toHaveLength(1);
     expect(
@@ -590,14 +582,14 @@ describe("super challenge server", () => {
     const env = {
       DB: platform.env.DB,
       ALLOWED_ORIGINS: "https://example.test",
-      CLERK_PUBLISHABLE_KEY: "test",
-      CLERK_SECRET_KEY: "test",
     } as Env;
+    // Browsers send Origin with every request that changes state.
     const call = (path: string, init?: RequestInit) =>
       worker.fetch(
-        new Request(`https://example.test${path}`, init) as Parameters<
-          typeof worker.fetch
-        >[0],
+        new Request(`https://example.test${path}`, {
+          ...init,
+          headers: { Origin: "https://example.test", ...init?.headers },
+        }) as Parameters<typeof worker.fetch>[0],
         env,
       );
     auth.account = null;
@@ -610,6 +602,13 @@ describe("super challenge server", () => {
         })
       ).status,
     ).toBe(403);
+    const withoutOrigin = await worker.fetch(
+      new Request("https://example.test/api/super/event", {
+        method: "POST",
+      }) as Parameters<typeof worker.fetch>[0],
+      env,
+    );
+    expect(withoutOrigin.status).toBe(403);
     expect((await call("/api/super/progress", { method: "POST" })).status).toBe(
       405,
     );

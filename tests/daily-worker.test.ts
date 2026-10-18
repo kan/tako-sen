@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { migrateTestDatabase } from "./migrations";
 import { registerAccountProfile } from "../src/worker/profile";
-import { deleteAccountHistory } from "../src/worker/history";
+import { deleteAccount } from "../src/worker/history";
 import {
   completeDailyAttempt,
   getDailyStatus,
@@ -152,7 +152,7 @@ describe("daily challenge server contract", () => {
     );
     expect(scoredRanking.map((entry) => entry.rank)).toEqual([1, 2, 2]);
     expect(scoredRanking[0].displayName).toBe("デイリーC");
-    await deleteAccountHistory(db, "daily-a");
+    await deleteAccount(db, "daily-a");
     expect(
       (await listDailyLeaderboard(db, status.date, "daily-b")).map(
         (entry) => entry.displayName,

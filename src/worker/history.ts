@@ -4,30 +4,50 @@ import { maximumHintStage, type HintStage } from "../core/hint-progress";
 export type SaveOutcome =
   "created" | "duplicate" | "conflict" | "profile_required";
 
-export async function deleteAccountHistory(
+// The tables that hold an account's records. The super tables go with
+// leaderboard_profiles and super_progress through ON DELETE CASCADE.
+const ACCOUNT_TABLES = [
+  "super_progress",
+  "daily_attempts",
+  "first_ranked_plays",
+  "completed_plays",
+  "leaderboard_profiles",
+  "publication_limits",
+];
+
+/**
+ * Withdrawal from kan-game.app (src/worker/game-service.ts). The ID is recorded
+ * as deleted in the same transaction, and src/worker/auth.ts refuses its cookie
+ * from then on. A request that was checked just before can still write once;
+ * sweepDeletedAccounts removes that later.
+ */
+export async function deleteAccount(
   db: D1Database,
   accountId: string,
 ): Promise<void> {
   await db.batch([
     db
-      .prepare("DELETE FROM super_progress WHERE account_id = ?")
-      .bind(accountId),
-    db
-      .prepare("DELETE FROM daily_attempts WHERE account_id = ?")
-      .bind(accountId),
-    db
-      .prepare("DELETE FROM first_ranked_plays WHERE account_id = ?")
-      .bind(accountId),
-    db
-      .prepare("DELETE FROM completed_plays WHERE account_id = ?")
-      .bind(accountId),
-    db
-      .prepare("DELETE FROM leaderboard_profiles WHERE account_id = ?")
-      .bind(accountId),
-    db
-      .prepare("DELETE FROM publication_limits WHERE account_id = ?")
-      .bind(accountId),
+      .prepare(
+        `INSERT INTO deleted_accounts (account_id, deleted_at) VALUES (?, ?)
+         ON CONFLICT(account_id) DO NOTHING`,
+      )
+      .bind(accountId, Date.now()),
+    ...ACCOUNT_TABLES.map((table) =>
+      db.prepare(`DELETE FROM ${table} WHERE account_id = ?`).bind(accountId),
+    ),
   ]);
+}
+
+/** Deletes any record of a deleted ID again (the daily scheduled run). */
+export async function sweepDeletedAccounts(db: D1Database): Promise<void> {
+  await db.batch(
+    ACCOUNT_TABLES.map((table) =>
+      db.prepare(
+        `DELETE FROM ${table}
+         WHERE account_id IN (SELECT account_id FROM deleted_accounts)`,
+      ),
+    ),
+  );
 }
 
 export async function saveCompletedPlay(

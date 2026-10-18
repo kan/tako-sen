@@ -1,8 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tako-sen",
+  // The top level is for local development (`npm run dev:roji`). The old URL,
+  // tako-sen.kan-fushihara.workers.dev, deploys from the legacy-clerk branch.
+  "name": "tako-local",
   "compatibility_date": "2026-09-15",
-  "main": "./src/worker/index.ts",
+  "main": "./src/worker/main.ts",
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
@@ -12,20 +14,25 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "tako-sen-dev",
-      "database_id": "0030813b-7c99-403d-b33b-85fd632ebf65",
+      "database_name": "tako-local",
       "migrations_dir": "migrations",
     },
   ],
+  // The kan-game.app ID platform (kan/game). /api/id/* is passed to it, and
+  // names are registered through its RPC (src/worker/id-rpc.ts).
+  "services": [{ "binding": "ID", "service": "kan-game-local" }],
   // 23:00 in Japan: builds the next day's daily board an hour before it opens.
   "triggers": { "crons": ["0 14 * * *"] },
+  "vars": {
+    // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
+    // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars);
+    // the release plan's R2 makes the local start pass them in.
+    "ID_COOKIE_NAME": "__Secure-kgdev_id",
+    "ID_ISSUER": "localhost",
+    "ID_PUBLIC_KEYS": "[]",
+  },
   "secrets": {
-    "required": [
-      "CLERK_PUBLISHABLE_KEY",
-      "CLERK_SECRET_KEY",
-      "CLERK_WEBHOOK_SIGNING_SECRET",
-      "ALLOWED_ORIGINS",
-    ],
+    "required": ["ALLOWED_ORIGINS"],
   },
   "observability": {
     "enabled": true,

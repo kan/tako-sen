@@ -1,22 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const clerk = vi.hoisted(() => ({
-  account: null as string | null,
-  deleted: [] as string[],
-}));
-vi.mock("@clerk/backend", () => ({
-  createClerkClient: () => ({
-    authenticateRequest: async () => ({
-      isAuthenticated: clerk.account !== null,
-      toAuth: () => ({ userId: clerk.account }),
-    }),
-    users: {
-      deleteUser: async (id: string) => {
-        clerk.deleted.push(id);
-      },
-    },
-  }),
-}));
 vi.mock("@clerk/vue", () => ({
   clerkPlugin: { name: "clerk" },
   Show: {},
@@ -26,71 +9,6 @@ vi.mock("@clerk/vue", () => ({
     throw new Error("Clerk must not be used while the login is bypassed.");
   },
 }));
-
-import { authenticateAccount, deleteSignInAccount } from "../src/worker/auth";
-
-const keys = { CLERK_PUBLISHABLE_KEY: "pk", CLERK_SECRET_KEY: "sk" };
-const withToken = (token: string, origin = "http://127.0.0.1:8787") =>
-  new Request(`${origin}/api/profile`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-describe("worker login bypass", () => {
-  beforeEach(() => {
-    clerk.account = null;
-    clerk.deleted = [];
-  });
-
-  it("ignores bypass tokens unless AUTH_BYPASS is set", async () => {
-    expect(await authenticateAccount(withToken("bypass:dev-a"), keys, [])).toBe(
-      null,
-    );
-    expect(
-      await authenticateAccount(
-        withToken("bypass:dev-a"),
-        { ...keys, AUTH_BYPASS: "0" },
-        [],
-      ),
-    ).toBe(null);
-  });
-
-  it("accepts only dev- test accounts when AUTH_BYPASS is set", async () => {
-    const env = { ...keys, AUTH_BYPASS: "1" };
-    expect(await authenticateAccount(withToken("bypass:dev-a"), env, [])).toBe(
-      "dev-a",
-    );
-    expect(
-      await authenticateAccount(withToken("bypass:user_123"), env, []),
-    ).toBe(null);
-    // Real Clerk sessions keep working beside the bypass.
-    clerk.account = "user_123";
-    expect(await authenticateAccount(withToken("clerk"), env, [])).toBe(
-      "user_123",
-    );
-    // A malformed bypass token never reaches Clerk.
-    expect(
-      await authenticateAccount(withToken("bypass:Bad_Name"), env, []),
-    ).toBe(null);
-  });
-
-  it("refuses bypass tokens on a public hostname even with AUTH_BYPASS", async () => {
-    const env = { ...keys, AUTH_BYPASS: "1" };
-    expect(
-      await authenticateAccount(
-        withToken("bypass:dev-a", "https://tako-sen.example.workers.dev"),
-        env,
-        [],
-      ),
-    ).toBe(null);
-  });
-
-  it("deletes only real sign-in accounts", async () => {
-    await deleteSignInAccount({ ...keys, AUTH_BYPASS: "1" }, "dev-a");
-    expect(clerk.deleted).toEqual([]);
-    await deleteSignInAccount(keys, "user_123");
-    expect(clerk.deleted).toEqual(["user_123"]);
-  });
-});
 
 describe("screen login bypass", () => {
   let storage: Map<string, string>;

@@ -1,66 +1,58 @@
-import { createClerkClient } from "@clerk/backend";
-import {
-  bypassTokenAccount,
-  isBypassAccount,
-  isBypassToken,
-} from "../core/auth-bypass";
+import { importVerificationKeys, verifyIdCookie, type IdKey } from "./id-token";
 
 /**
- * The login bypass for auditing signed-in screens locally. It is on only when
- * `npm run dev:roji:bypass` passes AUTH_BYPASS=1 to `wrangler dev` with
- * `--var`; wrangler.jsonc and .dev.vars never set it, so a deployed Worker
- * cannot accept these tokens.
+ * The account of a request is the kan-game.app ID in its cookie
+ * (kan/game docs/ID_DESIGN.md「ID と Cookie」). The cookie is verified here
+ * with the ID platform's public keys; the platform is never asked.
  */
 export type AuthEnv = Pick<
   Env,
-  "CLERK_PUBLISHABLE_KEY" | "CLERK_SECRET_KEY"
-> & {
-  readonly AUTH_BYPASS?: string;
-};
+  "DB" | "ID_COOKIE_NAME" | "ID_ISSUER" | "ID_PUBLIC_KEYS"
+>;
 
-/**
- * The variable alone is not enough: a deployed Worker is reached by its public
- * hostname, so a variable set there by mistake still opens nothing.
- */
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const bypassEnabled = (env: AuthEnv, url?: string) =>
-  env.AUTH_BYPASS === "1" &&
-  (url === undefined || LOOPBACK.has(new URL(url).hostname));
+export type Authentication =
+  | { status: "ok"; accountId: string }
+  | { status: "unauthorized" }
+  | { status: "deleted" };
 
-function clerkClient(env: AuthEnv) {
-  return createClerkClient({
-    publishableKey: env.CLERK_PUBLISHABLE_KEY,
-    secretKey: env.CLERK_SECRET_KEY,
-  });
+// Imported once per isolate (docs/PERFORMANCE.md); a changed setting reloads.
+let cachedKeys: { json: string; keys: Promise<IdKey[]> } | undefined;
+
+function verificationKeys(json: string): Promise<IdKey[]> {
+  if (cachedKeys?.json !== json) {
+    const keys = importVerificationKeys(json);
+    // A failed import is retried by the next request rather than cached.
+    keys.catch(() => {
+      if (cachedKeys?.keys === keys) cachedKeys = undefined;
+    });
+    cachedKeys = { json, keys };
+  }
+  return cachedKeys.keys;
 }
 
-/** The signed-in account of a request, or null. */
+/**
+ * The ID a request is signed with. An ID deleted through the ID platform keeps
+ * its cookie for up to 400 days, so it is refused here rather than allowed to
+ * write records again (ID_DESIGN.md「退会」).
+ */
 export async function authenticateAccount(
   request: Request,
   env: AuthEnv,
-  authorizedParties: string[],
-): Promise<string | null> {
-  if (bypassEnabled(env, request.url)) {
-    const header = request.headers.get("Authorization") ?? "";
-    const token = header.startsWith("Bearer ")
-      ? header.slice("Bearer ".length)
-      : "";
-    // A malformed bypass token is refused here: without Clerk keys locally,
-    // passing it on would throw instead of answering 401.
-    if (isBypassToken(token)) return bypassTokenAccount(token);
-  }
-  const auth = await clerkClient(env).authenticateRequest(request, {
-    acceptsToken: "session_token",
-    authorizedParties,
-  });
-  return auth.isAuthenticated ? auth.toAuth().userId : null;
-}
-
-/** Deletes the sign-in account itself; test accounts have none to delete. */
-export async function deleteSignInAccount(
-  env: AuthEnv,
-  accountId: string,
-): Promise<void> {
-  if (bypassEnabled(env) && isBypassAccount(accountId)) return;
-  await clerkClient(env).users.deleteUser(accountId);
+): Promise<Authentication> {
+  const claims = await verifyIdCookie(
+    request.headers.get("Cookie"),
+    env.ID_COOKIE_NAME,
+    await verificationKeys(env.ID_PUBLIC_KEYS),
+    env.ID_ISSUER,
+    Date.now(),
+  );
+  if (!claims) return { status: "unauthorized" };
+  const deleted = await env.DB.prepare(
+    "SELECT 1 FROM deleted_accounts WHERE account_id = ?",
+  )
+    .bind(claims.sub)
+    .first();
+  return deleted
+    ? { status: "deleted" }
+    : { status: "ok", accountId: claims.sub };
 }

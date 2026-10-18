@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { generatePuzzle } from "../src/core/generator";
@@ -9,9 +8,10 @@ import {
 } from "../src/core/shared-puzzle";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import {
-  deleteAccountHistory,
+  deleteAccount,
   listCompletedPlays,
   saveCompletedPlay,
+  sweepDeletedAccounts,
 } from "../src/worker/history";
 import worker from "../src/worker/index";
 import { getSharedPuzzle, saveSharedPuzzle } from "../src/worker/puzzles";
@@ -98,56 +98,31 @@ describe("account-owned history storage", () => {
       { ...play, isPublic: false },
     ]);
     expect(await listCompletedPlays(db, "account-c")).toEqual([]);
-    await deleteAccountHistory(db, "account-a");
-    await deleteAccountHistory(db, "account-a");
+    await deleteAccount(db, "account-a");
     expect(await listCompletedPlays(db, "account-a")).toEqual([]);
     expect(await listCompletedPlays(db, "account-b")).toEqual([
       { ...play, isPublic: false },
     ]);
 
-    const secret = "history-test-signing-secret";
-    const body = JSON.stringify({
-      type: "user.deleted",
-      data: { id: "account-b" },
-    });
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const webhookId = "msg-history-test";
-    const signature = createHmac("sha256", secret)
-      .update(`${webhookId}.${timestamp}.${body}`)
-      .digest("base64");
-    const env = {
-      DB: db,
-      CLERK_WEBHOOK_SIGNING_SECRET: `whsec_${Buffer.from(secret).toString("base64")}`,
-    } as Env;
-    const webhook = (signatureValue: string) =>
-      new Request("https://example.com/api/clerk-webhook", {
-        method: "POST",
-        headers: {
-          "svix-id": webhookId,
-          "svix-timestamp": timestamp,
-          "svix-signature": `v1,${signatureValue}`,
-        },
-        body,
-      });
-    const invalid = await worker.fetch(
-      webhook("invalid") as Parameters<typeof worker.fetch>[0],
-      env,
-    );
-    expect(invalid.status).toBe(400);
-    expect(await listCompletedPlays(db, "account-b")).toEqual([
-      { ...play, isPublic: false },
-    ]);
+    // Withdrawal from kan-game.app, which reaches TAKO-SEN as
+    // GameService.deleteAccount (src/worker/game-service.ts).
     await registerAccountProfile(db, "account-b", "テストタコ");
     await saveCompletedPlay(db, "account-b", {
       ...play,
       playId: crypto.randomUUID(),
     });
     expect(await listLeaderboard(db, play.puzzleId)).toHaveLength(1);
-    const valid = await worker.fetch(
-      webhook(signature) as Parameters<typeof worker.fetch>[0],
-      env,
-    );
-    expect(valid.status).toBe(200);
+    await deleteAccount(db, "account-b");
+    // The ID platform retries an interrupted withdrawal.
+    await deleteAccount(db, "account-b");
+    expect(
+      await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM deleted_accounts WHERE account_id = ?",
+        )
+        .bind("account-b")
+        .first("n"),
+    ).toBe(1);
     expect(await listCompletedPlays(db, "account-b")).toEqual([]);
     expect(await listLeaderboard(db, play.puzzleId)).toEqual([]);
     expect(
@@ -158,5 +133,16 @@ describe("account-owned history storage", () => {
         .bind("account-b")
         .first("n"),
     ).toBe(0);
+
+    // A request checked just before the withdrawal can still write once; the
+    // daily sweep removes it and keeps other accounts' records.
+    await saveCompletedPlay(db, "account-b", {
+      ...play,
+      playId: crypto.randomUUID(),
+    });
+    await saveCompletedPlay(db, "account-c", play);
+    await sweepDeletedAccounts(db);
+    expect(await listCompletedPlays(db, "account-b")).toEqual([]);
+    expect(await listCompletedPlays(db, "account-c")).toHaveLength(1);
   });
 });

@@ -1,11 +1,10 @@
-import { verifyWebhook } from "@clerk/backend/webhooks";
-import { authenticateAccount, deleteSignInAccount } from "./auth";
+import { authenticateAccount } from "./auth";
 import { verifyCompletedPlayUpload } from "../core/online-history";
 import { createSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import {
-  deleteAccountHistory,
   listCompletedPlays,
   saveCompletedPlay,
+  sweepDeletedAccounts,
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 import { listLeaderboard } from "./leaderboard";
@@ -43,11 +42,23 @@ import {
 } from "../core/account-profile";
 
 const maxBodyBytes = 4096;
-const maxWebhookBytes = 65536;
 
 export default {
   async fetch(request, env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    // The ID API, served as if from this origin (kan/game docs/ID_DESIGN.md
+    // 「HTTP の API」). The request goes on unchanged: the platform limits
+    // requests by CF-Connecting-IP and checks Origin itself.
+    if (pathname.startsWith("/api/id/")) {
+      try {
+        return await env.ID.fetch(request);
+      } catch (error) {
+        console.error(
+          JSON.stringify({ event: "id_proxy_failure", error: String(error) }),
+        );
+        return json({ error: "service_unavailable" }, 503);
+      }
+    }
     if (pathname === "/api/weekly-ranking") {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -110,44 +121,6 @@ export default {
         return json({ error: "service_unavailable" }, 503);
       }
     }
-    if (pathname === "/api/clerk-webhook") {
-      if (request.method !== "POST")
-        return json({ error: "method_not_allowed" }, 405, { Allow: "POST" });
-      let event;
-      try {
-        const body = await readLimitedBody(request, maxWebhookBytes);
-        event = await verifyWebhook(
-          new Request(request.url, {
-            method: "POST",
-            headers: request.headers,
-            body,
-          }),
-          { signingSecret: env.CLERK_WEBHOOK_SIGNING_SECRET },
-        );
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            event: "clerk_webhook_verification_failure",
-            error: String(error),
-          }),
-        );
-        return json({ error: "invalid_webhook" }, 400);
-      }
-      try {
-        if (event.type === "user.deleted" && event.data.id) {
-          await deleteAccountHistory(env.DB, event.data.id);
-        }
-        return json({ status: "ok" });
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            event: "clerk_webhook_storage_failure",
-            error: String(error),
-          }),
-        );
-        return json({ error: "service_unavailable" }, 503);
-      }
-    }
     if (pathname.startsWith("/api/puzzles/")) {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -176,7 +149,6 @@ export default {
     }
     if (
       pathname !== "/api/plays" &&
-      pathname !== "/api/account" &&
       pathname !== "/api/puzzles" &&
       pathname !== "/api/profile" &&
       pathname !== "/api/next-puzzle" &&
@@ -191,7 +163,6 @@ export default {
         return json({ error: "not_found" }, 404);
       return env.ASSETS.fetch(request);
     }
-    const isAccountDeletion = pathname === "/api/account";
     const isPuzzleCreation = pathname === "/api/puzzles";
     const isDailyRead =
       pathname === "/api/daily" ||
@@ -204,37 +175,40 @@ export default {
       ? superReads.includes(pathname)
         ? ["GET"]
         : ["POST"]
-      : isAccountDeletion
-        ? ["DELETE"]
-        : isPuzzleCreation || isDailyWrite
-          ? ["POST"]
-          : isDailyRead || isNextPuzzle
-            ? ["GET"]
-            : ["GET", "POST"];
+      : isPuzzleCreation || isDailyWrite
+        ? ["POST"]
+        : isDailyRead || isNextPuzzle
+          ? ["GET"]
+          : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: allowedMethods.join(", "),
       });
     }
 
-    const authorizedParties = env.ALLOWED_ORIGINS.split(",")
+    const allowedOrigins = env.ALLOWED_ORIGINS.split(",")
       .map((origin) => origin.trim())
       .filter(Boolean);
-    if (authorizedParties.length === 0) {
+    if (allowedOrigins.length === 0) {
       return json({ error: "service_unavailable" }, 503);
     }
+    // The ID cookie goes with any request to kan-game.app, so a POST must name
+    // an allowed origin; browsers always send Origin with those. A same-origin
+    // GET may omit it, so GETs cannot require it. The one GET that writes,
+    // /api/super/progress, only creates the consenting account's empty
+    // progress row.
     const origin = request.headers.get("Origin");
-    if (origin && !authorizedParties.includes(origin)) {
+    if (origin ? !allowedOrigins.includes(origin) : request.method !== "GET") {
       return json({ error: "forbidden_origin" }, 403);
     }
 
     try {
-      const accountId = await authenticateAccount(
-        request,
-        env,
-        authorizedParties,
-      );
-      if (!accountId) return json({ error: "unauthorized" }, 401);
+      const auth = await authenticateAccount(request, env);
+      if (auth.status === "unauthorized")
+        return json({ error: "unauthorized" }, 401);
+      // The client asks the ID platform for a new ID after this.
+      if (auth.status === "deleted") return json({ error: "id_deleted" }, 410);
+      const { accountId } = auth;
 
       if (isSuper) {
         if (
@@ -338,12 +312,6 @@ export default {
             difficulty,
           ),
         });
-      }
-
-      if (isAccountDeletion) {
-        await deleteAccountHistory(env.DB, accountId);
-        await deleteSignInAccount(env, accountId);
-        return json({ status: "deleted" });
       }
 
       if (pathname === "/api/profile") {
@@ -550,6 +518,17 @@ export default {
         }),
       );
       throw error;
+    } finally {
+      try {
+        await sweepDeletedAccounts(env.DB);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "deleted_account_sweep_failure",
+            error: String(error),
+          }),
+        );
+      }
     }
   },
 } satisfies ExportedHandler<Env>;

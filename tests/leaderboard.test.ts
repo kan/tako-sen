@@ -3,7 +3,7 @@ import { getPlatformProxy } from "wrangler";
 import type { CompletedPlayUpload } from "../src/core/online-history";
 import { createCompletedPlayUpload } from "../src/core/online-history";
 import {
-  deleteAccountHistory,
+  deleteAccount,
   listCompletedPlays,
   saveCompletedPlay,
 } from "../src/worker/history";
@@ -14,17 +14,9 @@ import {
 } from "../src/worker/profile";
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
+import { auth } from "./auth-mock";
 
-const auth = vi.hoisted(() => ({ account: null as string | null }));
-vi.mock("@clerk/backend", () => ({
-  createClerkClient: () => ({
-    authenticateRequest: async () => ({
-      isAuthenticated: auth.account !== null,
-      toAuth: () => ({ userId: auth.account }),
-    }),
-    users: { deleteUser: async () => undefined },
-  }),
-}));
+vi.mock("../src/worker/auth", () => import("./auth-mock"));
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const puzzleId = `p1:${"a".repeat(64)}`;
@@ -112,8 +104,8 @@ describe("consented automatic first-clear ranking", () => {
     ).toBe("duplicate");
     const ranked = await listLeaderboard(db, hinted.puzzleId);
     expect(ranked.map((entry) => entry.maxHintStage)).toEqual([0, null]);
-    await deleteAccountHistory(db, "migration-hinted");
-    await deleteAccountHistory(db, "migration-unhinted");
+    await deleteAccount(db, "migration-hinted");
+    await deleteAccount(db, "migration-unhinted");
   });
   it("scores time, mistakes and hints while keeping ties and detecting changed-depth retries", async () => {
     const db = platform.env.DB;
@@ -173,7 +165,7 @@ describe("consented automatic first-clear ranking", () => {
         (entry) => entry.displayName === "depth-deep",
       )?.maxHintStage,
     ).toBe(4);
-    for (const [account] of records) await deleteAccountHistory(db, account);
+    for (const [account] of records) await deleteAccount(db, account);
   });
 
   it("puts a slower clean solve ahead of a faster solve with a mistake", async () => {
@@ -207,7 +199,7 @@ describe("consented automatic first-clear ranking", () => {
       "新しいゲーム名",
     );
     expect(await listLeaderboard(db, puzzleId)).toEqual([]);
-    await deleteAccountHistory(db, "legacy");
+    await deleteAccount(db, "legacy");
   });
   it("never publishes old history when consent is registered or old uploads are retried", async () => {
     const db = platform.env.DB;
@@ -220,7 +212,7 @@ describe("consented automatic first-clear ranking", () => {
     expect(await saveCompletedPlay(db, "old", old, true)).toBe("duplicate");
     expect(await listLeaderboard(db, puzzleId)).toEqual([]);
     expect((await listCompletedPlays(db, "old"))[0].isPublic).toBe(false);
-    await deleteAccountHistory(db, "old");
+    await deleteAccount(db, "old");
   });
 
   it("publishes the first server registration, not the fastest or earliest completed play", async () => {
@@ -247,7 +239,7 @@ describe("consented automatic first-clear ranking", () => {
     expect(
       (await listCompletedPlays(db, "first")).filter((p) => p.isPublic),
     ).toHaveLength(1);
-    await deleteAccountHistory(db, "first");
+    await deleteAccount(db, "first");
   });
 
   it("atomically selects exactly one initial score for concurrent requests", async () => {
@@ -267,7 +259,7 @@ describe("consented automatic first-clear ranking", () => {
     expect((await listLeaderboard(db, puzzleId))[0].elapsedSeconds).toBe(
       history.find((p) => p.isPublic)?.elapsedSeconds,
     );
-    await deleteAccountHistory(db, "race");
+    await deleteAccount(db, "race");
   });
 
   it("ranks equal scores equally, isolates puzzles and removes all account data on deletion", async () => {
@@ -288,14 +280,14 @@ describe("consented automatic first-clear ranking", () => {
     expect((await listLeaderboard(db, puzzleId)).map((p) => p.rank)).toEqual([
       1, 1, 3,
     ]);
-    await deleteAccountHistory(db, "tie-a");
+    await deleteAccount(db, "tie-a");
     expect(await getAccountProfile(db, "tie-a")).toBeNull();
     expect(await listCompletedPlays(db, "tie-a")).toEqual([]);
     expect(await listLeaderboard(db, puzzleId)).toHaveLength(2);
     expect(await saveCompletedPlay(db, "tie-a", play(), true)).toBe(
       "profile_required",
     );
-    for (const owner of owners) await deleteAccountHistory(db, owner);
+    for (const owner of owners) await deleteAccount(db, owner);
   });
 
   it("limits new uploads, leaves retries idempotent, and rolls back denied scores", async () => {
@@ -322,7 +314,7 @@ describe("consented automatic first-clear ranking", () => {
     expect(await saveCompletedPlay(db, "limited", blocked, true)).toBe(
       "created",
     );
-    await deleteAccountHistory(db, "limited");
+    await deleteAccount(db, "limited");
   });
 
   it("requires authenticated explicit consent and never exposes account identifiers", async () => {
@@ -404,7 +396,7 @@ describe("consented automatic first-clear ranking", () => {
     expect((await getAccountProfile(db, "emoji-http"))?.displayName).toBe(
       emojiName,
     );
-    await deleteAccountHistory(db, "emoji-http");
+    await deleteAccount(db, "emoji-http");
     auth.account = "http";
     const upload = await createCompletedPlayUpload({
       id: crypto.randomUUID(),
@@ -470,7 +462,9 @@ describe("consented automatic first-clear ranking", () => {
     ]);
     expect((await call("leaderboards/%ZZ")).status).toBe(400);
     auth.account = "http";
-    expect((await call("account", "DELETE")).status).toBe(200);
+    // Withdrawal moved to kan-game.app, which calls GameService.deleteAccount.
+    expect((await call("account", "DELETE")).status).toBe(404);
+    await deleteAccount(db, "http");
     expect(await listLeaderboard(db, upload.puzzleId)).toEqual([]);
     auth.account = null;
   });

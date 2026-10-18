@@ -10,16 +10,9 @@ import {
 import { LEADERBOARD_SQL, listLeaderboard } from "../src/worker/leaderboard";
 import worker from "../src/worker/index";
 import { explainQueryPlan, migrateTestDatabase } from "./migrations";
+import { auth } from "./auth-mock";
 
-const auth = vi.hoisted(() => ({ account: null as string | null }));
-vi.mock("@clerk/backend", () => ({
-  createClerkClient: () => ({
-    authenticateRequest: async () => ({
-      isAuthenticated: auth.account !== null,
-      toAuth: () => ({ userId: auth.account }),
-    }),
-  }),
-}));
+vi.mock("../src/worker/auth", () => import("./auth-mock"));
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const firstId = `p1:${"a".repeat(64)}`;
