@@ -24,7 +24,11 @@ import {
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
 import { auth } from "./auth-mock";
-import { createIdPlatform } from "./id-platform-fake";
+import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+
+/** The fake ID platform as the Worker's ID binding. */
+const idBinding = (platform: ReturnType<typeof createFakeIdPlatform>) =>
+  platform.rpc as unknown as Env["ID"];
 
 vi.mock("../src/worker/auth", () => import("./auth-mock"));
 
@@ -390,7 +394,7 @@ describe("consented automatic first-clear ranking", () => {
     const env = {
       DB: db,
       ALLOWED_ORIGINS: "https://example.com",
-      ID: createIdPlatform().binding,
+      ID: idBinding(createFakeIdPlatform()),
     } as Env;
     const call = (
       path: string,
@@ -547,7 +551,9 @@ describe("consented automatic first-clear ranking", () => {
 });
 
 describe("names shared across kan-game.app", () => {
-  const ids = createIdPlatform(["named-elsewhere", "newcomer", "rival"]);
+  const ids = createFakeIdPlatform({
+    ids: ["named-elsewhere", "newcomer", "rival"],
+  });
   const call = (path: string, method = "GET", body?: unknown) =>
     worker.fetch(
       new Request(`https://example.com/api/${path}`, {
@@ -561,7 +567,7 @@ describe("names shared across kan-game.app", () => {
       {
         DB: platform.env.DB,
         ALLOWED_ORIGINS: "https://example.com",
-        ID: ids.binding,
+        ID: idBinding(ids),
       } as Env,
     );
   const register = (displayName: string) =>
@@ -571,7 +577,7 @@ describe("names shared across kan-game.app", () => {
   });
 
   it("keeps a name chosen in another game on consent", async () => {
-    ids.names.set("named-elsewhere", "よそのタコ");
+    ids.setName("named-elsewhere", "よそのタコ");
     auth.account = "named-elsewhere";
     // The screen learns the name with the ID; this reads TAKO-SEN's profile.
     expect(await (await call("profile")).json()).toEqual({ profile: null });
@@ -588,7 +594,7 @@ describe("names shared across kan-game.app", () => {
   });
 
   it("refuses a name another ID holds in any game", async () => {
-    ids.names.set("rival", "取られた名前");
+    ids.setName("rival", "取られた名前");
     auth.account = "newcomer";
     expect((await register("取られた名前")).status).toBe(409);
     expect(await getAccountProfile(platform.env.DB, "newcomer")).toBeNull();

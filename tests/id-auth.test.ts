@@ -2,42 +2,31 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { authenticateAccount } from "../src/worker/auth";
 import { deleteAccount } from "../src/worker/history";
-import { signIdToken, type IdKey } from "../src/worker/id-token";
 import worker from "../src/worker/index";
+import {
+  createTestIdIssuer,
+  type TestIdIssuer,
+} from "./kan-game/test-id-cookie";
 import { migrateTestDatabase } from "./migrations";
 
-const issuer = "dev.kan-game.app";
-const cookieName = "__Secure-kgdev_id";
 const origin = "https://tako-dev.kan-game.app";
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
-let signingKey: IdKey;
-let otherKey: IdKey;
-let publicKeys: string;
-
-async function generateKey(kid: string): Promise<{ key: IdKey; jwk: object }> {
-  const pair = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  );
-  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  return { key: { kid, key: pair.privateKey }, jwk: { ...jwk, kid } };
-}
+/** The ID platform whose key TAKO-SEN knows, and one whose key it does not. */
+let ids: TestIdIssuer;
+let stranger: TestIdIssuer;
 
 function env(id?: Partial<Pick<Env, "ID">>): Env {
   return {
     DB: platform.env.DB,
     ALLOWED_ORIGINS: origin,
-    ID_COOKIE_NAME: cookieName,
-    ID_ISSUER: issuer,
-    ID_PUBLIC_KEYS: publicKeys,
+    ID_COOKIE_NAME: ids.cookieName,
+    ID_ISSUER: ids.issuer,
+    ID_PUBLIC_KEYS: ids.publicKeys,
     ...id,
   } as unknown as Env;
 }
 
-async function cookie(sub: string, key = signingKey, iss = issuer) {
-  return `${cookieName}=${await signIdToken(key, { sub, iss }, Date.now())}`;
-}
+const cookie = (sub: string) => ids.cookie(sub);
 
 beforeAll(async () => {
   platform = await getPlatformProxy<Env>({
@@ -46,10 +35,8 @@ beforeAll(async () => {
     remoteBindings: false,
   });
   await migrateTestDatabase(platform.env.DB);
-  const signing = await generateKey("test-key");
-  signingKey = signing.key;
-  otherKey = (await generateKey("other-key")).key;
-  publicKeys = JSON.stringify([signing.jwk]);
+  ids = await createTestIdIssuer();
+  stranger = await createTestIdIssuer({ kid: "other-key" });
 });
 
 afterAll(async () => {
@@ -67,12 +54,14 @@ describe("the ID cookie", () => {
     ).toEqual({ status: "ok", accountId: id });
   });
 
-  it("refuses a missing cookie, another issuer and an unknown key", async () => {
+  it("refuses a missing cookie, another issuer, an unknown key and an expired one", async () => {
     const id = crypto.randomUUID();
     for (const header of [
       "",
-      await cookie(id, signingKey, "kan-game.app"),
-      await cookie(id, otherKey),
+      await ids.cookie(id, { iss: "kan-game.app" }),
+      await stranger.cookie(id),
+      // Expired: signed 400 days and a second ago.
+      await ids.cookie(id, { nowMs: Date.now() - 400 * 86_400_000 - 1000 }),
     ])
       expect(
         await authenticateAccount(request({ Cookie: header }), env()),
