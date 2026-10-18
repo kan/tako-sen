@@ -97,6 +97,9 @@ describe("the moved site", () => {
     )
       .bind(TOKEN)
       .run();
+    await platform.env.DB.prepare(
+      "INSERT INTO migration_handoffs_loaded (id, loaded_at) VALUES (1, 0)",
+    ).run();
   });
   afterAll(async () => {
     await platform?.dispose();
@@ -135,6 +138,26 @@ describe("the moved site", () => {
     expect(none?.status).toBe(404);
     expect(await none?.json()).toEqual({ error: "no_records" });
     expect((await ask("/api/migration-handoff"))?.status).toBe(401);
+  });
+
+  it("says the tokens are on their way until they are all loaded", async () => {
+    const db = platform.env.DB;
+    // Part of the tokens are in, but not the mark that the load finished.
+    await db.prepare("DELETE FROM migration_handoffs_loaded").run();
+    try {
+      const early = await ask("/api/migration-handoff", "user_2nobody");
+      expect(early?.status).toBe(503);
+      expect(await early?.json()).toEqual({ error: "preparing" });
+      // A token already loaded is handed out as usual.
+      const mine = await ask("/api/migration-handoff", "user_2alice");
+      expect(await mine?.json()).toEqual({ token: TOKEN });
+    } finally {
+      await db
+        .prepare(
+          "INSERT INTO migration_handoffs_loaded (id, loaded_at) VALUES (1, 0)",
+        )
+        .run();
+    }
   });
 
   it("guards the token as the signed-in API does", async () => {

@@ -13,7 +13,13 @@ const props = defineProps<{ target: string; endsOn: string }>();
 // A build without Clerk cannot sign anyone in; it still sends players over.
 const auth = onlineAuthEnabled ? useAuth() : undefined;
 const status = ref<
-  "idle" | "working" | "no_records" | "expired" | "ended" | "failed"
+  | "idle"
+  | "working"
+  | "no_records"
+  | "preparing"
+  | "expired"
+  | "ended"
+  | "failed"
 >("idle");
 
 const host = computed(() => new URL(props.target).host);
@@ -58,12 +64,17 @@ async function moveWithRecords(): Promise<void> {
       await auth.signOut().catch(() => undefined);
       return;
     }
+    const { error } = (await response.json().catch(() => ({}))) as {
+      error?: unknown;
+    };
     status.value =
       response.status === 404
         ? "no_records"
         : response.status === 410
           ? "ended"
-          : "failed";
+          : response.status === 503 && error === "preparing"
+            ? "preparing"
+            : "failed";
   } catch {
     status.value = "failed";
   }
@@ -120,6 +131,13 @@ async function moveWithRecords(): Promise<void> {
         <p v-if="status === 'no_records'" class="moved-message" role="status">
           このアカウントには引き継ぐ記録がありません。下の「新しい URL
           へ移る」を押してください。
+        </p>
+        <p
+          v-else-if="status === 'preparing'"
+          class="moved-message"
+          role="status"
+        >
+          引き継ぎの準備中です。数分待ってから、もう一度押してください。
         </p>
         <p v-else-if="status === 'expired'" class="moved-message" role="alert">
           ログインが切れていました。もう一度ログインしてから引き継いでください。

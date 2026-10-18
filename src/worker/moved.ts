@@ -88,13 +88,18 @@ export async function handleMoved({
       const accountId = await account();
       if (!accountId) return json({ error: "unauthorized" }, 401);
       const row = await env.DB.prepare(
-        "SELECT token FROM migration_handoffs WHERE clerk_user_id = ?",
+        `SELECT (SELECT token FROM migration_handoffs WHERE clerk_user_id = ?) AS token,
+                EXISTS (SELECT 1 FROM migration_handoffs_loaded) AS loaded`,
       )
         .bind(accountId)
-        .first<{ token: string }>();
-      return row
-        ? json({ token: row.token })
-        : json({ error: "no_records" }, 404);
+        .first<{ token: string | null; loaded: number }>();
+      if (row?.token) return json({ token: row.token });
+      if (row?.loaded) return json({ error: "no_records" }, 404);
+      // The tokens are not all in yet (between the switch and loading them):
+      // "no records" now would send the player over without them. Logged so
+      // that a load that never happened shows up.
+      console.log(JSON.stringify({ event: "migration_handoff_preparing" }));
+      return json({ error: "preparing" }, 503, { "Retry-After": "60" });
     } catch {
       console.error(JSON.stringify({ event: "migration_handoff_failure" }));
       return json({ error: "service_unavailable" }, 503);
