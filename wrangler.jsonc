@@ -48,8 +48,7 @@
         {
           "binding": "DB",
           "database_name": "tako-dev",
-          // TODO(R2 step 7): the id of the tako-dev database once created.
-          // Until it is filled in, `deploy --env dev` cannot run.
+          "database_id": "a9693f19-aece-40d6-8b3c-d5a2c2222bb1",
           "migrations_dir": "migrations",
         },
       ],
