@@ -2053,6 +2053,13 @@ function formatElapsed(seconds: number): string {
 
 <template>
   <main class="app-shell" :inert="dailyRankingOpen || dailyPanelOpen">
+    <!-- The day before the switch (R4). Once MOVED_TO is set, MovedNotice
+         replaces this screen, banner and all. -->
+    <p class="move-banner" role="note">
+      10月19日に、TAKO-SEN は新しい
+      URL（tako.kan-game.app）へ引っ越します。ログインしている方は、送信待ちの記録をそれまでに送ってください。引っ越したあとは、この
+      URL から記録とプレイヤー名を引き継げます。
+    </p>
     <header class="hero" :inert="waitingToStart || !!activeDialog">
       <section class="status-bar" aria-label="プレイ状況">
         <span role="img" :aria-label="`ミス ${state.mistakes} 回`" title="ミス"

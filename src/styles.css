@@ -1,3 +1,18 @@
+/* The day-before announcement above the game (App.vue). */
+.move-banner {
+  /* Above the READY overlay (20), so it is read before the first game;
+   * the menu (30) and the confirmations (40) still cover it. */
+  position: relative;
+  z-index: 25;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 2px solid var(--color-ink);
+  border-radius: 12px;
+  background: var(--color-highlight);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* The move notice (src/ui/MovedNotice.vue), shown instead of the game. */
 .moved {
   width: min(100%, 560px);
