@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "wrangler dev",
     "dev:all": "node scripts/dev.mjs",
     "dev:roji": "roji run tako-sen -- node scripts/dev.mjs",
     "build": "vue-tsc --noEmit && vite build",

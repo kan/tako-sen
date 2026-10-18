@@ -25,8 +25,8 @@
   "triggers": { "crons": ["0 14 * * *"] },
   "vars": {
     // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
-    // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars);
-    // the release plan's R2 makes the local start pass them in.
+    // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars),
+    // which scripts/dev.mjs passes in.
     "ID_COOKIE_NAME": "__Secure-kgdev_id",
     "ID_ISSUER": "localhost",
     "ID_PUBLIC_KEYS": "[]",
@@ -37,5 +37,38 @@
   "observability": {
     "enabled": true,
     "traces": { "enabled": true },
+  },
+  "env": {
+    // The development environment of main (docs/NEXT_PHASE.md「本番リリース
+    // 計画」): `npx wrangler deploy --env dev`.
+    "dev": {
+      "name": "tako-dev",
+      "routes": [{ "pattern": "tako-dev.kan-game.app", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tako-dev",
+          // TODO(R2 step 7): the id of the tako-dev database once created.
+          // Until it is filled in, `deploy --env dev` cannot run.
+          "migrations_dir": "migrations",
+        },
+      ],
+      // kan/game's development Worker, which calls back GameService
+      // (src/worker/game-service.ts) when a player withdraws.
+      "services": [{ "binding": "ID", "service": "kan-game-dev" }],
+      "triggers": { "crons": ["0 14 * * *"] },
+      "vars": {
+        // Must match kan/game's env.dev (its wrangler.jsonc).
+        "ID_COOKIE_NAME": "__Secure-kgdev_id",
+        "ID_ISSUER": "dev.kan-game.app",
+        // JSON array of public JWKs, each with kid. To rotate, follow
+        // kan/game docs/ID_DESIGN.md「鍵の管理」 and copy its new list here.
+        "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-2515ed\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"0KpEL8A2l9DupwZ2uVJVr_ZGy-sRbGJcJg-2Wwi8McU\",\"y\":\"yMVIO135BT3klr-T0Xtr4cRkdkAvfkwxAMaTzoH5EC4\"}]",
+        // Not a secret here: the deployed origin is public.
+        "ALLOWED_ORIGINS": "https://tako-dev.kan-game.app",
+      },
+      // Not inherited from the top level; nothing else is secret.
+      "secrets": { "required": [] },
+    },
   },
 }

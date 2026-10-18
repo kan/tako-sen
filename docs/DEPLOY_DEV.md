@@ -1,5 +1,7 @@
 # 開発用 Worker の公開確認手順
 
+> この文書は、Clerk 版の開発用 Worker（<https://tako-sen.kan-fushihara.workers.dev>、D1 `tako-sen-dev`）の手順と記録です。2026-10 から `main` は kan-game.app の ID 基盤へ移り、この環境は `legacy-clerk` ブランチからデプロイします。`main` の開発環境（`tako-dev.kan-game.app`）の手順は `docs/NEXT_PHASE.md`「本番リリース計画」を正とします。
+
 この手順は別端末での履歴同期を確認するための開発用デプロイです。本番公開手順ではありません。2026-09-25 に承認を得て <https://tako-sen.kan-fushihara.workers.dev> へデプロイ済みです。再デプロイ前にも公開 URL と対象 D1 を確認します。
 
 ## 2026-09-30: 効果音（SE）の試聴用デプロイ
