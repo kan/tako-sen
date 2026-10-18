@@ -53,6 +53,11 @@ const emit = defineEmits<{
   /** 記録の送信中かどうか。送信中は、送信後に届くランキングを待てる。 */
   sending: [active: boolean];
   profile: [name: string];
+  /**
+   * Whether the server has been asked about this ID's name (answered or
+   * failed). Before that, "profile" may carry only the cached name or none.
+   */
+  profileChecked: [checked: boolean];
   close: [];
 }>();
 const dialogRef = ref<HTMLElement>();
@@ -173,6 +178,7 @@ watch(
     syncMessage.value = "";
     transferCode.value = null;
     emit("profile", profile.value?.displayName ?? "");
+    emit("profileChecked", false);
     void loadProfile();
   },
   { immediate: true },
@@ -215,7 +221,10 @@ async function loadProfile(): Promise<void> {
     if (current !== epoch || disposed) return;
     message.value = `オンライン設定を確認できません。接続を確認して、アカウントを開き直してください。${PLAY_CONTINUES}`;
   } finally {
-    if (current === epoch) profileLoading.value = false;
+    if (current === epoch) {
+      profileLoading.value = false;
+      if (!disposed) emit("profileChecked", true);
+    }
   }
   // Clears are sent with or without a name, so a failed check does not wait.
   await synchronize();

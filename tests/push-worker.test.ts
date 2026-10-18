@@ -15,6 +15,7 @@ import { deleteAccount } from "../src/worker/history";
 import {
   MAX_SUBSCRIPTIONS_PER_ACCOUNT,
   isPushServiceEndpoint,
+  noticeRequest,
   parseSubscription,
   saveSubscription,
   sendDailyNotifications,
@@ -217,6 +218,8 @@ describe("the daily notice", () => {
       const headers = init?.headers as Record<string, string>;
       expect(headers.authorization).toMatch(/^vapid t=/);
       expect(headers["content-encoding"]).toBe("aes128gcm");
+      // Not padded to 4 KB: Mozilla refuses that for some devices (413).
+      expect((init?.body as Uint8Array).byteLength).toBeLessThan(400);
       return new Response(null, {
         status: String(url).endsWith("device-2") ? 410 : 201,
       });
@@ -228,6 +231,33 @@ describe("the daily notice", () => {
       devices[0].endpoint,
       devices[2].endpoint,
     ]);
+  });
+
+  it("is built unpadded, with one signature per push service", async () => {
+    const keys = { subject: "https://kan-game.app", ...vapid };
+    const signatures = new Map();
+    const rows = await Promise.all(
+      [1, 2].map(async (n) => {
+        const device = await browserSubscription(n);
+        return {
+          endpoint: device.endpoint,
+          key_p256dh: device.keys.p256dh,
+          key_auth: device.keys.auth,
+        };
+      }),
+    );
+    const requests = await Promise.all(
+      rows.map((row) => noticeRequest(row, keys, signatures)),
+    );
+    expect(signatures.size).toBe(1);
+    for (const request of requests) {
+      expect(request.method).toBe("POST");
+      expect((request.body as Uint8Array).byteLength).toBeLessThan(400);
+    }
+    const [a, b] = requests.map(
+      (r) => (r.headers as Record<string, string>).authorization,
+    );
+    expect(a).toBe(b);
   });
 
   it("sends nothing without a key pair", async () => {

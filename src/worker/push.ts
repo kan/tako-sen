@@ -6,7 +6,8 @@
  * (404/410) are deleted as they are found.
  */
 import {
-  buildPushPayload,
+  encryptNotification,
+  vapidHeaders,
   type PushSubscription,
   type VapidKeys,
 } from "@block65/webcrypto-web-push";
@@ -135,30 +136,72 @@ export function vapidKeys(env: PushEnv): VapidKeys | undefined {
 const DAILY_NOTICE = {
   title: "TAKO-SEN",
   body: "今日のデイリーチャレンジが始まりました。",
-  url: "/",
+  // Opens the daily as its button does (src/ui/daily-request.ts).
+  url: "/?daily=1",
 };
 
 type Outcome = "sent" | "gone" | "failed";
+type Row = { endpoint: string; key_p256dh: string; key_auth: string };
+/** VAPID signatures by push service origin, for one run. */
+type Signatures = Map<string, Promise<{ authorization: string }>>;
 
-async function notify(
-  row: { endpoint: string; key_p256dh: string; key_auth: string },
+const NOTICE_BYTES = new TextEncoder().encode(JSON.stringify(DAILY_NOTICE));
+
+/**
+ * The request that delivers the notice to one subscription. The library's
+ * buildPushPayload pads every message to 4 KB, which Mozilla's push service
+ * refuses for some devices (413 "intended for a constrained device"), so the
+ * message is encrypted here without padding: the notice is a fixed text, so
+ * its length tells nothing. The VAPID signature depends only on the push
+ * service, so one per service serves the whole run (`signatures`).
+ */
+export async function noticeRequest(
+  row: Row,
   keys: VapidKeys,
-  send: typeof fetch,
-): Promise<Outcome> {
+  signatures: Signatures = new Map(),
+): Promise<RequestInit> {
   const subscription: PushSubscription = {
     endpoint: row.endpoint,
     expirationTime: null,
     keys: { p256dh: row.key_p256dh, auth: row.key_auth },
   };
-  try {
-    const { headers, body, method } = await buildPushPayload(
+  const service = new URL(row.endpoint).origin;
+  let signature = signatures.get(service);
+  if (!signature) {
+    signature = vapidHeaders(subscription, keys).then((v) => v.headers);
+    signatures.set(service, signature);
+    // A failed one is made again for the next row rather than kept.
+    signature.catch(() => signatures.delete(service));
+  }
+  const [{ authorization }, body] = await Promise.all([
+    signature,
+    encryptNotification(subscription, NOTICE_BYTES, { pad: false }),
+  ]);
+  return {
+    method: "POST",
+    headers: {
+      authorization,
       // An hour: a notice that the day has started is still worth showing
       // to a phone that was off at midnight.
-      { data: DAILY_NOTICE, options: { ttl: 60 * 60, urgency: "normal" } },
-      subscription,
-      keys,
-    );
-    const { status } = await send(row.endpoint, { method, headers, body });
+      ttl: String(60 * 60),
+      urgency: "normal",
+      "content-encoding": "aes128gcm",
+      "content-type": "application/octet-stream",
+      "content-length": String(body.byteLength),
+    },
+    body,
+  };
+}
+
+async function notify(
+  row: Row,
+  keys: VapidKeys,
+  send: typeof fetch,
+  signatures: Signatures,
+): Promise<Outcome> {
+  try {
+    const request = await noticeRequest(row, keys, signatures);
+    const { status } = await send(row.endpoint, request);
     if (status === 404 || status === 410) return "gone";
     if (status >= 200 && status < 300) return "sent";
     console.error(JSON.stringify({ event: "daily_push_refused", status }));
@@ -184,6 +227,7 @@ export async function sendDailyNotifications(
 ): Promise<Record<Outcome, number>> {
   const keys = vapidKeys(env);
   const counts: Record<Outcome, number> = { sent: 0, gone: 0, failed: 0 };
+  const signatures: Signatures = new Map();
   if (!keys) return counts;
   let after = "";
   for (;;) {
@@ -192,11 +236,11 @@ export async function sendDailyNotifications(
        WHERE endpoint > ? ORDER BY endpoint LIMIT ?`,
     )
       .bind(after, BATCH_SIZE)
-      .all<{ endpoint: string; key_p256dh: string; key_auth: string }>();
+      .all<Row>();
     if (results.length === 0) break;
     after = results[results.length - 1].endpoint;
     const outcomes = await Promise.all(
-      results.map((row) => notify(row, keys, send)),
+      results.map((row) => notify(row, keys, send, signatures)),
     );
     const gone = results
       .filter((_, i) => outcomes[i] === "gone")

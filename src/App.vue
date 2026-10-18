@@ -26,6 +26,7 @@ import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import MigrationDialog from "./ui/MigrationDialog.vue";
 import { migrationOffer } from "./ui/migration";
+import { dailyRequested } from "./ui/daily-request";
 import CellMark from "./ui/CellMark.vue";
 import { scrollBehavior } from "./ui/scroll";
 import { askConfirm, type ConfirmRequest } from "./ui/confirm-dialog";
@@ -519,6 +520,9 @@ onMounted(() => {
   if (waitingToStart.value) focusReadyButton();
   saveCurrentGame();
   void openSharedPuzzleFromUrl(saved);
+  // The first tutorial is decided by now, so a request from the daily
+  // notice can wait for it.
+  appStarted.value = true;
 });
 
 onUnmounted(() => {
@@ -804,6 +808,38 @@ function onMenuKeydown(event: KeyboardEvent): void {
   }
   trapDialogFocus(event, menuDialogRef.value);
 }
+
+// The daily notice asks for the daily (src/ui/daily-request.ts): opened as
+// its button would be, once the screens have started, nothing else is open
+// (an ID switch, the first tutorial, any dialog or the menu) and the server
+// has answered about the player's name. Without a name the daily then asks
+// for one, as its button does.
+const appStarted = ref(false);
+const profileChecked = ref(false);
+watch(
+  [
+    appStarted,
+    dailyRequested,
+    profileChecked,
+    migrationOffer,
+    activeDialog,
+    dailyChallengeRef,
+  ],
+  () => {
+    if (
+      !appStarted.value ||
+      !dailyRequested.value ||
+      !profileChecked.value ||
+      migrationOffer.value ||
+      activeDialog.value ||
+      !dailyChallengeRef.value
+    )
+      return;
+    dailyRequested.value = false;
+    void dailyChallengeRef.value.open();
+  },
+  { flush: "post", immediate: true },
+);
 
 // An offer that arrives while the game is open (another device's QR code
 // opened in this tab, src/main.ts) stops the clock and takes the tutorial's
@@ -2527,6 +2563,7 @@ function formatElapsed(seconds: number): string {
       :open="activeDialog === 'account'"
       @close="accountDialogOpen = false"
       @profile="onAccountProfile"
+      @profile-checked="profileChecked = $event"
       @synced="onNormalPlaysSynced"
       @sending="onNormalPlaySending"
     />

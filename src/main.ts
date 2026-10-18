@@ -5,6 +5,7 @@ import { applyHandoffSettings, parseHandoff } from "./core/handoff";
 import { startId } from "./ui/auth";
 import { offerMigration, offerTransfer } from "./ui/migration";
 import { startPushSync } from "./ui/push";
+import { takeDailyRequestFromUrl } from "./ui/daily-request";
 import { shouldReloadForStaleChunk } from "./ui/stale-chunk";
 import "./styles.css";
 
@@ -36,6 +37,8 @@ function takeHandoff(atStart: boolean): void {
 // Before the screens read the settings and before mounting, so they see the
 // offer and hold the tutorial back.
 takeHandoff(true);
+// The daily notice opened this page (`?daily=1`).
+takeDailyRequestFromUrl();
 startId();
 createApp(App).mount("#app");
 // A QR code opened in a tab already showing the game changes only the

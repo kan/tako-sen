@@ -188,7 +188,24 @@ async function claimStart(
   return dailyStartFailureText(response.status, body?.status);
 }
 
-defineExpose({ claimStart, openRanking: showRanking });
+/**
+ * What the daily button does, for the daily notice (App.vue). A load already
+ * under way would make openPanel return without doing anything, so this
+ * waits for it first.
+ */
+async function openFromNotice(): Promise<void> {
+  if (busy.value)
+    await new Promise<void>((resolve) => {
+      const stop = watch(busy, (loading) => {
+        if (loading) return;
+        stop();
+        resolve();
+      });
+    });
+  await openPanel();
+}
+
+defineExpose({ claimStart, openRanking: showRanking, open: openFromNotice });
 
 async function showRanking(date: string): Promise<void> {
   closePanel();

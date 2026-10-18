@@ -30,11 +30,24 @@ self.addEventListener("notificationclick", (event) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((windows) => {
-        // A window already open shows the game: bring it forward.
-        const open = windows.find(
+        // A window already showing the game (the one in front first) loads
+        // the notice's address: even one still running an older version
+        // then opens the daily (src/ui/daily-request.ts), and the game keeps
+        // its board in storage. A window that cannot be navigated (not yet
+        // controlled by this worker) leaves it to a new one.
+        const mine = windows.filter(
           (client) => new URL(client.url).origin === self.location.origin,
         );
-        return open ? open.focus() : self.clients.openWindow(url);
+        const open =
+          mine.find((client) => client.focused) ??
+          mine.find((client) => client.visibilityState === "visible") ??
+          mine[0];
+        if (!open) return self.clients.openWindow(url);
+        return open
+          .focus()
+          .then((client) => client.navigate(url))
+          .then((client) => client ?? self.clients.openWindow(url))
+          .catch(() => self.clients.openWindow(url));
       }),
   );
 });

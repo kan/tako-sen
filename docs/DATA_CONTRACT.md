@@ -81,7 +81,9 @@ kan/tako-sen#10。毎日 0:05（日本時間）、設定でオンにした端末
 | `POST /api/push/subscription`   | ID   | 本文は `PushSubscription.toJSON()` の形（`endpoint`、`keys.p256dh`、`keys.auth`） |
 | `DELETE /api/push/subscription` | ID   | 本文は `{ endpoint }`。自分の ID の行だけを消す                                   |
 
-通知の本文は `{ title, body, url }`。端末の `public/push-sw.js` が表示し、押すと開いている画面を前に出すか、`url` を開く。
+通知の本文は `{ title, body, url }` で、`url` は `/?daily=1`。端末の `public/push-sw.js` が表示する。押すと、TAKO-SEN を開いていればその画面（前面のものを優先）で、開いていなければ新しい画面で `url` を開く。画面はデイリーのボタンを押したときと同じようにデイリーを開く（`src/ui/daily-request.ts`）。開くのは、サーバーにプレイヤー名を確かめ終え、ほかのダイアログ（ID の切り替えの確認、チュートリアル、メニューなど）が閉じてから。`?daily=1` は読んだらすぐアドレスから消す。
+
+暗号化では詰め物（padding）をしない。送信ライブラリの `buildPushPayload` は 4 KB まで詰め物をするが、Mozilla の通知サービスは端末によってそれを断る（`413`）。本文は決まった文なので、長さを隠す必要もない。
 
 ## API 境界の要求
 
