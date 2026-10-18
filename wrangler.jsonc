@@ -77,8 +77,7 @@
         {
           "binding": "DB",
           "database_name": "tako-prod",
-          // TODO: the id of the tako-prod database once created. Until it is
-          // filled in, `deploy --env production` cannot run.
+          "database_id": "fe401d20-1851-4085-9340-b14058a2e438",
           "migrations_dir": "migrations",
         },
       ],
