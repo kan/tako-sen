@@ -1,3 +1,56 @@
+/* The move notice (src/ui/MovedNotice.vue), shown instead of the game. */
+.moved {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 24px 16px 32px;
+}
+
+.moved h1 {
+  font-size: 22px;
+  margin: 0 0 12px;
+}
+
+.moved h2 {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.moved-section {
+  margin: 20px 0;
+  padding: 16px;
+  border: 2px solid var(--color-ink);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.moved-section p {
+  margin: 0 0 10px;
+}
+
+.moved-section button {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 2px solid var(--color-ink);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-weight: 800;
+}
+
+.moved-section .moved-primary {
+  background: var(--color-accent);
+}
+
+.moved-message {
+  margin-top: 10px;
+  color: var(--color-accent-text);
+  font-weight: 700;
+}
+
+.moved-note {
+  color: var(--color-ink-soft);
+  font-size: 14px;
+}
+
 :root {
   /* Colours by role; use these rather than hex values. A colour used in only
    * one place (confetti, the super lilac, the scrollbar) stays literal there.

@@ -88,6 +88,8 @@ import {
   toggleExcluded,
 } from "./core/player";
 import {
+  HAPTICS_ENABLED_KEY as hapticsStorageKey,
+  SOUND_ENABLED_KEY as soundStorageKey,
   loadAutoExclusionsEnabled,
   saveAutoExclusionsEnabled,
   loadDifficultySelection,
@@ -150,8 +152,6 @@ const InteractiveTutorial = defineAsyncComponent(
 );
 
 const dragStartThresholdPx = 12;
-const hapticsStorageKey = "tako-sen:haptics-enabled";
-const soundStorageKey = "tako-sen:sound-enabled";
 const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");

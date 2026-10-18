@@ -1,8 +1,21 @@
 import type { KeyValueStorage } from "./storage";
 import type { DifficultySelection } from "./next-puzzle";
 
-const AUTO_EXCLUSIONS_KEY = "tako-sen:auto-exclusions-enabled";
-const DIFFICULTY_SELECTION_KEY = "tako-sen:difficulty-selection";
+export const AUTO_EXCLUSIONS_KEY = "tako-sen:auto-exclusions-enabled";
+export const DIFFICULTY_SELECTION_KEY = "tako-sen:difficulty-selection";
+export const SOUND_ENABLED_KEY = "tako-sen:sound-enabled";
+export const HAPTICS_ENABLED_KEY = "tako-sen:haptics-enabled";
+
+export function isDifficultySelection(
+  value: unknown,
+): value is DifficultySelection {
+  return (
+    value === "easy" ||
+    value === "normal" ||
+    value === "hard" ||
+    value === "random"
+  );
+}
 
 export function loadDifficultySelection(
   storage: KeyValueStorage,
@@ -10,13 +23,7 @@ export function loadDifficultySelection(
 ): DifficultySelection {
   try {
     const value = storage.getItem(DIFFICULTY_SELECTION_KEY);
-    if (
-      value === "easy" ||
-      value === "normal" ||
-      value === "hard" ||
-      value === "random"
-    )
-      return value;
+    if (isDifficultySelection(value)) return value;
   } catch {
     // Reading settings must not prevent restoring a playable board.
   }

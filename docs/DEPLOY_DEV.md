@@ -2,6 +2,22 @@
 
 この手順は別端末での履歴同期を確認するための開発用デプロイです。本番公開手順ではありません。2026-09-25 に承認を得て <https://tako-sen.kan-fushihara.workers.dev> へデプロイ済みです。再デプロイ前にも公開 URL と対象 D1 を確認します。
 
+## 移転の案内への切り替え（R4）
+
+このブランチ（`legacy-clerk`）は、TAKO-SEN が `tako.kan-game.app` へ移ったあと、移転の案内と記録の引き継ぎだけを行う旧 URL になります。全体の手順と順序は `main` の `docs/DEPLOY_PROD.md` を正とします。D1 への書き込みとデプロイは、利用者の承認を得てから行います。
+
+1. マイグレーション `0013_migration_handoffs.sql` を適用する（`npx wrangler d1 migrations apply tako-sen-dev --remote`）
+2. `main` の `scripts/migrate-legacy.ts` が作った `legacy-handoffs.sql` を流す（`npx wrangler d1 execute tako-sen-dev --remote --file <パス>`）
+3. `wrangler.jsonc` の `vars` に、移転先（`MOVED_TO`、例 `https://tako.kan-game.app`）と移行期間の最終日（`MIGRATION_ENDS`、例 `2027-01-31`）を書き、ビルドしてデプロイする
+
+設定すると次のように動きます（`src/worker/moved.ts`、`src/ui/MovedNotice.vue`）。
+
+- 画面はゲームの代わりに移転の案内を出す。Clerk でログインした人は、記録を引き継いで新しい URL へ移れる。ログインしない人は、設定だけを引き継いで移れる。共有リンクやシード付きの URL は、パスとクエリを保ったまま移る
+- API への書き込みはすべて `410` で断る。Clerk の webhook は `202` で受け取り、何も変えない。デイリーの定期実行も止まる
+- 移行期間の最終日を過ぎると、引き継ぎ用トークンを返さない
+
+手元で試すときは、`npx wrangler dev --var MOVED_TO:https://tako.kan-game.app --var MIGRATION_ENDS:2027-01-31` で起動します。
+
 ## 2026-09-30: 効果音（SE）の試聴用デプロイ
 
 利用者の承認を得て開発Worker `tako-sen` へSEを反映した。バージョンIDは `e095e300-ca39-4e4d-82eb-89e2697f874d`。全162テスト・型チェック・ビルド・整形確認・deploy dry-runが成功した。公開ルートのHTML・最新JS・CSSとローカルビルドの一致、未認証プロフィールAPIの401を確認した。API・DB・マイグレーションの変更はなく、コミット・pushは未実施。

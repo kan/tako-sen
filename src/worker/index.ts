@@ -12,6 +12,8 @@ import { listLeaderboard } from "./leaderboard";
 import { listWeeklyRanking } from "./weekly-ranking";
 import { listRankedPuzzleCandidates } from "./next-puzzle";
 import { getAccountProfile, registerAccountProfile } from "./profile";
+import { handleMoved, movedState } from "./moved";
+import { json } from "./http";
 import {
   completeDailyAttempt,
   getDailyStatus,
@@ -48,6 +50,16 @@ const maxWebhookBytes = 65536;
 export default {
   async fetch(request, env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    const origins = allowedOrigins(env);
+    const movedAnswer = await handleMoved({
+      request,
+      pathname,
+      moved: movedState(env),
+      env,
+      origins,
+      account: () => authenticateAccount(request, env, origins),
+    });
+    if (movedAnswer) return movedAnswer;
     if (pathname === "/api/weekly-ranking") {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -217,9 +229,7 @@ export default {
       });
     }
 
-    const authorizedParties = env.ALLOWED_ORIGINS.split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean);
+    const authorizedParties = allowedOrigins(env);
     if (authorizedParties.length === 0) {
       return json({ error: "service_unavailable" }, 503);
     }
@@ -539,6 +549,8 @@ export default {
     }
   },
   async scheduled(controller, env): Promise<void> {
+    // After the move nothing here changes: the daily goes on at kan-game.app.
+    if (movedState(env)) return;
     try {
       // The planned time, so a late run still prepares the day it was for.
       await prepareNextDailyPuzzle(env.DB, controller.scheduledTime);
@@ -554,15 +566,12 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-function json(
-  body: unknown,
-  status = 200,
-  headers: Record<string, string> = {},
-): Response {
-  return Response.json(body, {
-    status,
-    headers: { "Cache-Control": "no-store", ...headers },
-  });
+function allowedOrigins(env: Env): string[] {
+  // Read for every request now; a missing secret means none are allowed.
+  return (env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
 async function readLimitedBody(

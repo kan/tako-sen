@@ -19,6 +19,13 @@
   ],
   // 23:00 in Japan: builds the next day's daily board an hour before it opens.
   "triggers": { "crons": ["0 14 * * *"] },
+  // The move to kan-game.app (src/worker/moved.ts). Empty while the old URL
+  // runs the game; at the switch (R4), the new origin and the last day of the
+  // migration period, e.g. "https://tako.kan-game.app" and "2027-01-31".
+  "vars": {
+    "MOVED_TO": "",
+    "MIGRATION_ENDS": "",
+  },
   "secrets": {
     "required": [
       "CLERK_PUBLISHABLE_KEY",
