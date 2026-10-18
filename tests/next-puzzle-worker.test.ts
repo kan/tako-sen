@@ -15,6 +15,9 @@ import { auth } from "./auth-mock";
 vi.mock("../src/worker/auth", () => import("./auth-mock"));
 
 let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
+// Only clears made after consent are ranked, so the plays here are cleared
+// after the profiles the tests register (an hour from now).
+const later = Date.now() + 3_600_000;
 const firstId = `p1:${"a".repeat(64)}`;
 const secondId = `p1:${"b".repeat(64)}`;
 
@@ -32,24 +35,19 @@ beforeAll(async () => {
     ["owner-b", firstId, "first"],
     ["owner-c", secondId, "second"],
   ]) {
-    await saveCompletedPlay(
-      platform.env.DB,
-      account,
-      {
-        playId: crypto.randomUUID(),
-        puzzleId,
-        seedCode: `TAKO:g4:easy:${seed}`,
-        generatorVersion: "g4",
-        difficulty: "easy",
-        startedAt: 1000,
-        completedAt: 61000,
-        elapsedSeconds: 60,
-        hintsUsed: 0,
-        mistakes: 0,
-        maxHintStage: 0,
-      },
-      true,
-    );
+    await saveCompletedPlay(platform.env.DB, account, {
+      playId: crypto.randomUUID(),
+      puzzleId,
+      seedCode: `TAKO:g4:easy:${seed}`,
+      generatorVersion: "g4",
+      difficulty: "easy",
+      startedAt: later,
+      completedAt: later + 60000,
+      elapsedSeconds: 60,
+      hintsUsed: 0,
+      mistakes: 0,
+      maxHintStage: 0,
+    });
   }
 });
 afterAll(async () => platform?.dispose());
@@ -83,24 +81,19 @@ describe("ranked puzzle candidates", () => {
     const oldId = `p1:${"e".repeat(64)}`;
     // 旧版の盤面は記録が多くても候補にしない。ランキング自体は残る。
     for (const account of ["owner-a", "owner-b", "owner-c"])
-      await saveCompletedPlay(
-        db,
-        account,
-        {
-          playId: crypto.randomUUID(),
-          puzzleId: oldId,
-          seedCode: "TAKO:g2:easy:old",
-          generatorVersion: "g2",
-          difficulty: "easy",
-          startedAt: 1000,
-          completedAt: 61000,
-          elapsedSeconds: 60,
-          hintsUsed: 0,
-          mistakes: 0,
-          maxHintStage: 0,
-        },
-        true,
-      );
+      await saveCompletedPlay(db, account, {
+        playId: crypto.randomUUID(),
+        puzzleId: oldId,
+        seedCode: "TAKO:g2:easy:old",
+        generatorVersion: "g2",
+        difficulty: "easy",
+        startedAt: later,
+        completedAt: later + 60000,
+        elapsedSeconds: 60,
+        hintsUsed: 0,
+        mistakes: 0,
+        maxHintStage: 0,
+      });
     expect(await listLeaderboard(db, oldId)).toHaveLength(3);
     const offered = await listRankedPuzzleCandidates(db, "requester", "easy");
     expect(offered.map((candidate) => candidate.puzzleId)).not.toContain(oldId);
@@ -126,24 +119,19 @@ describe("ranked puzzle candidates", () => {
     expect(await listRankedPuzzleCandidates(db, "requester", "hard")).toEqual(
       [],
     );
-    await saveCompletedPlay(
-      db,
-      "requester",
-      {
-        playId: crypto.randomUUID(),
-        puzzleId: firstId,
-        seedCode: "TAKO:g4:easy:first",
-        generatorVersion: "g4",
-        difficulty: "easy",
-        startedAt: 1000,
-        completedAt: 61000,
-        elapsedSeconds: 60,
-        hintsUsed: 0,
-        mistakes: 0,
-        maxHintStage: 0,
-      },
-      true,
-    );
+    await saveCompletedPlay(db, "requester", {
+      playId: crypto.randomUUID(),
+      puzzleId: firstId,
+      seedCode: "TAKO:g4:easy:first",
+      generatorVersion: "g4",
+      difficulty: "easy",
+      startedAt: later,
+      completedAt: later + 60000,
+      elapsedSeconds: 60,
+      hintsUsed: 0,
+      mistakes: 0,
+      maxHintStage: 0,
+    });
     expect(
       (await listRankedPuzzleCandidates(db, "requester", "easy")).map(
         (candidate) => candidate.puzzleId,
@@ -160,29 +148,24 @@ describe("ranked puzzle candidates", () => {
     );
     const first = `p1:${"c".repeat(64)}`;
     const second = `p1:${"d".repeat(64)}`;
-    const save = (account: string, puzzleId: string, publicPlay: boolean) =>
-      saveCompletedPlay(
-        db,
-        account,
-        {
-          playId: crypto.randomUUID(),
-          puzzleId,
-          seedCode: `TAKO:g4:hard:${puzzleId}`,
-          generatorVersion: "g4",
-          difficulty: "hard",
-          startedAt: 1000,
-          completedAt: 61000,
-          elapsedSeconds: 60,
-          hintsUsed: 0,
-          mistakes: 0,
-          maxHintStage: 0,
-        },
-        publicPlay,
-      );
-    await save("private-check-owner", first, true);
-    await save("private-check-owner", second, true);
+    const save = (account: string, puzzleId: string) =>
+      saveCompletedPlay(db, account, {
+        playId: crypto.randomUUID(),
+        puzzleId,
+        seedCode: `TAKO:g4:hard:${puzzleId}`,
+        generatorVersion: "g4",
+        difficulty: "hard",
+        startedAt: later,
+        completedAt: later + 60000,
+        elapsedSeconds: 60,
+        hintsUsed: 0,
+        mistakes: 0,
+        maxHintStage: 0,
+      });
+    await save("private-check-owner", first);
+    await save("private-check-owner", second);
     // A replay is retained privately, but must not count as another participant.
-    await save("private-check-owner", first, true);
+    await save("private-check-owner", first);
     const repeated = await listRankedPuzzleCandidates(
       db,
       "private-check-requester",
@@ -202,8 +185,8 @@ describe("ranked puzzle candidates", () => {
     expect(
       await listRankedPuzzleCandidates(db, "private-check-requester", "hard"),
     ).toHaveLength(2);
-    await save("private-check-requester", first, false);
-    await save("private-check-requester", first, false);
+    await save("private-check-requester", first);
+    await save("private-check-requester", first);
     expect(
       (
         await listRankedPuzzleCandidates(db, "private-check-requester", "hard")

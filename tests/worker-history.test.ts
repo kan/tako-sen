@@ -107,11 +107,17 @@ describe("account-owned history storage", () => {
     // Withdrawal from kan-game.app, which reaches TAKO-SEN as
     // GameService.deleteAccount (src/worker/game-service.ts).
     await registerAccountProfile(db, "account-b", "テストタコ");
-    await saveCompletedPlay(db, "account-b", {
+    // A puzzle first solved after consent, so it is ranked.
+    const later = Date.now() + 3_600_000;
+    const ranked = {
       ...play,
       playId: crypto.randomUUID(),
-    });
-    expect(await listLeaderboard(db, play.puzzleId)).toHaveLength(1);
+      puzzleId: `p1:${"f".repeat(64)}`,
+      startedAt: later,
+      completedAt: later + 60000,
+    };
+    await saveCompletedPlay(db, "account-b", ranked);
+    expect(await listLeaderboard(db, ranked.puzzleId)).toHaveLength(1);
     await deleteAccount(db, "account-b");
     // The ID platform retries an interrupted withdrawal.
     await deleteAccount(db, "account-b");
@@ -124,7 +130,7 @@ describe("account-owned history storage", () => {
         .first("n"),
     ).toBe(1);
     expect(await listCompletedPlays(db, "account-b")).toEqual([]);
-    expect(await listLeaderboard(db, play.puzzleId)).toEqual([]);
+    expect(await listLeaderboard(db, ranked.puzzleId)).toEqual([]);
     expect(
       await db
         .prepare(
@@ -140,7 +146,8 @@ describe("account-owned history storage", () => {
       ...play,
       playId: crypto.randomUUID(),
     });
-    await saveCompletedPlay(db, "account-c", play);
+    expect(await saveCompletedPlay(db, "account-c", play)).toBe("created");
+    expect(await listCompletedPlays(db, "account-c")).toHaveLength(1);
     await sweepDeletedAccounts(db);
     expect(await listCompletedPlays(db, "account-b")).toEqual([]);
     expect(await listCompletedPlays(db, "account-c")).toHaveLength(1);

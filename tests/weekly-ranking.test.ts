@@ -20,6 +20,12 @@ async function clear(
   eligible = 1,
   version = "g3",
 ): Promise<void> {
+  // The fixture writes more clears at once than the upload limit allows.
+  await platform.env.DB.prepare(
+    "DELETE FROM publication_limits WHERE account_id = ?",
+  )
+    .bind(account)
+    .run();
   await platform.env.DB.prepare(
     `INSERT INTO completed_plays
     (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,

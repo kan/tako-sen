@@ -1,8 +1,16 @@
 import type { CompletedPlayUpload, OnlinePlay } from "../core/online-history";
 import { maximumHintStage, type HintStage } from "../core/hint-progress";
 
-export type SaveOutcome =
-  "created" | "duplicate" | "conflict" | "profile_required";
+export type SaveOutcome = "created" | "duplicate" | "conflict";
+
+/**
+ * How far a device clock may lag the server's and still rank a clear made
+ * right after consent: completed_at comes from the device, consented_at from
+ * the server. A clear left unranked keeps its puzzle unranked for good, so the
+ * margin is generous; the cost is that a clear made up to this long before
+ * consent can be ranked.
+ */
+export const CONSENT_CLOCK_SKEW_MS = 10 * 60_000;
 
 // The tables that hold an account's records. The super tables go with
 // leaderboard_profiles and super_progress through ON DELETE CASCADE.
@@ -50,20 +58,25 @@ export async function sweepDeletedAccounts(db: D1Database): Promise<void> {
   );
 }
 
+/**
+ * Stores a verified clear in the ID's history, with or without a name. Only a
+ * clear made after the ID consented is eligible for the rankings; the
+ * publish_first_clear trigger then ranks it if it is the ID's first record of
+ * the puzzle.
+ */
 export async function saveCompletedPlay(
   db: D1Database,
   accountId: string,
   play: CompletedPlayUpload,
-  requireProfile = false,
 ): Promise<SaveOutcome> {
   const inserted = await db
     .prepare(
       `INSERT INTO completed_plays
        (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
         started_at, completed_at, elapsed_seconds, mistakes, hints_used, max_hint_stage, ranking_eligible)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-         EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
-       WHERE ? = 0 OR EXISTS (SELECT 1 FROM leaderboard_profiles WHERE account_id = ? AND consent_version = 1)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         EXISTS (SELECT 1 FROM leaderboard_profiles
+           WHERE account_id = ? AND consent_version = 1 AND consented_at <= ?))
        ON CONFLICT(account_id, play_id) DO NOTHING`,
     )
     .bind(
@@ -80,8 +93,7 @@ export async function saveCompletedPlay(
       play.hintsUsed,
       maximumHintStage(play),
       accountId,
-      requireProfile ? 1 : 0,
-      accountId,
+      play.completedAt + CONSENT_CLOCK_SKEW_MS,
     )
     .run();
   if (inserted.meta.changes > 0) return "created";
@@ -94,10 +106,7 @@ export async function saveCompletedPlay(
     )
     .bind(accountId, play.playId)
     .first<StoredPlay>();
-  if (!existing) {
-    if (requireProfile) return "profile_required";
-    throw new Error("Stored play disappeared after conflict.");
-  }
+  if (!existing) throw new Error("Stored play disappeared after conflict.");
   return samePlay(existing, play) ? "duplicate" : "conflict";
 }
 

@@ -452,32 +452,23 @@ export default {
       if (request.method === "GET") {
         return json({ plays: await listCompletedPlays(env.DB, accountId) });
       }
-      // An account without consent gets 403 whatever it sends, even a resend
-      // of a play stored before it lost consent. The profile is read while
-      // the upload is parsed and verified, and awaited before any answer.
-      const consented = getAccountProfile(env.DB, accountId).then(Boolean);
-      const refuse = async (error: string, status: number) =>
-        (await consented)
-          ? json({ error }, status)
-          : json({ error: "profile_required" }, 403);
+      // Any ID's clears are its history, with or without a name; only clears
+      // after consent are ranked (saveCompletedPlay).
       if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-        return refuse("unsupported_media_type", 415);
+        return json({ error: "unsupported_media_type" }, 415);
       let submitted: unknown;
       try {
         submitted = JSON.parse(await readLimitedBody(request, maxBodyBytes));
       } catch {
-        return refuse("invalid_body", 400);
+        return json({ error: "invalid_body" }, 400);
       }
       let play;
       try {
         play = await verifyCompletedPlayUpload(submitted);
       } catch {
-        return refuse("invalid_play", 400);
+        return json({ error: "invalid_play" }, 400);
       }
-      if (!(await consented)) return json({ error: "profile_required" }, 403);
-      const outcome = await saveCompletedPlay(env.DB, accountId, play, true);
-      if (outcome === "profile_required")
-        return json({ error: "profile_required" }, 403);
+      const outcome = await saveCompletedPlay(env.DB, accountId, play);
       if (outcome === "conflict")
         return json({ error: "play_id_conflict" }, 409);
       // The client shows this board's ranking right after a clear; returning
