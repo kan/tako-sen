@@ -1,4 +1,5 @@
 import { authenticateAccount } from "./auth";
+import { idPlatform } from "./id-platform";
 import { verifyCompletedPlayUpload } from "../core/online-history";
 import { createSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import {
@@ -315,8 +316,17 @@ export default {
       }
 
       if (pathname === "/api/profile") {
-        if (request.method === "GET")
-          return json({ profile: await getAccountProfile(env.DB, accountId) });
+        if (request.method === "GET") {
+          const profile = await getAccountProfile(env.DB, accountId);
+          // A name chosen in another kan-game.app game: the screen then asks
+          // for TAKO-SEN's consent only. Unknown (null) if the platform fails.
+          const name =
+            profile?.displayName ??
+            (await idPlatform(env)
+              .getName(accountId)
+              .catch(() => null));
+          return json({ profile, name });
+        }
         if (
           !request.headers.get("Content-Type")?.startsWith("application/json")
         )
@@ -327,17 +337,48 @@ export default {
         } catch {
           return json({ error: "invalid_body" }, 400);
         }
-        const name = validateGameName(body?.displayName);
-        if (!name || body?.consentVersion !== RANKING_CONSENT_VERSION)
+        const requested = validateGameName(body?.displayName);
+        if (!requested || body?.consentVersion !== RANKING_CONSENT_VERSION)
           return json({ error: "invalid_profile" }, 400);
+        // Names are kan-game.app-wide: the ID platform registers the name and
+        // judges duplicates, and TAKO-SEN keeps a copy with its own consent.
+        // An ID named in another game keeps that name.
+        const registered = await idPlatform(env).registerName(
+          accountId,
+          requested,
+        );
+        if (registered.result === "name_taken")
+          return json({ error: "name_taken" }, 409);
+        if (registered.result === "invalid")
+          return json({ error: "invalid_profile" }, 400);
+        if (registered.result === "no_id")
+          return json({ error: "id_deleted" }, 410);
+        if (
+          registered.result !== "ok" &&
+          registered.result !== "already_named"
+        ) {
+          // A result added to kan/game's src/rpc.ts fails to compile here.
+          const unexpected: never = registered;
+          throw new Error(
+            `Unexpected registerName result: ${JSON.stringify(unexpected)}`,
+          );
+        }
         try {
           return json({
-            profile: await registerAccountProfile(env.DB, accountId, name),
+            profile: await registerAccountProfile(
+              env.DB,
+              accountId,
+              registered.name,
+            ),
           });
         } catch (error) {
-          if (String(error).includes("UNIQUE constraint failed"))
-            return json({ error: "name_taken" }, 409);
-          throw error;
+          if (!String(error).includes("UNIQUE constraint failed")) throw error;
+          // The platform gave the ID this name, yet another account here holds
+          // it: TAKO-SEN's copy of the names has drifted from the platform's.
+          console.error(
+            JSON.stringify({ event: "profile_name_out_of_sync", accountId }),
+          );
+          return json({ error: "name_taken" }, 409);
         }
       }
 

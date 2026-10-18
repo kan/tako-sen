@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { getPlatformProxy } from "wrangler";
 import type { CompletedPlayUpload } from "../src/core/online-history";
 import { createCompletedPlayUpload } from "../src/core/online-history";
@@ -16,6 +24,7 @@ import {
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
 import { auth } from "./auth-mock";
+import { createIdPlatform } from "./id-platform-fake";
 
 vi.mock("../src/worker/auth", () => import("./auth-mock"));
 
@@ -378,7 +387,11 @@ describe("consented automatic first-clear ranking", () => {
 
   it("requires authenticated explicit consent and never exposes account identifiers", async () => {
     const db = platform.env.DB;
-    const env = { DB: db, ALLOWED_ORIGINS: "https://example.com" } as Env;
+    const env = {
+      DB: db,
+      ALLOWED_ORIGINS: "https://example.com",
+      ID: createIdPlatform().binding,
+    } as Env;
     const call = (
       path: string,
       method = "GET",
@@ -530,5 +543,79 @@ describe("consented automatic first-clear ranking", () => {
     await deleteAccount(db, "http");
     expect(await listLeaderboard(db, upload.puzzleId)).toEqual([]);
     auth.account = null;
+  });
+});
+
+describe("names shared across kan-game.app", () => {
+  const ids = createIdPlatform(["named-elsewhere", "newcomer", "rival"]);
+  const call = (path: string, method = "GET", body?: unknown) =>
+    worker.fetch(
+      new Request(`https://example.com/api/${path}`, {
+        method,
+        headers: {
+          Origin: "https://example.com",
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }) as Parameters<typeof worker.fetch>[0],
+      {
+        DB: platform.env.DB,
+        ALLOWED_ORIGINS: "https://example.com",
+        ID: ids.binding,
+      } as Env,
+    );
+  const register = (displayName: string) =>
+    call("profile", "POST", { displayName, consentVersion: 1 });
+  afterEach(() => {
+    auth.account = null;
+  });
+
+  it("offers a name chosen in another game and keeps it on consent", async () => {
+    ids.names.set("named-elsewhere", "よそのタコ");
+    auth.account = "named-elsewhere";
+    expect(await (await call("profile")).json()).toEqual({
+      profile: null,
+      name: "よそのタコ",
+    });
+    // The name cannot change; TAKO-SEN stores the platform's.
+    const response = await register("別の名前");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      profile: { displayName: "よそのタコ", consentVersion: 1 },
+    });
+    expect(await (await call("profile")).json()).toEqual({
+      profile: { displayName: "よそのタコ", consentVersion: 1 },
+      name: "よそのタコ",
+    });
+    await deleteAccount(platform.env.DB, "named-elsewhere");
+  });
+
+  it("refuses a name another ID holds in any game", async () => {
+    ids.names.set("rival", "取られた名前");
+    auth.account = "newcomer";
+    expect((await register("取られた名前")).status).toBe(409);
+    expect(await getAccountProfile(platform.env.DB, "newcomer")).toBeNull();
+    expect(await (await call("profile")).json()).toEqual({
+      profile: null,
+      name: null,
+    });
+  });
+
+  it("answers 410 when the ID platform no longer knows the ID", async () => {
+    auth.account = "unknown-to-platform";
+    expect((await register("消えたタコ")).status).toBe(410);
+  });
+
+  it("refuses a name another account holds here though the platform gave it", async () => {
+    // TAKO-SEN's copy of the names drifted from the platform's.
+    await registerAccountProfile(platform.env.DB, "stale-holder", "ずれた名前");
+    auth.account = "newcomer";
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await register("ずれた名前")).status).toBe(409);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("profile_name_out_of_sync"),
+    );
+    error.mockRestore();
+    await deleteAccount(platform.env.DB, "stale-holder");
   });
 });
