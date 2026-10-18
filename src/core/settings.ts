@@ -1,8 +1,10 @@
 import type { KeyValueStorage } from "./storage";
 import type { DifficultySelection } from "./next-puzzle";
 
-const AUTO_EXCLUSIONS_KEY = "tako-sen:auto-exclusions-enabled";
-const DIFFICULTY_SELECTION_KEY = "tako-sen:difficulty-selection";
+export const AUTO_EXCLUSIONS_KEY = "tako-sen:auto-exclusions-enabled";
+export const DIFFICULTY_SELECTION_KEY = "tako-sen:difficulty-selection";
+export const SOUND_ENABLED_KEY = "tako-sen:sound-enabled";
+export const HAPTICS_ENABLED_KEY = "tako-sen:haptics-enabled";
 
 export function loadDifficultySelection(
   storage: KeyValueStorage,
@@ -29,6 +31,48 @@ export function saveDifficultySelection(
 ): boolean {
   try {
     storage.setItem(DIFFICULTY_SELECTION_KEY, selection);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sound effects start off. */
+export function loadSoundEnabled(storage: KeyValueStorage): boolean {
+  try {
+    return storage.getItem(SOUND_ENABLED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveSoundEnabled(
+  storage: KeyValueStorage,
+  enabled: boolean,
+): boolean {
+  try {
+    storage.setItem(SOUND_ENABLED_KEY, enabled ? "1" : "0");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Haptics start on: only a saved "0" turns them off. */
+export function loadHapticsEnabled(storage: KeyValueStorage): boolean {
+  try {
+    return storage.getItem(HAPTICS_ENABLED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function saveHapticsEnabled(
+  storage: KeyValueStorage,
+  enabled: boolean,
+): boolean {
+  try {
+    storage.setItem(HAPTICS_ENABLED_KEY, enabled ? "1" : "0");
     return true;
   } catch {
     return false;

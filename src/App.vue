@@ -23,6 +23,8 @@ import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
+import MigrationDialog from "./ui/MigrationDialog.vue";
+import { migrationOffer } from "./ui/migration";
 import CellMark from "./ui/CellMark.vue";
 import { scrollBehavior } from "./ui/scroll";
 import { askConfirm, type ConfirmRequest } from "./ui/confirm-dialog";
@@ -91,6 +93,10 @@ import {
   saveAutoExclusionsEnabled,
   loadDifficultySelection,
   saveDifficultySelection,
+  loadHapticsEnabled,
+  loadSoundEnabled,
+  saveHapticsEnabled,
+  saveSoundEnabled,
 } from "./core/settings";
 import { hintStageLabel, maximumHintStage } from "./core/hint-progress";
 import { rankingScore } from "./core/ranking-score";
@@ -149,8 +155,6 @@ const InteractiveTutorial = defineAsyncComponent(
 );
 
 const dragStartThresholdPx = 12;
-const hapticsStorageKey = "tako-sen:haptics-enabled";
-const soundStorageKey = "tako-sen:sound-enabled";
 const { id: accountId } = useId();
 const privacyUrl = portalUrl("/privacy");
 const nextPuzzleLoading = ref(false);
@@ -458,15 +462,11 @@ onMounted(() => {
   window.addEventListener("resize", measureHintRoom);
   window.addEventListener("scroll", measureHintRoom, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
-  hapticsEnabled.value = loadHapticsEnabled();
+  hapticsEnabled.value = loadHapticsEnabled(localStorage);
   autoExclusionsEnabled.value = loadAutoExclusionsEnabled(localStorage);
   hapticsApiAvailable.value = vibrationApiAvailable(navigator);
   soundApiAvailable.value = typeof window.AudioContext === "function";
-  try {
-    soundEnabled.value = localStorage.getItem(soundStorageKey) === "1";
-  } catch {
-    /* 初期オフのままプレイを続ける。 */
-  }
+  soundEnabled.value = loadSoundEnabled(localStorage);
   soundEffects.setEnabled(soundEnabled.value);
   const saved = loadGame();
   selectedDifficulty.value = loadDifficultySelection(
@@ -502,8 +502,19 @@ onMounted(() => {
     clearElapsedSeconds.value = completedResult.elapsedSeconds;
   else if (complete.value) finalizePlay();
   tutorialFirstVisit.value = shouldShowTutorial(localStorage);
-  tutorialOpen.value = tutorialFirstVisit.value;
-  if (tutorialOpen.value) pauseGame();
+  const openFirstTutorial = () => {
+    tutorialOpen.value = tutorialFirstVisit.value;
+    if (tutorialOpen.value) pauseGame();
+  };
+  // An offer to take over the old URL's records comes first; the tutorial
+  // waits until it is closed, so two dialogs never ask at once.
+  if (migrationOffer.value) {
+    const stop = watch(migrationOffer, (offer) => {
+      if (offer) return;
+      stop();
+      openFirstTutorial();
+    });
+  } else openFirstTutorial();
   if (waitingToStart.value) focusReadyButton();
   saveCurrentGame();
   void openSharedPuzzleFromUrl(saved);
@@ -581,17 +592,14 @@ watch(activeDialog, async (dialog, previous) => {
   }
 });
 watch(hapticsEnabled, (enabled) => {
-  localStorage.setItem(hapticsStorageKey, enabled ? "1" : "0");
+  saveHapticsEnabled(localStorage, enabled);
   hapticsTestMessage.value = "";
 });
 
 watch(soundEnabled, (enabled) => {
   soundEffects.setEnabled(enabled);
-  try {
-    localStorage.setItem(soundStorageKey, enabled ? "1" : "0");
-  } catch {
-    /* 保存不可でも設定は現在のプレイに反映する。 */
-  }
+  // 保存できなくても、設定は現在のプレイに反映する。
+  saveSoundEnabled(localStorage, enabled);
 });
 
 watch(autoExclusionsEnabled, (enabled) => {
@@ -1982,10 +1990,6 @@ function cellFeedbackStyle(index: number): Record<string, string> {
   };
 }
 
-function loadHapticsEnabled(): boolean {
-  return localStorage.getItem(hapticsStorageKey) !== "0";
-}
-
 function difficultyLabel(rating: DifficultyRating): string {
   switch (rating) {
     case "easy":
@@ -2483,6 +2487,7 @@ function formatElapsed(seconds: number): string {
     />
 
     <ConfirmDialog />
+    <MigrationDialog />
 
     <HistoryDialog
       :open="activeDialog === 'history'"

@@ -112,11 +112,21 @@ async function askSession(): Promise<void> {
 
 let lastAsked = -Infinity;
 
+/**
+ * A redeem in flight. The session waits for it, and it waits for the session:
+ * the two set the same cookie, so the one that answers last must be the one
+ * that was sent last.
+ */
+let redeeming: Promise<unknown> | undefined;
+
 /** Asks the ID platform for this device's ID, once at a time. */
 export function refreshId(): Promise<void> {
-  pending ??= askSession().finally(() => {
-    pending = undefined;
-  });
+  pending ??= (redeeming ?? Promise.resolve())
+    .catch(() => {})
+    .then(askSession)
+    .finally(() => {
+      pending = undefined;
+    });
   lastAsked = Date.now();
   return pending;
 }
@@ -207,20 +217,28 @@ export async function issueTransferCode(): Promise<TransferCodeIssue> {
   }
 }
 
-export type TransferCodeRedeem =
+export type Redeem =
   | { ok: true }
   | { ok: false; reason: "invalid" | "rate_limited" | "offline" | "failed" };
 
 /**
- * Switches this device to the ID a transfer code belongs to. The device's
- * previous ID keeps its records; they are not merged.
+ * A redeem API of the ID platform: switches this device to the ID a secret
+ * belongs to. The device's previous ID keeps its records; they are not merged.
  */
-export async function redeemTransferCode(
-  code: string,
-): Promise<TransferCodeRedeem> {
+function redeem(path: string, body: unknown): Promise<Redeem> {
+  const running = (pending ?? Promise.resolve())
+    .then(() => sendRedeem(path, body))
+    .finally(() => {
+      if (redeeming === running) redeeming = undefined;
+    });
+  redeeming = running;
+  return running;
+}
+
+async function sendRedeem(path: string, body: unknown): Promise<Redeem> {
   const request = ++latestRequest;
   try {
-    const response = await postId("transfer-codes/redeem", { code });
+    const response = await postId(path, body);
     if (response.ok && accept(await response.json(), request))
       return { ok: true };
     if (response.status === 400) return { ok: false, reason: "invalid" };
@@ -229,6 +247,19 @@ export async function redeemTransferCode(
   } catch {
     return { ok: false, reason: "offline" };
   }
+}
+
+/** Moves this device to the ID that issued a transfer code. */
+export function redeemTransferCode(code: string): Promise<Redeem> {
+  return redeem("transfer-codes/redeem", { code });
+}
+
+/**
+ * Moves this device to the ID that holds the player's records from the old
+ * URL (a migration token, src/core/handoff.ts).
+ */
+export function redeemMigrationToken(token: string): Promise<Redeem> {
+  return redeem("migration/redeem", { token });
 }
 
 /**

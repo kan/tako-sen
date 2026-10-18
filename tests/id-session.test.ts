@@ -104,12 +104,27 @@ describe("the device's ID", () => {
     );
     const auth = await load();
     auth.startId();
-    // The transfer is redeemed while the session request is still out.
-    expect(await auth.redeemTransferCode("abcd2345")).toEqual({ ok: true });
-    answerSession(answer(200, { id: ID_A, name: null }));
+    // The transfer is redeemed while the session request is still out: it
+    // waits for that answer, so its own cookie is the one that stays.
+    const redeemed = auth.redeemTransferCode("abcd2345");
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      fetchMock.mock.calls.some(([path]) => path !== "/api/id/session"),
+    ).toBe(false);
+    answerSession(answer(200, { id: ID_A, name: null }));
+    expect(await redeemed).toEqual({ ok: true });
     expect(auth.useId().id.value).toBe(ID_B);
     expect(storage.get("tako-sen.kan-game-id.v1")).toBe(ID_B);
+    // A session asked for during the redeem waits for it too.
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/id/session"
+        ? answer(200, { id: ID_B, name: null })
+        : answer(200, { id: ID_A, name: null }),
+    );
+    const again = auth.redeemTransferCode("efgh2345");
+    const session = auth.refreshId();
+    await Promise.all([again, session]);
+    expect(auth.useId().id.value).toBe(ID_B);
   });
 
   it("gets a new ID after the old one was withdrawn", async () => {
