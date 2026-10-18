@@ -1,8 +1,11 @@
 import { createApp } from "vue";
+import { registerSW } from "virtual:pwa-register";
 import App from "./App.vue";
 import { applyHandoffSettings, parseHandoff } from "./core/handoff";
 import { startId } from "./ui/auth";
 import { offerMigration, offerTransfer } from "./ui/migration";
+import { startPushSync } from "./ui/push";
+import { shouldReloadForStaleChunk } from "./ui/stale-chunk";
 import "./styles.css";
 
 /**
@@ -38,3 +41,21 @@ createApp(App).mount("#app");
 // A QR code opened in a tab already showing the game changes only the
 // fragment, which does not load the page again.
 window.addEventListener("hashchange", () => takeHandoff(false));
+
+// The service worker (vite.config.ts): offline starts and the daily notice.
+// A new version takes over by itself and loads the page again.
+registerSW({ immediate: true });
+startPushSync();
+// A part of the old version that is gone after a deploy (src/ui/stale-chunk.ts).
+window.addEventListener("vite:preloadError", (event) => {
+  let storage: Storage;
+  try {
+    // Reading it throws where site data is blocked.
+    storage = sessionStorage;
+  } catch {
+    return;
+  }
+  if (!shouldReloadForStaleChunk(storage, navigator.onLine, Date.now())) return;
+  event.preventDefault();
+  window.location.reload();
+});

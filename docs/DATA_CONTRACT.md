@@ -64,6 +64,25 @@ https://tako.kan-game.app/#transfer=<code>
 - 読み取った端末の画面は、旧 URL からの引き継ぎと同じく、フラグメントをすぐにアドレスから消し、確認のダイアログを出す。利用者が同意したときだけ `POST /api/id/transfer-codes/redeem` へ送る。コードを入力したときと同じく、切り替える前の ID の記録は移らない
 - コードは 10 分で切れ、1 回だけ使える（ID 基盤の仕様）。QR コードの画像はコードを持つだけで、期限や使用済みは送ったときに ID 基盤が判定する
 
+## デイリーの通知（Web Push）
+
+kan/tako-sen#10。毎日 0:05（日本時間）、設定でオンにした端末へデイリーの開始を知らせる。送信は定期実行（`5 15 * * *`）で、`src/worker/push.ts` が行う。
+
+- `push_subscriptions`（`migrations/0015_push_subscriptions.sql`）に、端末ごとの購読（送り先 URL `endpoint` と、暗号化の鍵 `key_p256dh`、`key_auth`）を、その端末の ID の下に保存する。送り先はブラウザの通知サービス（Google、Mozilla、Apple、Microsoft）のホストに限る
+- 1 つの ID につき 20 台まで。超えた端末は断る（`409 too_many_devices`）。古い端末を消すと、その端末は通知がオンに見えたまま届かなくなるため
+- 購読は端末のもの。引き継ぎで端末の ID が変わったら、画面が購読を送り直し、新しい ID の下へ移す（`POST` は同じ `endpoint` の行の ID を書き換える）
+- 退会で、その ID の購読を消す（`ACCOUNT_TABLES`）。退会を知った端末（ID 基盤が `410` を返した端末）は、自分の購読も解き、次の ID へは持ち越さない。通知サービスが `404` か `410` を返した購読は、送信のときに消す
+- 画面は、起動のたびではなく、ID か購読が前に送ったときと変わったときだけ送り直す（端末の `tako-sen.push-synced`）
+- 名前や同意は求めない。ID を持つ端末ならオンにできる
+
+| API                             | 認証 | 内容                                                                              |
+| ------------------------------- | ---- | --------------------------------------------------------------------------------- |
+| `GET /api/push/key`             | 不要 | 送信用の公開鍵（VAPID）。鍵のない環境では空文字                                   |
+| `POST /api/push/subscription`   | ID   | 本文は `PushSubscription.toJSON()` の形（`endpoint`、`keys.p256dh`、`keys.auth`） |
+| `DELETE /api/push/subscription` | ID   | 本文は `{ endpoint }`。自分の ID の行だけを消す                                   |
+
+通知の本文は `{ title, body, url }`。端末の `public/push-sw.js` が表示し、押すと開いている画面を前に出すか、`url` を開く。
+
 ## API 境界の要求
 
 - 投稿で `userId` を認証根拠にしない。サーバーはセッションからアカウントIDを決める。

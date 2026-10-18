@@ -134,15 +134,26 @@ npm run build
 
 ## タコアイコン
 
-`public/tako.svg` が盤面・遊び方・favicon共通の原本です。図案を変更したら、PNGも再生成します。現在の開発依存にはWrangler経由で `sharp` が含まれています。
+`public/tako.svg` が盤面・遊び方・favicon・アプリのアイコン共通の原本です。図案を変更したら、PNGも再生成します。現在の開発依存にはWrangler経由で `sharp` が含まれています。`pwa-maskable-512.png` は、ホーム画面で丸や角丸に切り抜かれても欠けないよう、タコを中央の 70% に収めます。
 
 ```bash
 node --input-type=module -e '
 import sharp from "sharp";
 await sharp("public/tako.svg").resize(32, 32).png().toFile("public/favicon-32.png");
 await sharp("public/tako.svg").resize(180, 180).flatten({ background: "#fff7ec" }).png().toFile("public/apple-touch-icon.png");
+for (const size of [192, 512])
+  await sharp("public/tako.svg").resize(size, size).flatten({ background: "#fff7ec" }).png().toFile(`public/pwa-${size}.png`);
+const inner = await sharp("public/tako.svg").resize(358, 358).png().toBuffer();
+await sharp({ create: { width: 512, height: 512, channels: 4, background: "#fff7ec" } })
+  .composite([{ input: inner, gravity: "center" }]).png().toFile("public/pwa-maskable-512.png");
 '
 ```
+
+## アプリとして使う（PWA）とデイリーの通知
+
+ホーム画面に追加すると、ブラウザの枠なしのアプリとして開けます（`vite.config.ts` の `VitePWA`）。Service Worker が画面のファイルを保存するので、オフラインでも起動できます。API の応答は保存しません。新しい版を出すと、開いている画面は自動で読み込み直されます。
+
+設定画面の「デイリーチャレンジの開始を通知する」をオンにすると、毎日 0:05 にデイリーの開始を Web Push で知らせます（kan/tako-sen#10）。iPhone と iPad では、ホーム画面に追加したアプリでだけ受け取れます。送信用の鍵は環境ごとに `scripts/generate-vapid-keys.ts` で作ります（`docs/DEPLOY_PROD.md`）。ローカルでは、環境変数 `VAPID_PUBLIC_KEY` と `VAPID_PRIVATE_KEY` を付けて `npm run dev:all` を起動すると通知の API が動きます。Service Worker はビルドした画面（API のポート）でだけ動き、`vite` の画面では動きません。
 
 ## 設計メモ
 

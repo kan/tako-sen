@@ -89,6 +89,10 @@ const apiArgs = [
 ];
 // .dev.vars lists the localhost origins only; roji's URL differs by machine.
 if (rojiUrl) apiArgs.push("--var", `ALLOWED_ORIGINS:${screenOrigins}`);
+// Web Push stays off locally unless a key pair is given, from .dev.vars or
+// here (scripts/generate-vapid-keys.ts).
+for (const name of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"])
+  if (process.env[name]) apiArgs.push("--var", `${name}:${process.env[name]}`);
 
 // The ID platform takes requests from the screen (through the API) and serves
 // its own portal pages.

@@ -21,6 +21,7 @@ import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
 import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
+import DailyNoticeSetting from "./ui/DailyNoticeSetting.vue";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import MigrationDialog from "./ui/MigrationDialog.vue";
@@ -2421,6 +2422,7 @@ function formatElapsed(seconds: number): string {
                 </button>
               </div>
             </div>
+            <DailyNoticeSetting />
             <p class="settings-note">
               {{ ID_STORAGE_NOTE
               }}<a :href="privacyUrl" target="_blank" rel="noopener"

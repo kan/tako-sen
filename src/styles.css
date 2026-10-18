@@ -225,7 +225,8 @@ button:not(.cell):not(:disabled):active,
 
 .tools-dialog-body > .auto-exclusions-settings,
 .tools-dialog-body > .haptics-settings,
-.tools-dialog-body > .sound-settings {
+.tools-dialog-body > .sound-settings,
+.tools-dialog-body > .daily-notice-settings {
   margin-block: 12px;
 }
 
@@ -461,7 +462,8 @@ button:not(.cell):not(:disabled):active,
 
 .auto-exclusions-settings p,
 .haptics-settings p,
-.sound-settings p {
+.sound-settings p,
+.daily-notice-settings p {
   line-height: 1.6;
 }
 

@@ -41,8 +41,27 @@ import {
   RANKING_CONSENT_VERSION,
   validateGameName,
 } from "../core/account-profile";
+import {
+  deleteSubscription,
+  parseSubscription,
+  saveSubscription,
+  sendDailyNotifications,
+  vapidKeys,
+} from "./push";
 
 const maxBodyBytes = 4096;
+/**
+ * The scheduled jobs by their cron expression, which must match
+ * wrangler.jsonc's triggers in every environment. Another expression is
+ * logged and does nothing, so a mismatch shows up rather than running the
+ * wrong job.
+ */
+export const CRONS = {
+  /** 23:00 in Japan: prepares the next day's daily board. */
+  prepareDaily: "0 14 * * *",
+  /** 0:05 in Japan: tells subscribed devices the daily has opened. */
+  dailyNotice: "5 15 * * *",
+} as const;
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -104,6 +123,12 @@ export default {
       "/api/super/prepare",
       "/api/super/start",
     ];
+    if (pathname === "/api/push/key") {
+      if (request.method !== "GET")
+        return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+      // Empty where push is not set up, so the screen hides the setting.
+      return json({ publicKey: vapidKeys(env)?.publicKey ?? "" });
+    }
     if (pathname.startsWith("/api/leaderboards/")) {
       if (request.method !== "GET")
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
@@ -158,6 +183,7 @@ export default {
       pathname !== "/api/daily/complete" &&
       pathname !== "/api/daily/ranking" &&
       pathname !== "/api/daily/history" &&
+      pathname !== "/api/push/subscription" &&
       !isSuper
     ) {
       if (pathname.startsWith("/api/"))
@@ -180,7 +206,9 @@ export default {
         ? ["POST"]
         : isDailyRead || isNextPuzzle
           ? ["GET"]
-          : ["GET", "POST"];
+          : pathname === "/api/push/subscription"
+            ? ["POST", "DELETE"]
+            : ["GET", "POST"];
     if (!allowedMethods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: allowedMethods.join(", "),
@@ -313,6 +341,36 @@ export default {
             difficulty,
           ),
         });
+      }
+
+      if (pathname === "/api/push/subscription") {
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let body: unknown;
+        try {
+          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        if (request.method === "DELETE") {
+          const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+          if (typeof endpoint !== "string")
+            return json({ error: "invalid_subscription" }, 400);
+          await deleteSubscription(env.DB, accountId, endpoint);
+          return json({ ok: true });
+        }
+        const subscription = parseSubscription(body);
+        if (!subscription) return json({ error: "invalid_subscription" }, 400);
+        return (await saveSubscription(
+          env.DB,
+          accountId,
+          subscription,
+          Date.now(),
+        ))
+          ? json({ ok: true })
+          : json({ error: "too_many_devices" }, 409);
       }
 
       if (pathname === "/api/profile") {
@@ -532,6 +590,29 @@ export default {
     }
   },
   async scheduled(controller, env): Promise<void> {
+    if (controller.cron === CRONS.dailyNotice) {
+      // A board the 23:00 run missed is built by the first player who opens
+      // the daily, so the notice goes out either way.
+      try {
+        const counts = await sendDailyNotifications(env);
+        console.log(JSON.stringify({ event: "daily_push", ...counts }));
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "daily_push_run_failure",
+            error: String(error),
+          }),
+        );
+        throw error;
+      }
+      return;
+    }
+    if (controller.cron !== CRONS.prepareDaily) {
+      console.error(
+        JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
+      );
+      return;
+    }
     try {
       // The planned time, so a late run still prepares the day it was for.
       await prepareNextDailyPuzzle(env.DB, controller.scheduledTime);

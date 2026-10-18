@@ -62,6 +62,20 @@ node scripts/migrate-legacy.ts --dump "$OUT/export.sql" --expires <移行期間�
 
 告知（R4）までは、`public/_headers` の `X-Robots-Tag: noindex` で検索エンジンに載せません。
 
+## デイリーの通知の鍵（VAPID）
+
+デイリーの通知（`docs/DATA_CONTRACT.md`「デイリーの通知（Web Push）」）には、環境ごとに鍵の組が要ります。公開鍵は `wrangler.jsonc` の `VAPID_PUBLIC_KEY` に書き、秘密鍵は Worker の secret `VAPID_PRIVATE_KEY` に入れます。`tako-dev` と `tako` は `secrets.required` に入れてあるので、秘密鍵がないとデプロイが止まります。
+
+```bash
+node scripts/generate-vapid-keys.ts     # 新しい組を作るときだけ
+npx wrangler secret put VAPID_PRIVATE_KEY --env production
+```
+
+- `wrangler secret put` はその場で新しい版を出すので、デプロイと同じく利用者の承認を得てから行う。秘密鍵はチャットやリポジトリに貼らない
+- 公開鍵と秘密鍵は組で使う。片方だけを替えると通知が届かなくなる
+- 鍵の組を作り直すと、それまでの購読には届かなくなる。通知サービスが断り続ける購読は自動では消さない（こちらの設定ミスでも断られるため）ので、作り直したら `DELETE FROM push_subscriptions` で購読を消す。利用者は設定で通知をオンにし直す。画面は古い鍵の購読を見つけたら作り直す
+- 0:05 の 1 回の実行で、購読 1 件につき 1 回、通知サービスへ送る。Workers Paid では 1 回の実行で外へ送れるのは 1000 回までなので、購読が 1000 件に近づいたら、Queues などで送信を分ける。ログの `daily_push`（送れた数、消えた数、失敗した数）で件数を見る
+
 ## 予行のデータを消す（R4 の前）
 
 予行で入れた記録は、本番の移行の前に消します。`tako-prod` と `kan-game-prod` は同じ時点で空にします。片方だけだと、記録と ID が食い違います。
@@ -86,7 +100,7 @@ npx wrangler d1 create tako-prod   # 新しい database_id を env.production �
    - `tako-import.sql` を `tako-prod` へ（「本番の構築」の 2）
    - `kan-game-import.sql` を `kan-game-prod` へ（kan/game 側）
    - `legacy-handoffs.sql` を `tako-sen-dev` へ
-5. `public/_headers` から、全体（`/*`）に `X-Robots-Tag` を付けるまとまりだけを消し、`tako` をデプロイし直す。開発環境（`https://tako-dev.kan-game.app/*`）の `noindex` は残す。kan/game 側も同じ時点で外す
+5. `public/_headers` から、全体（`/*`）に `X-Robots-Tag` を付けるまとまりだけを消し、`tako` をデプロイし直す。デイリーの通知の秘密鍵（`VAPID_PRIVATE_KEY`）がまだなら、先に入れる（「デイリーの通知の鍵」）。開発環境（`https://tako-dev.kan-game.app/*`）の `noindex` は残す。kan/game 側も同じ時点で外す
 6. 確かめる: 本番で ID の発行、同期、ランキング、デイリー、超級、退会。旧 URL の共有リンクから本番の同じ問題が開けること。実際のアカウントで旧 URL から引き継げること。移行の前後の比較（`compareMigration`、ランキング API）
 
 ## 運用

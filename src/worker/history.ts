@@ -21,6 +21,7 @@ const ACCOUNT_TABLES = [
   "completed_plays",
   "leaderboard_profiles",
   "publication_limits",
+  "push_subscriptions",
 ];
 
 /**
