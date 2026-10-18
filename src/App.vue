@@ -804,6 +804,16 @@ function onMenuKeydown(event: KeyboardEvent): void {
   trapDialogFocus(event, menuDialogRef.value);
 }
 
+// An offer that arrives while the game is open (another device's QR code
+// opened in this tab, src/main.ts) stops the clock and takes the tutorial's
+// place, so two dialogs never ask at once. The tutorial is not marked as
+// read and can be opened again from the menu.
+watch(migrationOffer, (offer, previous) => {
+  if (!offer || previous) return;
+  tutorialOpen.value = false;
+  pauseGame();
+});
+
 function openTutorial(): void {
   resumeAfterMenu = false;
   tutorialOpen.value = true;

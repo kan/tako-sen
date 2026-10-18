@@ -61,7 +61,9 @@ function onKeydown(event: KeyboardEvent): void {
                 ? "引き継ぎました"
                 : migrationOffer.state === "refused"
                   ? "引き継げませんでした"
-                  : "以前の記録を引き継ぎますか？"
+                  : migrationOffer.kind === "transfer"
+                    ? "この端末を引き継ぎますか？"
+                    : "以前の記録を引き継ぎますか？"
             }}
           </h2>
         </div>
@@ -73,9 +75,11 @@ function onKeydown(event: KeyboardEvent): void {
         >
           <p id="migration-message">
             {{
-              migrationOffer.state === "done"
-                ? "以前の TAKO-SEN の記録とプレイヤー名を、この端末に引き継ぎました。メニューの「プレイヤー」から確認できます。"
-                : migrationOffer.message
+              migrationOffer.state === "refused"
+                ? migrationOffer.message
+                : migrationOffer.kind === "transfer"
+                  ? "QR コードを表示した端末と同じ ID に切り替えました。メニューの「プレイヤー」から確認できます。"
+                  : "以前の TAKO-SEN の記録とプレイヤー名を、この端末に引き継ぎました。メニューの「プレイヤー」から確認できます。"
             }}
           </p>
           <div class="dialog-actions confirm-actions">
@@ -85,7 +89,13 @@ function onKeydown(event: KeyboardEvent): void {
           </div>
         </template>
         <template v-else>
-          <p id="migration-message">
+          <p v-if="migrationOffer.kind === 'transfer'" id="migration-message">
+            この端末を、QR コードを表示した端末と同じ ID
+            に切り替えます。この端末でいま使っている ID の記録は、切り替え後の
+            ID には移りません。自分の端末で表示した QR
+            コードでなければ、キャンセルしてください。
+          </p>
+          <p v-else id="migration-message">
             以前の
             TAKO-SEN（tako-sen.kan-fushihara.workers.dev）でログインしていたアカウントの記録とプレイヤー名を、この端末に引き継ぎます。この端末でいま使っている
             ID の記録は、引き継ぎ後の ID

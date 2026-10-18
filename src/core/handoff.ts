@@ -21,11 +21,17 @@ import type { KeyValueStorage } from "./storage";
  *
  *   #migration=<token>&auto=1&difficulty=hard&sound=1&haptics=0&tutorial=seen
  *
+ * Another device's QR code hands a transfer code the same way:
+ *
+ *   #transfer=<code>
+ *
  * Every part is optional; one that does not parse is ignored.
  */
 export interface Handoff {
   /** 32 random bytes in base64url (kan/game src/migration.ts). */
   readonly migrationToken?: string;
+  /** A transfer code from another device's QR code (transferLink). */
+  readonly transferCode?: string;
   readonly settings: HandoffSettings;
 }
 
@@ -38,6 +44,18 @@ export interface HandoffSettings {
 }
 
 const MIGRATION_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+// 8 characters from the 32 without 0, O, 1 and I (kan/game docs/ID_DESIGN.md
+// 「引き継ぎコード」).
+const TRANSFER_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
+
+/**
+ * The address another device opens to take this device's ID over, which the
+ * account screen shows as a QR code. Like the migration token, the code goes
+ * in the fragment, so it reaches no server, log or referrer.
+ */
+export function transferLink(origin: string, code: string): string {
+  return `${origin}/#${new URLSearchParams({ transfer: code })}`;
+}
 const DIFFICULTIES: readonly string[] = ["easy", "normal", "hard", "random"];
 
 function flag(value: string | null): boolean | undefined {
@@ -46,6 +64,7 @@ function flag(value: string | null): boolean | undefined {
 
 const HANDOFF_KEYS = [
   "migration",
+  "transfer",
   "auto",
   "difficulty",
   "sound",
@@ -62,10 +81,13 @@ export function parseHandoff(fragment: string): Handoff | undefined {
   const params = new URLSearchParams(fragment.replace(/^#/, ""));
   if (!HANDOFF_KEYS.some((key) => params.has(key))) return undefined;
   const token = params.get("migration");
+  const transfer = params.get("transfer")?.toUpperCase() ?? null;
   const difficulty = params.get("difficulty");
   return {
     migrationToken:
       token !== null && MIGRATION_TOKEN.test(token) ? token : undefined,
+    transferCode:
+      transfer !== null && TRANSFER_CODE.test(transfer) ? transfer : undefined,
     settings: {
       autoExclusions: flag(params.get("auto")),
       difficulty:

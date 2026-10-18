@@ -669,6 +669,30 @@ button:not(.cell):not(:disabled):active,
   letter-spacing: 0.08em;
 }
 
+.account-qr {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 0;
+}
+
+/* Large enough for a phone's camera at arm's length; the quiet zone is
+ * part of the SVG. */
+.account-qr-image {
+  width: 192px;
+  height: 192px;
+}
+
+.account-qr-image svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.account-qr figcaption {
+  font-size: 14px;
+}
+
 .account-redeem {
   display: grid;
   gap: 8px;

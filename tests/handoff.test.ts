@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHandoffSettings, parseHandoff } from "../src/core/handoff";
+import {
+  applyHandoffSettings,
+  parseHandoff,
+  transferLink,
+} from "../src/core/handoff";
 import {
   loadAutoExclusionsEnabled,
   loadDifficultySelection,
@@ -53,6 +57,18 @@ describe("the handoff from the old URL", () => {
     // A damaged token is still a handoff, so it is cleared from the address.
     expect(parseHandoff("#migration=短い")?.migrationToken).toBeUndefined();
     expect(parseHandoff("#migration=短い")).toBeDefined();
+  });
+
+  it("reads the transfer code a QR code carries", () => {
+    const link = transferLink("https://tako.kan-game.app", "ABCD2345");
+    expect(link).toBe("https://tako.kan-game.app/#transfer=ABCD2345");
+    expect(parseHandoff(new URL(link).hash)?.transferCode).toBe("ABCD2345");
+    // A reader that lowercased the address still works.
+    expect(parseHandoff("#transfer=abcd2345")?.transferCode).toBe("ABCD2345");
+    // Not a code (0, O, 1 and I are never used): cleared, not offered.
+    const damaged = parseHandoff("#transfer=ABCD0123");
+    expect(damaged).toBeDefined();
+    expect(damaged?.transferCode).toBeUndefined();
   });
 
   it("stores settings in the form the loaders read", () => {
@@ -117,7 +133,8 @@ describe("the migration offer", () => {
     migration.offerMigration(TOKEN);
     expect(migration.migrationOffer.value).toEqual({
       state: "asking",
-      token: TOKEN,
+      kind: "migration",
+      secret: TOKEN,
     });
     expect(fetchMock).not.toHaveBeenCalled();
     fetchMock.mockResolvedValue(Response.json({ id: ID, name: "昔のタコ" }));
@@ -129,7 +146,10 @@ describe("the migration offer", () => {
         body: JSON.stringify({ token: TOKEN }),
       }),
     );
-    expect(migration.migrationOffer.value).toEqual({ state: "done" });
+    expect(migration.migrationOffer.value).toEqual({
+      state: "done",
+      kind: "migration",
+    });
     expect(auth.useId().id.value).toBe(ID);
     migration.closeMigration();
     expect(migration.migrationOffer.value).toBeUndefined();
@@ -143,7 +163,10 @@ describe("the migration offer", () => {
     expect(migration.migrationOffer.value?.state).toBe("failed");
     fetchMock.mockResolvedValue(Response.json({ id: ID, name: null }));
     await migration.acceptMigration();
-    expect(migration.migrationOffer.value).toEqual({ state: "done" });
+    expect(migration.migrationOffer.value).toEqual({
+      state: "done",
+      kind: "migration",
+    });
   });
 
   it("explains a refused token and does not send it again", async () => {
@@ -171,9 +194,69 @@ describe("the migration offer", () => {
     fetchMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     const accepting = migration.acceptMigration();
     migration.closeMigration();
-    expect(migration.migrationOffer.value).toEqual({ state: "working" });
+    expect(migration.migrationOffer.value).toEqual({
+      state: "working",
+      kind: "migration",
+    });
     finish(Response.json({ id: ID, name: null }));
     await accepting;
-    expect(migration.migrationOffer.value).toEqual({ state: "done" });
+    expect(migration.migrationOffer.value).toEqual({
+      state: "done",
+      kind: "migration",
+    });
+  });
+
+  it("switches to the ID of another device's QR code after the player agrees", async () => {
+    const migration = await import("../src/ui/migration");
+    const auth = await import("../src/ui/auth");
+    migration.offerTransfer("ABCD2345");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(Response.json({ id: ID, name: "タコ" }));
+    await migration.acceptMigration();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/id/transfer-codes/redeem",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ code: "ABCD2345" }),
+      }),
+    );
+    expect(migration.migrationOffer.value).toEqual({
+      state: "done",
+      kind: "transfer",
+    });
+    expect(auth.useId().id.value).toBe(ID);
+  });
+
+  it("keeps a switch under way when another link arrives", async () => {
+    const migration = await import("../src/ui/migration");
+    migration.offerTransfer("ABCD2345");
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const accepting = migration.acceptMigration();
+    migration.offerTransfer("WXYZ6789");
+    expect(migration.migrationOffer.value).toEqual({
+      state: "working",
+      kind: "transfer",
+    });
+    finish(Response.json({ id: ID, name: null }));
+    await accepting;
+    expect(migration.migrationOffer.value).toEqual({
+      state: "done",
+      kind: "transfer",
+    });
+  });
+
+  it("explains a used or expired QR code", async () => {
+    const migration = await import("../src/ui/migration");
+    migration.offerTransfer("ABCD2345");
+    fetchMock.mockResolvedValue(
+      Response.json({ error: "invalid_code" }, { status: 400 }),
+    );
+    await migration.acceptMigration();
+    const refused = migration.migrationOffer.value;
+    expect(refused?.state).toBe("refused");
+    expect(refused && "message" in refused && refused.message).toContain(
+      "QR コードは使えません",
+    );
   });
 });

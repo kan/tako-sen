@@ -3479,3 +3479,43 @@ describe("account modal", () => {
     expect(hidden.focus).not.toHaveBeenCalled();
   });
 });
+
+describe("transfer by QR code", () => {
+  it("shows the issued code as a QR code beside the code itself", async () => {
+    auth.user!.value = "qr-account";
+    request.mockImplementation(async (path: string) =>
+      path === "/api/id/transfer-codes"
+        ? Response.json({ code: "ABCD2345", expiresAt: Date.now() + 600_000 })
+        : Response.json(
+            path === "/api/profile" ? { profile: null } : { plays: [] },
+          ),
+    );
+    const container = root();
+    renderer.render(h(AccountHistory, { plays: [], open: true }), container);
+    // A static text may sit on the element itself rather than in a child.
+    const textOf = (n: typeof container) =>
+      n.text + n.children.map((child) => child.text).join("");
+    const issue = await vi.waitFor(() => {
+      const button = find(
+        container,
+        (n) => n.tag === "button" && textOf(n).includes("引き継ぎコードを発行"),
+      );
+      expect(button).toBeDefined();
+      return button!;
+    });
+    expect(find(container, (n) => n.props.role === "img")).toBeUndefined();
+    (issue.props.onClick as () => void)();
+    const qr = await vi.waitFor(() => {
+      const image = find(
+        container,
+        (n) => n.props["aria-label"] === "引き継ぎ用の QR コード",
+      );
+      expect(image).toBeDefined();
+      return image!;
+    });
+    expect(String(qr.props.innerHTML)).toMatch(/^<svg /);
+    expect(
+      find(container, (n) => n.tag === "strong" && textOf(n) === "ABCD2345"),
+    ).toBeDefined();
+  });
+});

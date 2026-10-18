@@ -43,3 +43,18 @@ export const ID_STORAGE_NOTE =
 
 /** A button press that needs the connection did not get through. */
 export const PRESS_AGAIN_ONLINE = "接続を確認して、もう一度押してください。";
+
+/**
+ * Why switching this device's ID did not happen, when trying again can work
+ * (a typed transfer code, a QR code, the old URL's link). A refused secret
+ * is explained where it was entered.
+ */
+export function redeemRetryText(
+  reason: "rate_limited" | "offline" | "failed",
+): string {
+  return reason === "rate_limited"
+    ? "入力が多すぎます。1分ほど待ってから、もう一度押してください。"
+    : reason === "offline"
+      ? PRESS_AGAIN_ONLINE
+      : "引き継げません。少し待ってから、もう一度押してください。";
+}

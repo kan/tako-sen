@@ -14,14 +14,17 @@ import {
   onMounted,
   onUnmounted,
   ref,
+  shallowRef,
   watch,
 } from "vue";
+import { transferLink } from "../core/handoff";
 import GameName from "./GameName.vue";
 import { trapDialogFocus } from "./dialog";
 import {
   ID_STORAGE_NOTE,
   PLAY_CONTINUES,
   PRESS_AGAIN_ONLINE,
+  redeemRetryText,
 } from "./notice-text";
 import { createCompletedPlayUpload } from "../core/online-history";
 import {
@@ -103,6 +106,25 @@ const submitHint = computed(() =>
         ? "公開ルールに同意すると設定できます。"
         : "",
 );
+// The issued code as a QR code of transferLink, for the new device's camera.
+// The encoder is loaded only when a code is shown.
+const transferQr = shallowRef<string>();
+watch(transferCode, async (issued) => {
+  transferQr.value = undefined;
+  if (!issued) return;
+  try {
+    const { renderSVG } = await import("uqr");
+    if (transferCode.value !== issued) return;
+    transferQr.value = renderSVG(
+      transferLink(new URL(window.location.href).origin, issued.code),
+      // The 4-module quiet zone the QR standard asks for: cameras find the
+      // code even on a dark screen around it.
+      { ecc: "M", pixelSize: 4, border: 4 },
+    );
+  } catch {
+    // Without the encoder (offline after an update) the code is still shown.
+  }
+});
 const transferExpiry = computed(() =>
   transferCode.value
     ? new Date(transferCode.value.expiresAt).toLocaleTimeString("ja-JP", {
@@ -371,11 +393,7 @@ async function redeemCode(): Promise<void> {
     message.value =
       redeemed.reason === "invalid"
         ? "引き継ぎコードが違うか、期限が切れています。発行した端末で、新しいコードを発行してください。"
-        : redeemed.reason === "rate_limited"
-          ? "入力が多すぎます。1分ほど待ってから、もう一度押してください。"
-          : redeemed.reason === "offline"
-            ? PRESS_AGAIN_ONLINE
-            : "引き継げません。少し待ってから、もう一度押してください。";
+        : redeemRetryText(redeemed.reason);
   } finally {
     busy.value = false;
   }
@@ -528,6 +546,18 @@ onUnmounted(() => {
             <strong>{{ transferCode.code }}</strong>
             （{{ transferExpiry }}まで有効。1回だけ使えます）
           </p>
+          <figure v-if="transferCode && transferQr" class="account-qr">
+            <!-- The SVG comes from uqr with this site's own address. -->
+            <div
+              class="account-qr-image"
+              role="img"
+              aria-label="引き継ぎ用の QR コード"
+              v-html="transferQr"
+            ></div>
+            <figcaption>
+              新しい端末のカメラで読み取ると、引き継ぎの画面が開きます。下の欄にコードを入力しても引き継げます。
+            </figcaption>
+          </figure>
           <button
             type="button"
             :aria-disabled="busy || undefined"
