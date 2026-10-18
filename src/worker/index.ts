@@ -316,17 +316,10 @@ export default {
       }
 
       if (pathname === "/api/profile") {
-        if (request.method === "GET") {
-          const profile = await getAccountProfile(env.DB, accountId);
-          // A name chosen in another kan-game.app game: the screen then asks
-          // for TAKO-SEN's consent only. Unknown (null) if the platform fails.
-          const name =
-            profile?.displayName ??
-            (await idPlatform(env)
-              .getName(accountId)
-              .catch(() => null));
-          return json({ profile, name });
-        }
+        // A name chosen in another kan-game.app game comes to the screen with
+        // the ID (POST /api/id/session), so this reads TAKO-SEN's own only.
+        if (request.method === "GET")
+          return json({ profile: await getAccountProfile(env.DB, accountId) });
         if (
           !request.headers.get("Content-Type")?.startsWith("application/json")
         )

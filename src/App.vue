@@ -10,13 +10,12 @@ import {
   toRaw,
   watch,
 } from "vue";
+import { apiFetch, portalUrl, useId } from "./ui/auth";
 import {
-  Show,
-  SignInButton,
-  SignUpButton,
-  onlineAuthEnabled,
-  useAuth,
-} from "./ui/auth";
+  ID_STORAGE_NOTE,
+  NAME_AND_ONLINE_REQUIRED,
+  idUnavailable,
+} from "./ui/notice-text";
 import AccountHistory from "./ui/AccountHistory.vue";
 import PublicLeaderboard from "./ui/PublicLeaderboard.vue";
 import DailyChallenge from "./ui/DailyChallenge.vue";
@@ -152,7 +151,8 @@ const InteractiveTutorial = defineAsyncComponent(
 const dragStartThresholdPx = 12;
 const hapticsStorageKey = "tako-sen:haptics-enabled";
 const soundStorageKey = "tako-sen:sound-enabled";
-const onlineAuth = onlineAuthEnabled ? useAuth() : undefined;
+const { id: accountId } = useId();
+const privacyUrl = portalUrl("/privacy");
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");
 // Shown only over the board it was written for, so replacing the board in any
@@ -168,7 +168,6 @@ let nextPuzzleRequest = 0;
 const onlineGameName = ref("");
 const rankingRevision = ref(0);
 const accountDialogOpen = ref(false);
-const accountSetupRequired = ref(false);
 const tutorialOpen = ref(false);
 const tutorialFirstVisit = ref(false);
 const menuOpen = ref(false);
@@ -176,11 +175,7 @@ const historyDialogOpen = ref(false);
 const weeklyRankingOpen = ref(false);
 const toolsDialog = ref<"settings" | "share">();
 const toolsDialogRef = ref<HTMLElement>();
-const historyAccountId = computed(() =>
-  onlineAuth?.isSignedIn.value
-    ? (onlineAuth.userId.value ?? undefined)
-    : undefined,
-);
+const historyAccountId = computed(() => accountId.value ?? undefined);
 let resumeAfterMenu = false;
 const menuDialogRef = ref<HTMLElement>();
 const menuButton = ref<HTMLButtonElement>();
@@ -305,7 +300,6 @@ const activeDialog = computed<
   | "share"
   | undefined
 >(() => {
-  if (accountSetupRequired.value) return "account";
   if (tutorialOpen.value) return "tutorial";
   if (superDialogOpen.value) return "super";
   if (complete.value && showClearDialog.value) return "clear";
@@ -368,8 +362,7 @@ watch(
     rankingRevision.value,
     clearRankingRetry.value,
     onlineGameName.value,
-    onlineAuth?.userId.value,
-    onlineAuth?.isSignedIn.value,
+    accountId.value,
   ],
   async () => {
     const generation = ++clearRankingGeneration;
@@ -399,11 +392,9 @@ watch(
         );
         return;
       }
-      const token = special ? await onlineAuth?.getToken() : undefined;
-      if (special && !token) {
-        if (generation === clearRankingGeneration)
-          clearRankingMessage.value =
-            "ランキングの表示にはログインが必要です。";
+      // Daily and super rankings mark the player's own row, so they need the ID.
+      if (special && !accountId.value) {
+        clearRankingMessage.value = idUnavailable("ランキングを表示できません");
         return;
       }
       const path = isDaily.value
@@ -412,9 +403,7 @@ watch(
           ? `/api/super/ranking?puzzleId=${encodeURIComponent(id)}`
           : `/api/leaderboards/${encodeURIComponent(id)}`;
       if (generation !== clearRankingGeneration) return;
-      const response = await fetch(path, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const response = await apiFetch(path);
       if (!response.ok) throw new Error("Leaderboard unavailable.");
       const data = (await response.json()) as {
         entries?: (LeaderboardEntry & { isSelf?: boolean })[];
@@ -438,22 +427,17 @@ function showClearRanking(
       ...entry,
       isSelf: special
         ? !!entry.isSelf
-        : !!onlineAuth?.isSignedIn.value &&
-          !!onlineGameName.value &&
-          entry.displayName === onlineGameName.value,
+        : !!onlineGameName.value && entry.displayName === onlineGameName.value,
     })),
     (entry) => entry.isSelf,
   );
   // Right after a normal clear is when joining is most tempting, so say how;
   // daily and super boards have no "next puzzle" to join from.
-  const canJoin =
-    !special &&
-    !!onlineAuth &&
-    !(onlineAuth.isSignedIn.value && onlineGameName.value);
+  const canJoin = !special && !onlineGameName.value;
   clearRankingMessage.value = clearRankingEntries.value.length
     ? ""
     : canJoin
-      ? "ログインしてプレイヤー名を設定すると、次の問題からランキングに載ります。"
+      ? "プレイヤー名を設定すると、これから初めて解く問題からランキングに載ります。"
       : "あなたの公開ランキング記録はありません。";
 }
 const contradictionCells = computed(() =>
@@ -574,8 +558,8 @@ watch(activeDialog, async (dialog, previous) => {
   await nextTick();
   if (dialog) {
     if (dialog === "menu") {
-      // After logging out the account button is gone; the menu keeps focus.
-      if (previous === "account" && accountMenuButton.value?.isConnected)
+      // Back from the account dialog, focus returns to the account button.
+      if (previous === "account" && accountMenuButton.value)
         accountMenuButton.value.focus();
       else menuDialogRef.value?.focus();
     } else if (dialog === "settings" || dialog === "share")
@@ -758,14 +742,10 @@ async function loadHistoryOnline(
   const account = historyAccountId.value;
   if (!account || navigator.onLine === false)
     throw new Error("Offline history.");
-  const token = await onlineAuth?.getToken();
-  if (!token || account !== historyAccountId.value)
-    throw new Error("History account changed.");
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(historyPaths[mode], {
-      headers: { Authorization: `Bearer ${token}` },
+    const response = await apiFetch(historyPaths[mode], {
       signal: controller.signal,
     });
     if (!response.ok || account !== historyAccountId.value)
@@ -1088,11 +1068,7 @@ async function pickRankedPuzzle(
   difficulty: PuzzleDifficulty,
   signal?: AbortSignal,
 ): Promise<NextPuzzle | undefined> {
-  const accountId = onlineAuth?.userId.value;
-  if (!accountId) return undefined;
-  const token = await onlineAuth?.getToken();
-  if (!token || accountId !== onlineAuth?.userId.value)
-    throw new Error("Session unavailable.");
+  if (!accountId.value) return undefined;
   const controller = new AbortController();
   const abort = () => controller.abort();
   const timeout = window.setTimeout(abort, 3000);
@@ -1100,12 +1076,9 @@ async function pickRankedPuzzle(
   let response: Response;
   try {
     throwIfAborted(signal);
-    response = await fetch(
+    response = await apiFetch(
       `/api/next-puzzle?difficulty=${encodeURIComponent(difficulty)}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      },
+      { signal: controller.signal },
     );
   } finally {
     window.clearTimeout(timeout);
@@ -1155,11 +1128,7 @@ const touchedPlayId = ref<string>();
 const nextPuzzleKey = computed(() => {
   const id = playId.value;
   if (!id || isSpecial.value || touchedPlayId.value !== id) return undefined;
-  return JSON.stringify([
-    id,
-    selectedDifficulty.value,
-    onlineAuth?.userId.value ?? null,
-  ]);
+  return JSON.stringify([id, selectedDifficulty.value, accountId.value]);
 });
 const nextPuzzlePreparationDelay = 2000;
 let preparedNextPuzzle:
@@ -1344,8 +1313,7 @@ async function copySuperLink(): Promise<void> {
     url.searchParams.delete("p");
     url.searchParams.set("s", puzzleSeedCode.value);
     await navigator.clipboard.writeText(url.href);
-    seedMessage.value =
-      "超級の共有リンクをコピーしました。受け取った人もログインとオンライン接続が必要です。";
+    seedMessage.value = `超級の共有リンクをコピーしました。受け取った人も${NAME_AND_ONLINE_REQUIRED}`;
   } catch {
     seedMessage.value =
       "共有リンクをコピーできませんでした。シードをコピーして共有できます。";
@@ -1354,10 +1322,6 @@ async function copySuperLink(): Promise<void> {
 
 async function restoreSeed(code: string): Promise<boolean> {
   if (parseSuperSeed(code) !== undefined) {
-    if (!onlineAuthEnabled) {
-      seedMessage.value = "超級はログインとオンライン接続が必要です。";
-      return false;
-    }
     superChallengeRef.value?.openShared(code.trim());
     return true;
   }
@@ -1884,17 +1848,8 @@ function onDailyRankingClosed(): void {
   resumeAfterMenu = false;
 }
 
-function onAccountSetupRequired(required: boolean): void {
-  accountSetupRequired.value = required;
-  if (required) accountDialogOpen.value = true;
-}
-
 function onAccountProfile(name: string): void {
   onlineGameName.value = name;
-  if (name && accountSetupRequired.value) {
-    accountSetupRequired.value = false;
-    accountDialogOpen.value = false;
-  }
 }
 
 function showLeaderboard(): void {
@@ -2135,32 +2090,18 @@ function formatElapsed(seconds: number): string {
           >
             <span aria-hidden="true">×</span>
           </button>
-          <nav
-            v-if="onlineAuthEnabled"
-            class="account-controls"
-            aria-label="アカウント"
-          >
-            <Show when="signed-out">
-              <SignInButton
-                ><button type="button">ログイン</button></SignInButton
-              >
-              <SignUpButton
-                ><button type="button">アカウント作成</button></SignUpButton
-              >
-            </Show>
-            <Show when="signed-in"
-              ><button
-                ref="accountMenuButton"
-                type="button"
-                aria-haspopup="dialog"
-                :aria-expanded="accountDialogOpen"
-                @click="accountDialogOpen = true"
-              >
-                <template v-if="onlineGameName"
-                  >プレイヤー：<GameName :name="onlineGameName" /></template
-                ><template v-else>プレイヤー名を設定</template>
-              </button></Show
+          <nav class="account-controls" aria-label="アカウント">
+            <button
+              ref="accountMenuButton"
+              type="button"
+              aria-haspopup="dialog"
+              :aria-expanded="accountDialogOpen"
+              @click="accountDialogOpen = true"
             >
+              <template v-if="onlineGameName"
+                >プレイヤー：<GameName :name="onlineGameName" /></template
+              ><template v-else>プレイヤー名を設定</template>
+            </button>
           </nav>
         </div>
         <nav class="screen-menu" aria-label="メニュー">
@@ -2303,7 +2244,6 @@ function formatElapsed(seconds: number): string {
           </select>
         </label>
         <SuperChallenge
-          v-if="onlineAuthEnabled"
           ref="superChallengeRef"
           :puzzle="puzzle"
           :play-id="playId"
@@ -2320,7 +2260,6 @@ function formatElapsed(seconds: number): string {
         />
 
         <DailyChallenge
-          v-if="onlineAuthEnabled"
           ref="dailyChallengeRef"
           :inert="waitingToStart || !!activeDialog"
           :active-date="activeDailyDate"
@@ -2468,6 +2407,12 @@ function formatElapsed(seconds: number): string {
                 </button>
               </div>
             </div>
+            <p class="settings-note">
+              {{ ID_STORAGE_NOTE
+              }}<a :href="privacyUrl" target="_blank" rel="noopener"
+                >プライバシーポリシー</a
+              >
+            </p>
           </template>
           <template v-else>
             <h3>{{ isDaily ? "今日の問題" : "シード表示・復元" }}</h3>
@@ -2510,8 +2455,10 @@ function formatElapsed(seconds: number): string {
                 </button>
               </div>
               <SharePuzzle
-                v-if="onlineAuthEnabled && !isSpecial"
+                v-if="!isSpecial"
                 :seed-code="puzzleSeedCode"
+                :game-name="onlineGameName"
+                @account="accountDialogOpen = true"
               />
               <button v-if="isSuper" type="button" @click="copySuperLink">
                 <UiIcon name="share" />
@@ -2558,13 +2505,11 @@ function formatElapsed(seconds: number): string {
     />
 
     <AccountHistory
-      v-if="onlineAuthEnabled && resultHistory"
+      v-if="resultHistory"
       :plays="resultHistory.plays"
       :open="activeDialog === 'account'"
-      :setup-only="accountSetupRequired"
       @close="accountDialogOpen = false"
       @profile="onAccountProfile"
-      @setup-required="onAccountSetupRequired"
       @synced="onNormalPlaysSynced"
       @sending="onNormalPlaySending"
     />
@@ -2826,9 +2771,13 @@ function formatElapsed(seconds: number): string {
       v-if="activeDialog === 'tutorial'"
       :open="activeDialog === 'tutorial'"
       :first-visit="tutorialFirstVisit"
-      :online-enabled="onlineAuthEnabled"
+      :game-name="onlineGameName"
       :auto-exclusions-enabled="autoExclusionsEnabled"
       @close="closeTutorial"
+      @account="
+        closeTutorial();
+        accountDialogOpen = true;
+      "
       @auto-exclusions-change="autoExclusionsEnabled = $event"
     />
     <div
@@ -2848,7 +2797,9 @@ function formatElapsed(seconds: number): string {
         </p>
         <p v-if="isSuper">
           超級 / 10×10 ·
-          ログインとオンライン接続が必要です。初回のOKでのみ挑戦権を使用します（共有経由は消費しません）。
+          {{
+            NAME_AND_ONLINE_REQUIRED
+          }}初回のOKでのみ挑戦権を使用します（共有経由は消費しません）。
         </p>
         <p v-if="dailyReadyMessage" role="alert">{{ dailyReadyMessage }}</p>
         <div class="ready-actions">

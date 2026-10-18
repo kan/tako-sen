@@ -1,8 +1,7 @@
 import { createApp } from "vue";
 import App from "./App.vue";
-import { installAuth } from "./ui/auth";
+import { startId } from "./ui/auth";
 import "./styles.css";
 
-const app = createApp(App);
-installAuth(app);
-app.mount("#app");
+startId();
+createApp(App).mount("#app");

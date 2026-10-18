@@ -8,8 +8,6 @@
     "dev:api": "wrangler dev",
     "dev:all": "node scripts/dev.mjs",
     "dev:roji": "roji run tako-sen -- node scripts/dev.mjs",
-    "dev:roji:bypass": "roji run tako-sen -- node scripts/dev.mjs --bypass",
-    "dev:all:bypass": "node scripts/dev.mjs --bypass",
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
@@ -18,7 +16,6 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@clerk/vue": "^2.5.6",
     "vue": "^3.5.0"
   },
   "devDependencies": {

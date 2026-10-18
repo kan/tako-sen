@@ -23,42 +23,21 @@ import { createTutorialLesson } from "../src/core/interactive-tutorial";
 
 const auth = vi.hoisted(() => ({
   user: undefined as Ref<string | null> | undefined,
+  name: undefined as Ref<string | null> | undefined,
 }));
-vi.mock("@clerk/vue", async () => {
-  const { ref, computed, defineComponent, h } = await import("vue");
+// The device's kan-game.app ID and its kan-game.app name, set by each test
+// (null before it has one). Everything else in src/ui/auth.ts is real and goes
+// through the stubbed fetch.
+vi.mock("../src/ui/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/ui/auth")>();
+  const { ref } = await import("vue");
   const user = ref<string | null>("ui-account");
+  const name = ref<string | null>(null);
   auth.user = user;
+  auth.name = name;
   return {
-    Show: defineComponent({
-      props: { when: String },
-      setup:
-        (props, { slots }) =>
-        () =>
-          (props.when === "signed-out" ? !user.value : !!user.value)
-            ? slots.default?.()
-            : [],
-    }),
-    SignInButton: defineComponent({
-      setup:
-        (_, { slots }) =>
-        () =>
-          h("div", slots.default?.()),
-    }),
-    SignUpButton: defineComponent({
-      setup:
-        (_, { slots }) =>
-        () =>
-          h("div", slots.default?.()),
-    }),
-    useAuth: () => ({
-      userId: user,
-      isLoaded: ref(true),
-      isSignedIn: computed(() => !!user.value),
-      getToken: ref(async () => "test-token"),
-      signOut: ref(async () => {
-        user.value = null;
-      }),
-    }),
+    ...actual,
+    useId: () => ({ id: user, name, status: ref("ready") }),
   };
 });
 vi.mock("../src/core/puzzle-identity", async (importOriginal) => {
@@ -191,6 +170,7 @@ let request: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   teleportBody = null;
   auth.user!.value = "ui-account";
+  auth.name!.value = null;
   const data = new Map([
     [
       "tako-sen.account-profile.v1:ui-account",
@@ -410,7 +390,7 @@ describe("board pointer input", () => {
       });
       const { container, saved, send } = await setup();
       await vi.waitFor(() =>
-        expect(request).toHaveBeenCalledWith("/api/profile", expect.anything()),
+        expect(request).toHaveBeenCalledWith("/api/profile", undefined),
       );
       for (let i = 0; i < 5; i += 1) await nextTick();
       let now = Date.now();
@@ -1723,7 +1703,7 @@ describe("interactive tutorial", () => {
       h(InteractiveTutorial, {
         open: true,
         firstVisit: true,
-        onlineEnabled: false,
+        gameName: "",
         autoExclusionsEnabled: true,
         onClose: close,
         onAutoExclusionsChange: autoChange,
@@ -2167,7 +2147,7 @@ describe("history and results dialog", () => {
     await nextTick();
     expect(
       find(s.container, (n) =>
-        n.text.includes("デイリーの成績はログイン中のオンラインで表示します"),
+        n.text.includes("デイリーの成績はオンラインで表示します"),
       ),
     ).toBeDefined();
     expect(
@@ -2458,11 +2438,11 @@ describe("super challenge flow", () => {
       expect(request.mock.calls.length).toBeGreaterThan(failed),
     );
   });
-  it.each(["anonymous", "profile-required", "more-clears"] as const)(
-    "opens an explanation rather than login/setup or a disabled entry: %s",
+  it.each(["no-id", "profile-required", "more-clears"] as const)(
+    "opens an explanation rather than a name setup or a disabled entry: %s",
     async (state) => {
       vi.stubGlobal("HTMLElement", class {});
-      auth.user!.value = state === "anonymous" ? null : "ui-account";
+      auth.user!.value = state === "no-id" ? null : "ui-account";
       request.mockImplementation(async () =>
         Response.json({
           progress: { cycle: 0, count: 3, offerPending: false },
@@ -2505,10 +2485,19 @@ describe("super challenge flow", () => {
       expect(
         find(container, (n) => n.tag === "button" && n.text === "挑戦する"),
       ).toBeUndefined();
-      if (state === "anonymous")
+      // A device that has no ID yet has no name either; there is no login.
+      if (state === "no-id") {
+        expect(
+          find(
+            container,
+            (n) =>
+              n.tag === "button" && n.text.trim() === "プレイヤー名を設定する",
+          ),
+        ).toBeDefined();
         expect(
           find(container, (n) => n.tag === "button" && n.text === "ログイン"),
-        ).toBeDefined();
+        ).toBeUndefined();
+      }
       if (state === "profile-required") {
         (
           find(
@@ -2748,7 +2737,7 @@ describe("super challenge flow", () => {
         saved.game.playId!,
         saved.game.timer,
       ),
-    ).toBe("ログインとオンライン接続が必要です。");
+    ).toBe("プレイヤー名の設定とオンライン接続が必要です。");
     expect(request.mock.calls.length).toBe(before);
     auth.user!.value = "another-account";
     await nextTick();
@@ -3194,7 +3183,7 @@ describe("public leaderboard dialog", () => {
 });
 
 describe("account modal", () => {
-  it("opens a non-dismissible name setup after a first login without account controls", async () => {
+  it("lets a new ID play without a name and sets one only when asked", async () => {
     vi.stubGlobal("HTMLElement", class {});
     vi.stubGlobal("Document", class {});
     vi.stubGlobal("ShadowRoot", class {});
@@ -3214,6 +3203,27 @@ describe("account modal", () => {
     await nextTick();
     auth.user!.value = "new-account";
     await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/api/profile", undefined),
+    );
+    for (let i = 0; i < 5; i += 1) await nextTick();
+    // No dialog opens by itself: the game is playable without a name.
+    expect(
+      find(container, (n) => n.props["aria-labelledby"] === "account-title"),
+    ).toBeUndefined();
+    (
+      find(container, (n) => n.props["aria-label"] === "メニューを開く")!.props
+        .onClick as () => void
+    )();
+    await nextTick();
+    const accountButton = find(
+      container,
+      (n) =>
+        n.tag === "button" &&
+        n.children.some((child) => child.text.trim() === "プレイヤー名を設定"),
+    )!;
+    expect(accountButton).toBeDefined();
+    (accountButton.props.onClick as () => void)();
+    await vi.waitFor(() =>
       expect(
         find(container, (n) => n.props["aria-labelledby"] === "account-title"),
       ).toBeDefined(),
@@ -3222,26 +3232,71 @@ describe("account modal", () => {
       container,
       (n) => n.props["aria-labelledby"] === "account-title",
     )!;
-    expect(find(dialog, (n) => n.tag === "h2")?.text).toBe(
-      "プレイヤー名を設定",
-    );
-    expect(find(dialog, (n) => n.tag === "input")).toBeDefined();
+    expect(find(dialog, (n) => n.props.id === "account-name")).toBeDefined();
+    expect(
+      find(dialog, (n) => n.props["aria-label"] === "アカウントを閉じる"),
+    ).toBeDefined();
     expect(find(dialog, (n) => n.text === "ログアウト")).toBeUndefined();
     expect(
       find(dialog, (n) => n.text === "退会してオンライン履歴を削除"),
     ).toBeUndefined();
+    // Withdrawal and recovery codes live on the kan-game.app account screen.
     expect(
-      find(dialog, (n) => n.props["aria-label"] === "アカウントを閉じる"),
-    ).toBeUndefined();
-    const preventDefault = vi.fn();
-    (dialog.props.onKeydown as (event: unknown) => void)({
-      key: "Escape",
-      preventDefault,
-    });
-    expect(preventDefault).toHaveBeenCalledOnce();
-    expect(
-      find(container, (n) => n.props["aria-labelledby"] === "account-title"),
+      find(
+        dialog,
+        (n) => n.tag === "a" && n.props.href === "https://kan-game.app/account",
+      ),
     ).toBeDefined();
+  });
+
+  it("asks an ID named in another game for consent only", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    // The ID platform sent the name with the ID.
+    auth.name!.value = "よそのタコ";
+    request.mockImplementation(async (path: string, init?: RequestInit) =>
+      path === "/api/profile" && init?.method === "POST"
+        ? Response.json({
+            profile: { displayName: "よそのタコ", consentVersion: 1 },
+          })
+        : Response.json(
+            path === "/api/profile" ? { profile: null } : { entries: [] },
+          ),
+    );
+    const container = root();
+    const profile = vi.fn();
+    renderer.render(
+      h(AccountHistory, { plays: [], open: true, onProfile: profile }),
+      container,
+    );
+    await vi.waitFor(() =>
+      expect(
+        find(container, (n) => n.text.includes("ほかのゲームで決めた")),
+      ).toBeDefined(),
+    );
+    expect(
+      find(container, (n) => n.props.id === "account-name"),
+    ).toBeUndefined();
+    const consent = find(
+      container,
+      (n) => n.tag === "input" && n.props.type === "checkbox",
+    )!;
+    (consent.props["onUpdate:modelValue"] as (value: boolean) => void)(true);
+    await nextTick();
+    const form = find(container, (n) => n.tag === "form")!;
+    (form.props.onSubmit as (event: unknown) => void)({
+      preventDefault: () => {},
+    });
+    await vi.waitFor(() =>
+      expect(profile).toHaveBeenLastCalledWith("よそのタコ"),
+    );
+    const [, init] = request.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/profile" && options?.method === "POST",
+    )!;
+    expect(JSON.parse(String(init.body))).toEqual({
+      displayName: "よそのタコ",
+      consentVersion: 1,
+    });
   });
 
   it("does not fetch unused history when opening the account dialog", async () => {
@@ -3288,7 +3343,7 @@ describe("account modal", () => {
     });
     app.mount(container);
     await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith("/api/profile", expect.anything()),
+      expect(request).toHaveBeenCalledWith("/api/profile", undefined),
     );
     expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
     plays.value = [
@@ -3320,6 +3375,50 @@ describe("account modal", () => {
       ),
     ).toBe(false);
     expect(find(container, (n) => n.props.role === "dialog")).toBeUndefined();
+    app.unmount();
+  });
+
+  it("sends the clears of an ID without a name, and none before it has an ID", async () => {
+    request.mockImplementation(async (path: string) =>
+      Response.json(
+        path === "/api/profile" ? { profile: null } : { entries: [] },
+      ),
+    );
+    auth.user!.value = null;
+    const container = root();
+    const plays = ref<PlayResult[]>([]);
+    const app = renderer.createApp({
+      setup: () => () => h(AccountHistory, { plays: plays.value, open: false }),
+    });
+    app.mount(container);
+    const clear = (seed: string): PlayResult => ({
+      id: crypto.randomUUID(),
+      userId: "local",
+      status: "completed",
+      seedCode: `TAKO:g1:easy:${seed}`,
+      generatorVersion: "g1",
+      difficulty: "easy",
+      startedAt: 1,
+      completedAt: 1000,
+      elapsedSeconds: 1,
+      hintsUsed: 0,
+      mistakes: 0,
+    });
+    const posts = () =>
+      request.mock.calls.filter(
+        ([path, init]) => path === "/api/plays" && init?.method === "POST",
+      );
+    // Cleared offline before this device ever had an ID: never sent.
+    plays.value = [clear("before-id")];
+    await nextTick();
+    auth.user!.value = "unnamed-account";
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/api/profile", undefined),
+    );
+    plays.value = [...plays.value, clear("unnamed")];
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    // This file stubs the upload down to its play and puzzle IDs.
+    expect(JSON.parse(String(posts()[0][1].body)).puzzleId).toBe("p1:unnamed");
     app.unmount();
   });
 

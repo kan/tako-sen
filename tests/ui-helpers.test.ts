@@ -81,7 +81,7 @@ describe("start failure text", () => {
       "この挑戦権は使用済みか、別の画面で開始されています。通常プレイに戻り、超級の案内を開き直してください。",
     );
     expect(superStartFailureText(new SuperConnectionError("auth"))).toContain(
-      "ログインし直して",
+      "ID を確認できません",
     );
     expect(superStartFailureText(new SuperNotice("日本語の案内"))).toBe(
       "日本語の案内",
@@ -97,7 +97,8 @@ describe("start failure text", () => {
     expect(dailyStartFailureText(409, "completed")).toContain("クリア済み");
     expect(dailyStartFailureText(409, "toString")).toContain("サーバー");
     expect(dailyStartFailureText(403)).toContain("プレイヤー名");
-    expect(dailyStartFailureText(401)).toContain("ログインし直して");
+    expect(dailyStartFailureText(401)).toContain("ID を確認できません");
+    expect(dailyStartFailureText(410)).toContain("ID を確認できません");
     expect(dailyStartFailureText(500)).toContain("少し待って");
   });
 });

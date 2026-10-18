@@ -1,3 +1,4 @@
+import { isIdFailure } from "./auth";
 import { START_FAILURE } from "./notice-text";
 
 /** Why the server refused a start, keyed by the status it answers 409 with. */
@@ -18,7 +19,7 @@ export function dailyStartFailureText(
   httpStatus: number,
   refusal?: unknown,
 ): string {
-  if (httpStatus === 401) return START_FAILURE.auth;
+  if (isIdFailure(httpStatus)) return START_FAILURE.auth;
   if (httpStatus === 403) return START_FAILURE.profile;
   if (
     httpStatus === 409 &&

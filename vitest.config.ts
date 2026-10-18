@@ -5,10 +5,6 @@ const uiTests = ["tests/online-ui.test.ts"];
 
 export default defineConfig({
   plugins: [vue()],
-  // UI tests mock Clerk; never depend on a developer's .env.local or real keys.
-  define: {
-    "import.meta.env.VITE_CLERK_PUBLISHABLE_KEY": JSON.stringify("test-only"),
-  },
   test: {
     environment: "node",
     // CI runs D1 and generator tests beside the CPU-heavy audit; several take 3-5s there.

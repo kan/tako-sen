@@ -629,26 +629,53 @@ button:not(.cell):not(:disabled):active,
   gap: 4px 8px;
 }
 
-/* Log out and deletion are far apart, so a slip cannot hit the one that
- * cannot be undone. */
-.account-actions,
-.account-danger {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+.account-note a,
+.settings-note a {
+  color: inherit;
 }
 
-.account-danger {
-  margin-top: 28px;
+.settings-note {
+  margin: 16px 0 0;
+  color: var(--color-ink-soft);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+
+/* Moving to another device sits apart from the name, under its own rule. */
+.account-transfer {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid #d7c4ae;
 }
 
-.account-card .account-danger button.danger-button {
-  border-color: var(--color-danger);
-  background: var(--color-surface);
-  color: var(--color-danger);
+.dialog-card .account-transfer h3 {
+  margin: 0;
+}
+
+.account-transfer p {
+  margin: 0;
+}
+
+.account-transfer > button,
+.account-redeem button {
+  justify-self: start;
+}
+
+.account-code strong {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+
+.account-redeem {
+  display: grid;
+  gap: 8px;
+}
+
+.account-redeem label {
+  font-weight: 700;
 }
 
 .actions {

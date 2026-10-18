@@ -1,146 +1,261 @@
-import {
-  computed,
-  defineComponent,
-  h,
-  ref,
-  type App,
-  type PropType,
-  type Ref,
-} from "vue";
-import {
-  clerkPlugin,
-  Show as ClerkShow,
-  SignInButton as ClerkSignInButton,
-  SignUpButton as ClerkSignUpButton,
-  useAuth as useClerkAuth,
-} from "@clerk/vue";
-import { bypassToken, isBypassAccount } from "../core/auth-bypass";
+import { readonly, ref, type Ref } from "vue";
 
 /**
- * The one place the screens get sign-in state from. It wraps Clerk today, so
- * replacing the provider (kan/tako-sen#7) touches only this file.
- *
- * It also holds the login bypass for auditing signed-in screens locally:
- * `npm run dev:roji:bypass` sets VITE_AUTH_BYPASS, and only a dev server
- * (import.meta.env.DEV) honours it, so a production build never signs anyone
- * in this way. `?as=dev-<name>` picks the test account.
+ * The kan-game.app ID of this device: the one place the screens get it from
+ * (kan/game docs/ID_DESIGN.md). Every visitor gets an ID automatically from
+ * POST /api/id/session, which this origin passes on to the ID platform. The
+ * ID itself lives in an HttpOnly cookie that goes with every /api request, so
+ * the screens never send a token; they only need to know which ID it is.
  */
-export const authBypass =
-  import.meta.env.DEV && import.meta.env.VITE_AUTH_BYPASS === "1";
 
-const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+export type IdStatus =
+  /** Asking the ID platform; the last known ID, if any, is already set. */
+  | "loading"
+  /** The ID platform confirmed `id`. */
+  | "ready"
+  /** No connection. `id` is the last one this device knew, if any. */
+  | "offline"
+  /** The platform refused (rate limit, outage). It is asked again later. */
+  | "unavailable";
 
-export const onlineAuthEnabled = authBypass || Boolean(clerkKey);
-
-export interface OnlineAuth {
-  readonly userId: Ref<string | null>;
-  readonly isLoaded: Ref<boolean>;
-  readonly isSignedIn: Ref<boolean>;
-  getToken(): Promise<string | null>;
-  signOut(): Promise<void>;
+export interface KanGameId {
+  /** The ID, or null before this device ever got one. */
+  readonly id: Readonly<Ref<string | null>>;
+  /** The kan-game.app name, possibly chosen in another game. */
+  readonly name: Readonly<Ref<string | null>>;
+  readonly status: Readonly<Ref<IdStatus>>;
 }
 
-/** Sets up the provider; the bypass needs none, so Clerk is not loaded then. */
-export function installAuth(app: App): void {
-  if (clerkKey && !authBypass)
-    app.use(clerkPlugin, { publishableKey: clerkKey });
-}
+/**
+ * The last ID the platform confirmed. Not a credential (the cookie is), but
+ * it lets a device that already has an ID keep its offline clears for it.
+ */
+const ID_KEY = "tako-sen.kan-game-id.v1";
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-const BYPASS_KEY = "tako-sen.auth-bypass-account";
-const SIGNED_OUT_KEY = "tako-sen.auth-bypass-signed-out";
-
-function storage<T>(use: (store: Storage) => T, fallback: T): T {
+function storedId(): string | null {
   try {
-    return use(sessionStorage);
+    const value = localStorage.getItem(ID_KEY);
+    return value && UUID.test(value) ? value : null;
   } catch {
-    // Without storage the state lasts until the page is reloaded.
-    return fallback;
+    return null;
   }
 }
 
-/** The tab's test account: ?as= picks it, and it outlives in-app navigation. */
-function bypassAccount(): string {
-  const stored = storage((store) => store.getItem(BYPASS_KEY), null);
-  return isBypassAccount(stored) ? stored : "dev-player";
+function storeId(value: string | null): void {
+  try {
+    if (value) localStorage.setItem(ID_KEY, value);
+    else localStorage.removeItem(ID_KEY);
+  } catch {
+    // Without storage the ID is known again once the platform answers.
+  }
+}
+
+const id = ref<string | null>(null);
+const name = ref<string | null>(null);
+const status = ref<IdStatus>("loading");
+let started = false;
+let pending: Promise<void> | undefined;
+/**
+ * Each request that can name the device's ID takes a number, and only the
+ * latest one's answer counts: a session answer sent with the old cookie must
+ * not undo a transfer code redeemed after it.
+ */
+let latestRequest = 0;
+
+interface IdResponse {
+  id: string;
+  name: string | null;
+}
+
+function accept(body: unknown, request: number): boolean {
+  const value = body as Partial<IdResponse> | null;
+  if (typeof value?.id !== "string" || !UUID.test(value.id)) return false;
+  if (request !== latestRequest) return true;
+  id.value = value.id;
+  name.value = typeof value.name === "string" ? value.name : null;
+  status.value = "ready";
+  storeId(value.id);
+  return true;
+}
+
+function postId(path: string, body?: unknown): Promise<Response> {
+  return fetch(`/api/id/${path}`, {
+    method: "POST",
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function askSession(): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    status.value = "offline";
+    return;
+  }
+  const request = ++latestRequest;
+  status.value = "loading";
+  try {
+    let response = await postId("session");
+    // A withdrawn ID: that answer cleared its cookie, and asking again issues
+    // a new ID (kan/game src/session.ts).
+    if (response.status === 410 && request === latestRequest) {
+      forgetId();
+      response = await postId("session");
+    }
+    if (response.ok && accept(await response.json(), request)) return;
+    if (request === latestRequest) status.value = "unavailable";
+  } catch {
+    if (request === latestRequest) status.value = "offline";
+  }
+}
+
+let lastAsked = -Infinity;
+
+/** Asks the ID platform for this device's ID, once at a time. */
+export function refreshId(): Promise<void> {
+  pending ??= askSession().finally(() => {
+    pending = undefined;
+  });
+  lastAsked = Date.now();
+  return pending;
 }
 
 /**
- * Read once per page load, so changing ?as= takes a reload. A sign-out wins
- * over ?as= until the sign-in button is pressed.
+ * A 401 asks again at most this often: a device whose cookie is not kept
+ * would otherwise ask after every request its retry timers make.
  */
-function initialBypassUser(): string | null {
-  const requested = new URL(window.location.href).searchParams.get("as");
-  return storage(
-    (store) => {
-      if (isBypassAccount(requested)) store.setItem(BYPASS_KEY, requested);
-      return store.getItem(SIGNED_OUT_KEY) ? null : bypassAccount();
-    },
-    isBypassAccount(requested) ? requested : "dev-player",
-  );
+const UNAUTHORIZED_RETRY_MS = 60_000;
+
+function forgetId(): void {
+  id.value = null;
+  name.value = null;
+  storeId(null);
 }
 
-const bypassUser = ref<string | null>(authBypass ? initialBypassUser() : null);
-const bypassAuth: OnlineAuth = {
-  userId: bypassUser,
-  isLoaded: ref(true),
-  isSignedIn: computed(() => !!bypassUser.value),
-  getToken: async () =>
-    bypassUser.value ? bypassToken(bypassUser.value) : null,
-  // Signing out lasts across reloads, so the signed-out screens can be checked.
-  signOut: async () => {
-    storage((store) => store.setItem(SIGNED_OUT_KEY, "1"), undefined);
-    bypassUser.value = null;
-  },
-};
+/** How often a device without an ID asks again (the platform was down). */
+const NO_ID_RETRY_MS = 30_000;
 
-function signInBypass(): void {
-  storage((store) => store.removeItem(SIGNED_OUT_KEY), undefined);
-  bypassUser.value = bypassAccount();
+/**
+ * Starts the ID once per page: the last known ID at once, then the platform's
+ * answer, again whenever the connection comes back, and every half minute for
+ * as long as the device has no ID.
+ */
+export function startId(): void {
+  if (started) return;
+  started = true;
+  id.value = storedId();
+  window.addEventListener("online", () => void refreshId());
+  window.setInterval(() => {
+    if (!id.value) void refreshId();
+  }, NO_ID_RETRY_MS);
+  void refreshId();
 }
 
-/** Clerk's state in the shape above, so callers never see Clerk's own. */
-function clerkAuth(): OnlineAuth {
-  const clerk = useClerkAuth();
-  return {
-    userId: computed(() => clerk.userId.value ?? null),
-    isLoaded: computed(() => !!clerk.isLoaded.value),
-    isSignedIn: computed(() => !!clerk.isSignedIn.value),
-    getToken: () => clerk.getToken.value(),
-    signOut: () => clerk.signOut.value(),
-  };
+export function useId(): KanGameId {
+  return { id: readonly(id), name: readonly(name), status: readonly(status) };
 }
 
-export function useAuth(): OnlineAuth {
-  return authBypass ? bypassAuth : clerkAuth();
+/**
+ * A status that means the request's ID is the problem, not the request: 401
+ * (no valid cookie) or 410 (the ID was withdrawn on kan-game.app).
+ */
+export function isIdFailure(status: number): boolean {
+  return status === 401 || status === 410;
 }
 
-const BypassShow = defineComponent({
-  props: {
-    when: {
-      type: String as PropType<"signed-in" | "signed-out">,
-      required: true,
-    },
-  },
-  setup(props, { slots }) {
-    return () =>
-      (props.when === "signed-in") === !!bypassUser.value
-        ? slots.default?.()
-        : null;
-  },
-});
+/**
+ * fetch for TAKO-SEN's own API, which reads the ID from the cookie. After a
+ * 410 the withdrawn ID is dropped and a new one fetched; after a 401 (the
+ * cookie was cleared, or never set while offline) the ID is asked for again.
+ * Screens keyed by `id` follow. The response is returned as it is.
+ */
+export async function apiFetch(
+  input: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const response = await fetch(input, init);
+  if (response.status === 410) {
+    forgetId();
+    void refreshId();
+  } else if (
+    response.status === 401 &&
+    Date.now() - lastAsked >= UNAUTHORIZED_RETRY_MS
+  )
+    void refreshId();
+  return response;
+}
 
-/** Stands in for Clerk's sign-in and sign-up buttons: a click signs in. */
-const BypassSignInButton = defineComponent({
-  setup(_, { slots }) {
-    return () =>
-      h(
-        "span",
-        { style: "display: contents", onClick: signInBypass },
-        slots.default?.(),
-      );
-  },
-});
+export type TransferCodeIssue =
+  | { ok: true; code: string; expiresAt: number }
+  | { ok: false; reason: "offline" | "failed" };
 
-export const Show = authBypass ? BypassShow : ClerkShow;
-export const SignInButton = authBypass ? BypassSignInButton : ClerkSignInButton;
-export const SignUpButton = authBypass ? BypassSignInButton : ClerkSignUpButton;
+/** Issues a one-time code that moves this ID to another device (10 minutes). */
+export async function issueTransferCode(): Promise<TransferCodeIssue> {
+  try {
+    const response = await postId("transfer-codes");
+    if (!response.ok) return { ok: false, reason: "failed" };
+    const body = (await response.json()) as {
+      code?: unknown;
+      expiresAt?: unknown;
+    };
+    return typeof body.code === "string" && typeof body.expiresAt === "number"
+      ? { ok: true, code: body.code, expiresAt: body.expiresAt }
+      : { ok: false, reason: "failed" };
+  } catch {
+    return { ok: false, reason: "offline" };
+  }
+}
+
+export type TransferCodeRedeem =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "rate_limited" | "offline" | "failed" };
+
+/**
+ * Switches this device to the ID a transfer code belongs to. The device's
+ * previous ID keeps its records; they are not merged.
+ */
+export async function redeemTransferCode(
+  code: string,
+): Promise<TransferCodeRedeem> {
+  const request = ++latestRequest;
+  try {
+    const response = await postId("transfer-codes/redeem", { code });
+    if (response.ok && accept(await response.json(), request))
+      return { ok: true };
+    if (response.status === 400) return { ok: false, reason: "invalid" };
+    if (response.status === 429) return { ok: false, reason: "rate_limited" };
+    return { ok: false, reason: "failed" };
+  } catch {
+    return { ok: false, reason: "offline" };
+  }
+}
+
+/**
+ * A page of the kan-game.app portal: the account screen (recovery codes,
+ * withdrawal) and the privacy policy live there, not in each game. The portal
+ * follows this page's host (tako-dev.kan-game.app → dev.kan-game.app), so a
+ * build cannot point at another environment's portal. Any other public host
+ * gets the production portal; only local hosts get the local one.
+ */
+export function portalUrl(
+  path: "/account" | "/privacy" | "/terms",
+  host = new URL(window.location.href).hostname,
+): string {
+  const local =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".localhost") ||
+    // A phone reaching the dev machine by its LAN address.
+    /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  const portal = host.endsWith(".kan-game.app")
+    ? host.split(".")[0].endsWith("-dev")
+      ? "https://dev.kan-game.app"
+      : "https://kan-game.app"
+    : local
+      ? // kan/game's portal runs beside the game; a phone needs the dev
+        // machine's address here (VITE_KAN_GAME_PORTAL).
+        import.meta.env.VITE_KAN_GAME_PORTAL || "http://localhost:8787"
+      : "https://kan-game.app";
+  return new URL(path, portal).href;
+}

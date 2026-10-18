@@ -1,3 +1,4 @@
+import { apiFetch, isIdFailure } from "./auth";
 import { START_FAILURE } from "./notice-text";
 
 export type ConnectionFailure =
@@ -19,7 +20,7 @@ export class SuperConnectionError extends Error {
           "通信が不安定です。接続が戻ると超級の記録を自動で送り直します。",
         timeout:
           "通信がタイムアウトしました。少し待ってから自動で送り直します。",
-        auth: "ログイン状態を確認できません。ログインし直すと超級の記録を送り直します。",
+        auth: "この端末の ID を確認し直しています。確認できると、超級の記録を送り直します。",
         profile:
           "プレイヤー名と公開ルールへの同意が必要です。アカウントから設定してください。",
         server:
@@ -79,10 +80,14 @@ export async function fetchSuperResponse(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(path, { ...init, signal: controller.signal });
+    // apiFetch asks for the ID again after a 401 or 410.
+    const response = await apiFetch(path, {
+      ...init,
+      signal: controller.signal,
+    });
     if (!response.ok)
       throw new SuperConnectionError(
-        response.status === 401
+        isIdFailure(response.status)
           ? "auth"
           : response.status === 403
             ? "profile"

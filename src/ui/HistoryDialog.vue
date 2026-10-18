@@ -314,7 +314,7 @@ onUnmounted(() => {
           tabindex="0"
         >
           <p v-if="selected === 'daily' && !online">
-            デイリーの成績はログイン中のオンラインで表示します。
+            デイリーの成績はオンラインで表示します。
           </p>
           <template v-else>
             <p class="history-summary">

@@ -9,7 +9,7 @@ interface PendingPlay {
   readonly play: PlayResult;
 }
 
-/** Only newly completed plays are captured; login never backfills local history. */
+/** Only newly completed plays are captured; getting an ID never backfills local history. */
 export class SyncOutbox {
   private readonly seen: Set<string>;
   private pending: PendingPlay[] = [];

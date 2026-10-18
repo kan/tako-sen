@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
-import { Show, SignInButton } from "./auth";
 import { tutorialLesson } from "./tutorial-lesson";
 import { createInitialPlayerState } from "../core/model";
 import { cellLabel } from "./cell-label";
@@ -45,11 +44,14 @@ type Phase =
 const props = defineProps<{
   open: boolean;
   firstVisit: boolean;
-  onlineEnabled: boolean;
+  /** The player name for the rankings, or "" before one is set. */
+  gameName: string;
   autoExclusionsEnabled: boolean;
 }>();
 const emit = defineEmits<{
   close: [];
+  /** Open the account dialog to set a player name. */
+  account: [];
   autoExclusionsChange: [enabled: boolean];
 }>();
 const lesson = tutorialLesson;
@@ -458,17 +460,13 @@ function onKeydown(event: KeyboardEvent): void {
         <p>
           8匹のタコを置けました！各行・列・エリアに1匹ずつ、タコ同士は隣接できません。
         </p>
-        <p>
-          ログインしてプレイヤー名を設定し、公開ルールに同意すると、これからのクリアが同期され、初回スコアがランキングに載ります。
+        <p v-if="!gameName">
+          プレイヤー名を設定して公開ルールに同意すると、これから初めて解く問題の初回スコアがランキングに載ります。
         </p>
-        <div v-if="onlineEnabled" class="dialog-actions">
-          <Show when="signed-out"
-            ><SignInButton
-              ><button type="button" @click="emit('close')">
-                ログインして参加
-              </button></SignInButton
-            ></Show
-          >
+        <div v-if="!gameName" class="dialog-actions">
+          <button type="button" @click="emit('account')">
+            プレイヤー名を設定
+          </button>
         </div>
         <p>後からメニューの「遊び方」で何度でも練習できます。</p>
         <div class="dialog-actions">

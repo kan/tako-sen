@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { useAuth } from "./auth";
+import {
+  apiFetch,
+  issueTransferCode,
+  portalUrl,
+  redeemTransferCode,
+  refreshId,
+  useId,
+} from "./auth";
 import {
   computed,
   nextTick,
@@ -11,7 +18,11 @@ import {
 } from "vue";
 import GameName from "./GameName.vue";
 import { trapDialogFocus } from "./dialog";
-import { PLAY_CONTINUES } from "./notice-text";
+import {
+  ID_STORAGE_NOTE,
+  PLAY_CONTINUES,
+  PRESS_AGAIN_ONLINE,
+} from "./notice-text";
 import { createCompletedPlayUpload } from "../core/online-history";
 import {
   GAME_NAME_MAX,
@@ -32,7 +43,6 @@ import { askConfirm } from "./confirm-dialog";
 const props = defineProps<{
   plays: readonly PlayResult[];
   open: boolean;
-  setupOnly?: boolean;
 }>();
 const emit = defineEmits<{
   /** 送信に成功した。最後に送った記録の問題のランキングが応答にあれば添える。 */
@@ -40,18 +50,22 @@ const emit = defineEmits<{
   /** 記録の送信中かどうか。送信中は、送信後に届くランキングを待てる。 */
   sending: [active: boolean];
   profile: [name: string];
-  setupRequired: [required: boolean];
   close: [];
 }>();
 const dialogRef = ref<HTMLElement>();
 const nameInputRef = ref<HTMLInputElement>();
-const { getToken, isLoaded, isSignedIn, signOut, userId } = useAuth();
+const { id, name: platformName, status } = useId();
 const cacheStorage = {
   getItem: (key) => localStorage.getItem(key),
   setItem: (key, value) => localStorage.setItem(key, value),
 } satisfies import("../core/storage").KeyValueStorage;
 const outbox = new SyncOutbox(props.plays, cacheStorage);
 const profile = ref<AccountProfile | null>(null);
+/**
+ * A name the ID already has from another kan-game.app game (the ID platform
+ * sends it with the ID): consent is then all TAKO-SEN asks for.
+ */
+const sharedName = computed(() => (profile.value ? null : platformName.value));
 const profileLoading = ref(false);
 const gameName = ref("");
 const consent = ref(false);
@@ -60,9 +74,14 @@ const syncing = ref(false);
 const message = ref("");
 const syncMessage = ref("");
 const pendingCount = ref(0);
+const transferCode = ref<{ code: string; expiresAt: number } | null>(null);
+const enteredCode = ref("");
 let epoch = 0;
 let disposed = false;
 let retryTimer: ReturnType<typeof setInterval> | undefined;
+
+const accountUrl = portalUrl("/account");
+const privacyUrl = portalUrl("/privacy");
 
 /** What is wrong with the typed name, once there is something typed. */
 const nameProblem = computed(() => {
@@ -76,13 +95,21 @@ const nameProblem = computed(() => {
 });
 /** Why the submit button does nothing yet, said beside it. */
 const submitHint = computed(() =>
-  !gameName.value.trim()
+  !sharedName.value && !gameName.value.trim()
     ? "プレイヤー名を入力してください。"
-    : nameProblem.value
+    : !sharedName.value && nameProblem.value
       ? "プレイヤー名を直してください。"
       : !consent.value
         ? "公開ルールに同意すると設定できます。"
         : "",
+);
+const transferExpiry = computed(() =>
+  transferCode.value
+    ? new Date(transferCode.value.expiresAt).toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "",
 );
 
 watch(
@@ -90,8 +117,11 @@ watch(
   async (open) => {
     if (!open) return;
     await nextTick();
-    if (props.setupOnly) nameInputRef.value?.focus();
-    else dialogRef.value?.focus();
+    // The name field, when this ID still has to choose a name; otherwise the
+    // dialog itself (also before the device has an ID, when there is no form).
+    (nameInputRef.value ?? dialogRef.value)?.focus();
+    // A name chosen in another game since the page opened comes with the ID.
+    void refreshId();
     void loadProfile();
   },
 );
@@ -99,98 +129,84 @@ watch(
 function onAccountKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
-    if (!props.setupOnly) emit("close");
+    emit("close");
     return;
   }
   trapDialogFocus(event, dialogRef.value);
 }
 
-watch(isSignedIn, (signedIn) => {
-  if (!signedIn) emit("close");
-});
-
+// A new ID (a transfer code, or a withdrawal elsewhere) starts this screen over.
+// The previous ID's unsent clears can no longer be sent (the cookie now holds
+// the new ID), so they are dropped; this device's own history keeps them.
 watch(
-  userId,
-  () => {
+  id,
+  (_, previous) => {
+    if (previous) outbox.forget(previous);
     epoch += 1;
-    emit("setupRequired", false);
     profileLoading.value = false;
-    profile.value = userId.value
-      ? loadCachedProfile(userId.value, cacheStorage)
-      : null;
+    profile.value = id.value ? loadCachedProfile(id.value, cacheStorage) : null;
     gameName.value = "";
     consent.value = false;
     message.value = "";
     syncMessage.value = "";
+    transferCode.value = null;
     emit("profile", profile.value?.displayName ?? "");
     void loadProfile();
   },
   { immediate: true },
 );
 
+// Every clear goes to the ID's history, named or not (the server ranks only
+// those after consent). Before this device has an ID none is kept.
 watch(
   () => props.plays,
   (plays) => {
-    outbox.capture(
-      plays,
-      profile.value && isSignedIn.value ? (userId.value ?? null) : null,
-    );
+    outbox.capture(plays, id.value);
     void synchronize();
   },
   { flush: "sync" },
 );
 
-async function authenticatedFetch(
+async function accountFetch(
   accountId: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const current = epoch;
-  if (disposed || current !== epoch || userId.value !== accountId)
-    throw new Error("Account changed.");
-  const token = await getToken();
-  if (disposed || current !== epoch || userId.value !== accountId)
-    throw new Error("Account changed.");
-  if (!token) throw new Error("Session unavailable.");
-  return fetch(path, {
-    ...init,
-    headers: { ...init?.headers, Authorization: `Bearer ${token}` },
-  });
+  if (disposed || id.value !== accountId) throw new Error("Account changed.");
+  return apiFetch(path, init);
 }
 
 async function loadProfile(): Promise<void> {
-  const accountId = userId.value;
+  const accountId = id.value;
   if (!accountId || profileLoading.value) return;
   const current = epoch;
   profileLoading.value = true;
   try {
-    const response = await authenticatedFetch(accountId, "/api/profile");
+    const response = await accountFetch(accountId, "/api/profile");
     if (!response.ok) throw new Error("Profile unavailable.");
     const data: { profile: AccountProfile | null } = await response.json();
     if (current !== epoch || disposed) return;
     profile.value = data.profile;
-    profileLoading.value = false;
     saveCachedProfile(accountId, data.profile, cacheStorage);
     emit("profile", data.profile?.displayName ?? "");
-    emit("setupRequired", data.profile === null);
-    if (current === epoch) await synchronize();
   } catch {
-    if (current === epoch && !disposed)
-      message.value = `オンライン設定を確認できません。接続を確認して、アカウントを開き直してください。${PLAY_CONTINUES}`;
-    if (current === epoch) await synchronize();
+    if (current !== epoch || disposed) return;
+    message.value = `オンライン設定を確認できません。接続を確認して、アカウントを開き直してください。${PLAY_CONTINUES}`;
   } finally {
     if (current === epoch) profileLoading.value = false;
   }
+  // Clears are sent with or without a name, so a failed check does not wait.
+  await synchronize();
 }
 
 async function registerProfile(): Promise<void> {
-  const accountId = userId.value;
-  const name = validateGameName(gameName.value);
+  const accountId = id.value;
+  const name = sharedName.value ?? validateGameName(gameName.value);
   if (!accountId || !consent.value || !name || busy.value) return;
   const current = epoch;
   busy.value = true;
   try {
-    const response = await authenticatedFetch(accountId, "/api/profile", {
+    const response = await accountFetch(accountId, "/api/profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -210,14 +226,14 @@ async function registerProfile(): Promise<void> {
     profile.value = data.profile;
     saveCachedProfile(accountId, data.profile, cacheStorage);
     emit("profile", data.profile.displayName);
-    emit("setupRequired", false);
     message.value =
-      "設定しました。これからのクリアを自動で送ります。過去のローカル履歴は送りません。";
+      data.profile.displayName === name
+        ? "設定しました。これから初めて解く問題のクリアが、ランキングに載ります。"
+        : "設定しました。この ID にはほかのゲームで決めた名前があるため、その名前を使います。";
     await synchronize();
   } catch {
     if (current === epoch)
-      message.value =
-        "プレイヤー名を設定できません。接続を確認して、もう一度押してください。";
+      message.value = `プレイヤー名を設定できません。${PRESS_AGAIN_ONLINE}`;
   } finally {
     busy.value = false;
   }
@@ -236,8 +252,8 @@ function syncResultText(waiting: number, rejected: number): string {
 }
 
 async function synchronize(): Promise<void> {
-  const accountId = userId.value;
-  if (!accountId || !profile.value || syncing.value || disposed) return;
+  const accountId = id.value;
+  if (!accountId || syncing.value || disposed) return;
   const current = epoch;
   pendingCount.value = outbox.count(accountId);
   if (!pendingCount.value) {
@@ -260,7 +276,7 @@ async function synchronize(): Promise<void> {
       async (play) => {
         const upload = await createCompletedPlayUpload(play);
         if (current !== epoch) throw new Error("Account changed.");
-        const response = await authenticatedFetch(accountId, "/api/plays", {
+        const response = await accountFetch(accountId, "/api/plays", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(upload),
@@ -311,35 +327,55 @@ async function synchronize(): Promise<void> {
   }
 }
 
-async function deleteAccount(): Promise<void> {
-  const accountId = userId.value;
-  if (!accountId || busy.value) return;
+async function issueCode(): Promise<void> {
+  if (!id.value || busy.value) return;
+  const current = epoch;
+  busy.value = true;
+  try {
+    const issued = await issueTransferCode();
+    if (current !== epoch) return;
+    if (issued.ok) {
+      transferCode.value = { code: issued.code, expiresAt: issued.expiresAt };
+      message.value = "";
+    } else
+      message.value =
+        issued.reason === "offline"
+          ? PRESS_AGAIN_ONLINE
+          : "引き継ぎコードを発行できません。少し待ってから、もう一度押してください。";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function redeemCode(): Promise<void> {
+  const code = enteredCode.value.trim();
+  if (!code || busy.value) return;
   if (
     !(await askConfirm({
-      title: "退会しますか？",
+      title: "この端末を引き継ぎますか？",
       message:
-        "アカウント、プレイヤー名、オンライン履歴、すべてのランキング記録を削除します。端末のローカル履歴は残ります。元に戻せません。",
-      confirmLabel: "退会する",
+        "この端末を、引き継ぎコードを発行した端末と同じ ID に切り替えます。この端末でいま使っている ID の記録は、切り替え後の ID には移りません。",
+      confirmLabel: "引き継ぐ",
     }))
   )
     return;
   busy.value = true;
   try {
-    const response = await authenticatedFetch(accountId, "/api/account", {
-      method: "DELETE",
-    });
-    if (!response.ok) throw new Error("Deletion failed.");
-    outbox.forget(accountId);
-    saveCachedProfile(accountId, null, cacheStorage);
-    if (userId.value !== accountId) return;
-    profile.value = null;
-    emit("profile", "");
-    emit("synced");
-    await signOut();
-  } catch {
-    if (userId.value === accountId)
-      message.value =
-        "退会できたか確認できません。接続を確認して、もう一度「退会してオンライン履歴を削除」を押してください。";
+    const redeemed = await redeemTransferCode(code);
+    if (redeemed.ok) {
+      enteredCode.value = "";
+      // The ID watcher above has started this screen over by now.
+      message.value = "引き継ぎました。";
+      return;
+    }
+    message.value =
+      redeemed.reason === "invalid"
+        ? "引き継ぎコードが違うか、期限が切れています。発行した端末で、新しいコードを発行してください。"
+        : redeemed.reason === "rate_limited"
+          ? "入力が多すぎます。1分ほど待ってから、もう一度押してください。"
+          : redeemed.reason === "offline"
+            ? PRESS_AGAIN_ONLINE
+            : "引き継げません。少し待ってから、もう一度押してください。";
   } finally {
     busy.value = false;
   }
@@ -368,7 +404,7 @@ onUnmounted(() => {
     v-if="open"
     class="dialog-backdrop"
     role="presentation"
-    @click.self="!setupOnly && emit('close')"
+    @click.self="emit('close')"
   >
     <section
       ref="dialogRef"
@@ -380,11 +416,8 @@ onUnmounted(() => {
       @keydown="onAccountKeydown"
     >
       <div class="dialog-header">
-        <h2 id="account-title">
-          {{ setupOnly ? "プレイヤー名を設定" : "アカウント" }}
-        </h2>
+        <h2 id="account-title">アカウント</h2>
         <button
-          v-if="!setupOnly"
           type="button"
           class="dialog-close"
           aria-label="アカウントを閉じる"
@@ -393,39 +426,57 @@ onUnmounted(() => {
           <span aria-hidden="true">×</span>
         </button>
       </div>
-      <p v-if="!isLoaded || profileLoading" role="status">
+      <p v-if="!id && status === 'loading'" role="status">
+        この端末の ID を確認しています…
+      </p>
+      <p v-else-if="!id">
+        この端末の ID をまだ確認できません。接続が戻ると確認します。{{
+          PLAY_CONTINUES
+        }}
+      </p>
+      <p v-else-if="profileLoading && !profile" role="status">
         オンライン設定を確認しています…
       </p>
-      <template v-else-if="isSignedIn">
+      <template v-else>
         <form
           v-if="!profile"
           class="account-setup"
           @submit.prevent="registerProfile"
         >
-          <h3 v-if="!setupOnly">プレイヤー名を決める</h3>
-          <label for="account-name">プレイヤー名</label>
-          <input
-            id="account-name"
-            ref="nameInputRef"
-            v-model="gameName"
-            required
-            autocomplete="off"
-            :aria-invalid="nameProblem ? 'true' : undefined"
-            aria-describedby="account-name-rules account-name-problem"
-          />
-          <p
-            id="account-name-problem"
-            class="account-problem"
-            aria-live="polite"
-            v-text="nameProblem"
-          ></p>
-          <p id="account-name-rules" class="account-note">
-            {{ GAME_NAME_MIN }}〜{{
-              GAME_NAME_MAX
-            }}文字。文字・数字・絵文字・空白・ハイフン（-）・下線（_）を使えます。「・」などの記号は使えません。ランキングに表示されるので、本名やメールアドレスは使わないでください。
-          </p>
+          <h3>プレイヤー名を決める</h3>
+          <template v-if="sharedName">
+            <p>
+              この ID には、kan-game.app のほかのゲームで決めたプレイヤー名
+              <GameName :name="sharedName" />
+              があります。TAKO-SEN でもこの名前を使います。
+            </p>
+          </template>
+          <template v-else>
+            <label for="account-name">プレイヤー名</label>
+            <input
+              id="account-name"
+              ref="nameInputRef"
+              v-model="gameName"
+              required
+              autocomplete="off"
+              :aria-invalid="nameProblem ? 'true' : undefined"
+              aria-describedby="account-name-rules account-name-problem"
+            />
+            <p
+              id="account-name-problem"
+              class="account-problem"
+              aria-live="polite"
+              v-text="nameProblem"
+            ></p>
+            <p id="account-name-rules" class="account-note">
+              {{ GAME_NAME_MIN }}〜{{
+                GAME_NAME_MAX
+              }}文字。文字・数字・絵文字・空白・ハイフン（-）・下線（_）を使えます。「・」などの記号は使えません。ランキングに表示されるので、本名やメールアドレスは使わないでください。kan-game.app
+              のほかのゲームでも同じ名前を使い、あとから変えられません。
+            </p>
+          </template>
           <p class="account-note">
-            設定後は、ログイン中のクリアを自動で送ります。各問題で最初の成績が公開ランキングに載り、再挑戦は自分の履歴だけに残ります。過去の履歴は送りません。非公開の設定はなく、退会すると公開記録とプレイヤー名を削除します（他の人が保存したコピーは消せません）。
+            同意したあとに初めて解いた問題は、最初のクリアの成績が公開ランキングに載ります。名前を決める前に解いた問題は、解き直しても載りません。再挑戦は自分の履歴だけに残ります。非公開の設定はなく、退会すると公開記録とプレイヤー名を削除します（ほかの人が保存したコピーは消せません）。
           </p>
           <label class="account-consent"
             ><input v-model="consent" type="checkbox" required />
@@ -436,55 +487,80 @@ onUnmounted(() => {
             :disabled="!!submitHint"
             :aria-describedby="submitHint ? 'account-submit-hint' : undefined"
           >
-            プレイヤー名を設定して参加する
+            {{
+              sharedName ? "同意して参加する" : "プレイヤー名を設定して参加する"
+            }}
           </button>
           <p v-if="submitHint" id="account-submit-hint" class="account-note">
             {{ submitHint }}
           </p>
         </form>
-        <template v-else-if="!setupOnly">
-          <p class="account-sync">
-            <GameName :name="profile.displayName" /> ·
-            <span aria-live="polite">{{ syncMessage }}</span>
-            <button
-              v-if="pendingCount && !syncing"
-              type="button"
-              class="account-resend"
-              @click="synchronize"
+        <p class="account-sync">
+          <template v-if="profile"
+            ><GameName :name="profile.displayName" /> ·
+          </template>
+          <span aria-live="polite">{{ syncMessage }}</span>
+          <button
+            v-if="pendingCount && !syncing"
+            type="button"
+            class="account-resend"
+            @click="synchronize"
+          >
+            今すぐ送る
+          </button>
+        </p>
+        <p v-if="profile">
+          ランキングは各問題の初回クリアのみ。再挑戦も個人履歴に自動保存します。
+        </p>
+        <p class="account-note">
+          <template v-if="!profile">{{ ID_STORAGE_NOTE }}</template
+          ><a :href="privacyUrl" target="_blank" rel="noopener"
+            >プライバシーポリシー</a
+          >
+        </p>
+        <section
+          class="account-transfer"
+          aria-labelledby="account-transfer-title"
+        >
+          <h3 id="account-transfer-title">別の端末と引き継ぐ</h3>
+          <p v-if="transferCode" class="account-code">
+            引き継ぎコード
+            <strong>{{ transferCode.code }}</strong>
+            （{{ transferExpiry }}まで有効。1回だけ使えます）
+          </p>
+          <button
+            type="button"
+            :aria-disabled="busy || undefined"
+            @click="issueCode"
+          >
+            この端末の引き継ぎコードを発行
+          </button>
+          <form class="account-redeem" @submit.prevent="redeemCode">
+            <label for="account-transfer-code"
+              >ほかの端末で発行したコード</label
             >
-              今すぐ送る
+            <input
+              id="account-transfer-code"
+              v-model="enteredCode"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+            />
+            <button type="submit" :aria-disabled="busy || undefined">
+              引き継ぐ
             </button>
-          </p>
-          <p>
-            ランキングは各問題の初回クリアのみ。再挑戦も個人履歴に自動保存します。
-          </p>
-        </template>
+          </form>
+        </section>
       </template>
-      <p v-else>
-        ログインしてプレイヤー名を設定すると、クリアの自動同期とランキング参加ができます。ログインなしでも遊べます。
-      </p>
       <p class="account-message" aria-live="polite" v-text="message"></p>
-      <!-- Busy leaves these enabled, so a focused button keeps focus; the
-           handlers ignore a press while busy. -->
-      <div v-if="isSignedIn" class="account-actions">
-        <button
-          type="button"
-          :aria-disabled="busy || undefined"
-          @click="!busy && signOut()"
-        >
-          ログアウト
-        </button>
-      </div>
-      <div v-if="isSignedIn && !setupOnly" class="account-danger">
-        <button
-          type="button"
-          class="danger-button"
-          :aria-disabled="busy || undefined"
-          @click="deleteAccount"
-        >
-          退会してオンライン履歴を削除
-        </button>
-      </div>
+      <p class="account-note">
+        復旧コードの発行と入力、退会は、kan-game.app の<a
+          :href="accountUrl"
+          target="_blank"
+          rel="noopener"
+          >アカウント画面</a
+        >で行います。
+      </p>
     </section>
   </div>
 </template>

@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import UiIcon from "./UiIcon.vue";
-import { useAuth } from "./auth";
-import { PLAY_CONTINUES } from "./notice-text";
+import { apiFetch, useId } from "./auth";
+import {
+  PLAY_CONTINUES,
+  PRESS_AGAIN_ONLINE,
+  idUnavailable,
+} from "./notice-text";
 import { onUnmounted, ref, watch } from "vue";
 
-const props = defineProps<{ seedCode: string }>();
-const { getToken, isSignedIn, userId } = useAuth();
+const props = defineProps<{
+  seedCode: string;
+  /** The player name, or "" before one is set: sharing needs one. */
+  gameName: string;
+}>();
+const emit = defineEmits<{
+  /** Open the account dialog to set a player name. */
+  account: [];
+}>();
+const { id } = useId();
 const busy = ref(false);
 const message = ref("");
 const shareUrl = ref("");
@@ -14,7 +26,7 @@ const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 onUnmounted(() => clearTimeout(copiedTimer));
 
-watch(userId, () => {
+watch(id, () => {
   shareUrl.value = "";
   message.value = "";
 });
@@ -27,27 +39,29 @@ watch(
 );
 
 async function share(seedCode: string): Promise<void> {
-  const accountId = userId.value;
-  if (!accountId || busy.value) return;
+  if (!props.gameName) {
+    emit("account");
+    return;
+  }
+  const accountId = id.value;
+  if (busy.value) return;
+  if (!accountId) {
+    message.value = `${idUnavailable("共有リンクを作成できません")}${PLAY_CONTINUES}`;
+    return;
+  }
   busy.value = true;
   message.value = "";
   shareUrl.value = "";
   try {
-    const token = await getToken();
-    if (!token || userId.value !== accountId)
-      throw new Error("ログイン状態を確認できませんでした。");
-    const response = await fetch("/api/puzzles", {
+    const response = await apiFetch("/api/puzzles", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ seedCode }),
     });
     if (!response.ok)
       throw new Error(`共有に失敗しました (${response.status})。`);
     const data: { puzzle: { id: string } } = await response.json();
-    if (userId.value !== accountId) return;
+    if (id.value !== accountId) return;
     const url = new URL(window.location.href);
     url.searchParams.set("p", data.puzzle.id);
     shareUrl.value = url.toString();
@@ -62,8 +76,8 @@ async function share(seedCode: string): Promise<void> {
         "リンクをコピーできませんでした。下の URL を選択してください。";
     }
   } catch {
-    if (userId.value === accountId)
-      message.value = `共有リンクを作成できません。接続を確認して、もう一度押してください。${PLAY_CONTINUES}`;
+    if (id.value === accountId)
+      message.value = `共有リンクを作成できません。${PRESS_AGAIN_ONLINE}${PLAY_CONTINUES}`;
   } finally {
     busy.value = false;
   }
@@ -75,7 +89,6 @@ async function share(seedCode: string): Promise<void> {
     <button
       type="button"
       class="share-link-button"
-      :disabled="!isSignedIn"
       :aria-disabled="busy || undefined"
       @click="share(seedCode)"
     >
@@ -83,7 +96,7 @@ async function share(seedCode: string): Promise<void> {
         busy ? "作成しています…" : "問題の共有リンクを作成"
       }}
     </button>
-    <p v-if="!isSignedIn">共有リンクの作成にはログインが必要です。</p>
+    <p v-if="!gameName">共有リンクの作成には、プレイヤー名の設定が必要です。</p>
     <p aria-live="polite" v-text="message"></p>
     <input
       v-if="shareUrl"

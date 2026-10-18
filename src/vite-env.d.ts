@@ -1,7 +1,10 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_CLERK_PUBLISHABLE_KEY?: string;
-  /** "1" signs in a test account on a dev server; see src/ui/auth.ts. */
-  readonly VITE_AUTH_BYPASS?: string;
+  /**
+   * The kan-game.app portal for local development, where the game is not on
+   * a kan-game.app host (src/ui/auth.ts portalUrl). Defaults to kan/game's
+   * `wrangler dev` at http://localhost:8787.
+   */
+  readonly VITE_KAN_GAME_PORTAL?: string;
 }

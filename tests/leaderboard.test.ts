@@ -570,13 +570,11 @@ describe("names shared across kan-game.app", () => {
     auth.account = null;
   });
 
-  it("offers a name chosen in another game and keeps it on consent", async () => {
+  it("keeps a name chosen in another game on consent", async () => {
     ids.names.set("named-elsewhere", "よそのタコ");
     auth.account = "named-elsewhere";
-    expect(await (await call("profile")).json()).toEqual({
-      profile: null,
-      name: "よそのタコ",
-    });
+    // The screen learns the name with the ID; this reads TAKO-SEN's profile.
+    expect(await (await call("profile")).json()).toEqual({ profile: null });
     // The name cannot change; TAKO-SEN stores the platform's.
     const response = await register("別の名前");
     expect(response.status).toBe(200);
@@ -585,7 +583,6 @@ describe("names shared across kan-game.app", () => {
     });
     expect(await (await call("profile")).json()).toEqual({
       profile: { displayName: "よそのタコ", consentVersion: 1 },
-      name: "よそのタコ",
     });
     await deleteAccount(platform.env.DB, "named-elsewhere");
   });
@@ -595,10 +592,7 @@ describe("names shared across kan-game.app", () => {
     auth.account = "newcomer";
     expect((await register("取られた名前")).status).toBe(409);
     expect(await getAccountProfile(platform.env.DB, "newcomer")).toBeNull();
-    expect(await (await call("profile")).json()).toEqual({
-      profile: null,
-      name: null,
-    });
+    expect(await (await call("profile")).json()).toEqual({ profile: null });
   });
 
   it("answers 410 when the ID platform no longer knows the ID", async () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { useAuth, SignInButton } from "./auth";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { apiFetch, useId } from "./auth";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
 import { maximumHintStage, hintStageLabel } from "../core/hint-progress";
 import { rankingScore } from "../core/ranking-score";
@@ -44,7 +44,7 @@ const emit = defineEmits<{
   rankingClosed: [];
   synced: [];
 }>();
-const { getToken, isLoaded, isSignedIn, userId } = useAuth();
+const { id: userId } = useId();
 const panelOpen = ref(false);
 const panelDialogRef = ref<HTMLElement>();
 const entryButtonRef = ref<HTMLButtonElement>();
@@ -57,16 +57,11 @@ const rankingLoading = ref(false);
 const rankingMessage = ref("");
 const rankingDialogRef = ref<HTMLElement>();
 let focusBeforeRanking: HTMLElement | null = null;
-const signedIn = computed(() => isLoaded.value && isSignedIn.value);
 let retryTimer: ReturnType<typeof setInterval> | undefined;
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  const token = await getToken();
-  if (!token) throw new Error("ログインが必要です。");
-  return fetch(path, {
-    ...init,
-    headers: { Authorization: `Bearer ${token}`, ...init?.headers },
-  });
+  if (!userId.value) throw new Error("この端末の ID を確認できません。");
+  return apiFetch(path, init);
 }
 
 async function openPanel(): Promise<void> {
@@ -355,17 +350,7 @@ onUnmounted(() => {
 
 <template>
   <section class="daily-entry">
-    <SignInButton v-if="!signedIn"
-      ><button
-        type="button"
-        class="icon-button daily-challenge-button"
-        aria-label="デイリーチャレンジ · ログインして挑戦"
-        title="デイリーチャレンジ · ログインして挑戦"
-      >
-        <UiIcon name="daily" /></button
-    ></SignInButton>
     <button
-      v-else
       ref="entryButtonRef"
       class="icon-button daily-challenge-button"
       aria-label="デイリーチャレンジ"

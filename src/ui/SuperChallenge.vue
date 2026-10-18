@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useAuth, SignInButton } from "./auth";
+import { useId } from "./auth";
 import UiIcon from "./UiIcon.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
@@ -38,7 +38,12 @@ import { restoreSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import { trapDialogFocus } from "./dialog";
 import PublicLeaderboard from "./PublicLeaderboard.vue";
 import { generateSuperInBackground } from "./puzzle-generation";
-import { ALLOW_SITE_DATA, PLAY_CONTINUES, accountChanged } from "./notice-text";
+import {
+  ALLOW_SITE_DATA,
+  NAME_AND_ONLINE_REQUIRED,
+  PLAY_CONTINUES,
+  accountChanged,
+} from "./notice-text";
 import {
   fetchSuperResponse,
   SuperConnectionError,
@@ -56,7 +61,7 @@ const PRESS_CHALLENGE = "もう一度「挑戦する」を押してください�
 const CANNOT_SAVE_START = `この端末に保存できないため超級を開始できません。${ALLOW_SITE_DATA}`;
 const ACCOUNT_CHANGED = accountChanged("超級の案内");
 const SUPER_RANKING_NOTE = {
-  lead: "この超級の盤面に挑戦した参加者の初回成績です。自己申告の参考記録で、見るにはログインが必要です。",
+  lead: "この超級の盤面に挑戦した参加者の初回成績です。自己申告の参考記録で、見るにはプレイヤー名の設定が必要です。",
   join: "挑戦権か共有された超級で挑戦すると自動参加します。同じ盤面への再挑戦では記録を更新しません。退会で公開記録を削除できます。",
 };
 
@@ -77,10 +82,8 @@ const emit = defineEmits<{
   closed: [];
   synced: [];
 }>();
-const { userId, isLoaded, isSignedIn, getToken } = useAuth();
-const account = computed(() =>
-  isLoaded.value && isSignedIn.value && props.gameName ? userId.value : null,
-);
+const { id: userId } = useId();
+const account = computed(() => (props.gameName ? userId.value : null));
 const isSuper = computed(() => isSuperVersion(props.puzzle.generatorVersion));
 const progress = ref<SuperProgress>();
 const progressOwner = ref<string>();
@@ -157,22 +160,11 @@ async function request(path: string, body?: unknown): Promise<Response> {
   const id = account.value;
   const generation = epoch;
   if (!id || !current(id, generation))
-    throw new SuperNotice("ログインとオンライン接続が必要です。");
+    throw new SuperNotice(NAME_AND_ONLINE_REQUIRED);
   try {
-    let token: string | null;
-    try {
-      token = await getToken();
-    } catch {
-      throw new SuperConnectionError("network");
-    }
-    if (!token || !current(id, generation))
-      throw new SuperConnectionError("auth");
     const response = await fetchSuperResponse(path, {
       method: body === undefined ? "GET" : "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      },
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!current(id, generation))
@@ -454,8 +446,7 @@ async function prepare(seedCode?: string): Promise<void> {
   try {
     await refresh();
     if (!preparing()) return;
-    if (!progress.value)
-      throw new SuperNotice("接続とログイン状態を確認してください。");
+    if (!progress.value) throw new SuperNotice("接続を確認してください。");
     const entry = seedCode ? "shared" : "earned";
     if (entry === "earned" && !hasSuperRight(progress.value))
       throw new SuperNotice("通常問題を10回クリアすると超級に挑戦できます。");
@@ -838,17 +829,7 @@ defineExpose({
 <template>
   <section class="super-entry" :inert="modalBlocked || entryBlocked">
     <button
-      v-if="!isSignedIn"
-      type="button"
-      class="icon-button super-challenge-button"
-      aria-label="超級 · ログインして挑戦"
-      title="超級 · ログインして挑戦"
-      @click="showOffer"
-    >
-      <UiIcon name="super" />
-    </button>
-    <button
-      v-else-if="!gameName"
+      v-if="!gameName"
       type="button"
       class="icon-button super-challenge-button"
       aria-label="超級 · プレイヤー名を設定して参加"
@@ -954,15 +935,12 @@ defineExpose({
       <template v-if="!sharedCode && !right">
         <p>初級・中級・上級より難しい、10×10・タコ10匹のパズルです。</p>
         <p>
-          ログインしてプレイヤー名を設定し、公開ルールに同意してから、通常問題を合計10回クリアすると、挑戦権を1回分もらえます。
+          プレイヤー名を設定して公開ルールに同意してから、通常問題を合計10回クリアすると、挑戦権を1回分もらえます。
         </p>
         <p>
           デイリー・超級・練習は加算しません。挑戦権は1回分だけ保留でき、保留中のクリアは次の分へ繰り越しません。
         </p>
-        <p v-if="!isSignedIn">
-          まずログインしてください。未ログイン中のクリアは加算されません。
-        </p>
-        <p v-else-if="!gameName">
+        <p v-if="!gameName">
           プレイヤー名の設定と公開ルールへの同意が必要です。
         </p>
         <p v-else-if="progress">
@@ -993,11 +971,8 @@ defineExpose({
         ></template>
       </p>
       <div class="dialog-actions">
-        <SignInButton v-if="!isSignedIn"
-          ><button type="button">ログイン</button></SignInButton
-        >
         <button
-          v-else-if="!gameName"
+          v-if="!gameName"
           type="button"
           @click="
             closeOffer();
