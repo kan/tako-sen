@@ -2225,10 +2225,12 @@ describe("history and results dialog", () => {
     ).toBeDefined();
   });
   it("rejects late history from the previous account and clearly reports retrieval errors", async () => {
-    const pending: ((data: { plays: unknown[] }) => void)[] = [];
-    const load = vi.fn(
+    type LoadOnline = NonNullable<Parameters<typeof setup>[0]>;
+    type History = Awaited<ReturnType<LoadOnline>>;
+    const pending: ((data: History) => void)[] = [];
+    const load: LoadOnline = vi.fn(
       (_mode: "normal" | "super" | "daily") =>
-        new Promise<{ plays: unknown[] }>((resolve) => pending.push(resolve)),
+        new Promise<History>((resolve) => pending.push(resolve)),
     );
     const s = setup(load);
     await vi.waitFor(() => expect(pending).toHaveLength(3));
