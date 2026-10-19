@@ -230,7 +230,7 @@ describe("the moved site", () => {
       ...env,
       MOVED_TO: "",
       MIGRATION_ENDS: "",
-    } as Env);
+    } as unknown as Env);
     expect(await before.json()).toBe(null);
     const after = await worker.fetch(request(), {
       ...env,
