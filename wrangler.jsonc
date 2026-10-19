@@ -85,7 +85,7 @@
         {
           "binding": "DB",
           "database_name": "tako-prod",
-          "database_id": "fe401d20-1851-4085-9340-b14058a2e438",
+          "database_id": "d4bd80b3-aa7b-4b71-bc55-45bc25d68db9",
           "migrations_dir": "migrations",
         },
       ],
