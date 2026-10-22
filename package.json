@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:all": "node scripts/dev.mjs",
     "dev:roji": "roji run tako-sen -- node scripts/dev.mjs",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node scripts/check-sw-licenses.ts",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:audit": "vitest run --mode audit tests/generator-audit.test.ts",

@@ -272,13 +272,14 @@ export function redeemMigrationToken(token: string): Promise<Redeem> {
 
 /**
  * A page of the kan-game.app portal: the account screen (recovery codes,
- * withdrawal) and the privacy policy live there, not in each game. The portal
+ * withdrawal), the terms and the privacy policy live there, not in each game;
+ * its icon is read from there too (src/ui/AboutPanel.vue). The portal
  * follows this page's host (tako-dev.kan-game.app → dev.kan-game.app), so a
  * build cannot point at another environment's portal. Any other public host
  * gets the production portal; only local hosts get the local one.
  */
 export function portalUrl(
-  path: "/account" | "/privacy" | "/terms",
+  path: "/" | "/account" | "/privacy" | "/terms" | "/favicon.svg",
   host = new URL(window.location.href).hostname,
 ): string {
   const local =

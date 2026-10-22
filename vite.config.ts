@@ -1,10 +1,19 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
+import {
+  licensesPlugin,
+  SERVER_PACKAGES,
+  SERVICE_WORKER_PACKAGES,
+} from "./scripts/licenses-plugin.ts";
 
 export default defineConfig({
   plugins: [
     vue(),
+    licensesPlugin({
+      serviceWorker: SERVICE_WORKER_PACKAGES,
+      server: SERVER_PACKAGES,
+    }),
     // An installable app with a service worker, as vegtab has
     // (vegtab frontend/vite.config.ts). The worker keeps the screens for
     // offline starts and shows the daily notice (public/push-sw.js).
@@ -36,7 +45,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // licenses.json, so the About dialog lists them offline too. Named
+        // alone, so no other JSON joins the precache by accident.
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}", "licenses.json"],
         // Not needed offline: the large icons are fetched by the system when
         // the app is added, and push-sw.js is part of the worker itself.
         globIgnores: [

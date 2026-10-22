@@ -160,6 +160,10 @@ function find(
     if (found) return found;
   }
 }
+/** All the text under a node, comments left out. */
+function textOf(n: HostNode): string {
+  return n.tag === "comment" ? "" : n.text + n.children.map(textOf).join("");
+}
 const roots: HostNode[] = [];
 function root(): HostNode {
   const result = node();
@@ -2112,8 +2116,6 @@ describe("history and results dialog", () => {
     );
     (s.tab("デイリー").props.onClick as () => void)();
     await nextTick();
-    const textOf = (n: HostNode): string =>
-      n.tag === "comment" ? "" : n.text + n.children.map(textOf).join("");
     expect(
       textOf(
         find(s.container, (n) => n.props.class === "history-summary")!,
@@ -3068,7 +3070,88 @@ describe("public leaderboard dialog", () => {
       "設定",
       "シード・共有",
       "遊び方",
+      "TAKO-SEN について",
     ]);
+  });
+
+  it("links the About dialog to the portal of its environment", async () => {
+    vi.stubGlobal("HTMLElement", class {});
+    vi.stubGlobal("Document", class {});
+    vi.stubGlobal("ShadowRoot", class {});
+    localStorage.setItem("tako-sen.tutorial.v2", "seen");
+    const container = root();
+    renderer.render(h(App), container);
+    await nextTick();
+    const open = find(
+      container,
+      (n) => n.tag === "button" && n.props["aria-label"] === "メニューを開く",
+    )!;
+    (open.props.onClick as () => void)();
+    await nextTick();
+    const fallback = request.getMockImplementation() as (
+      path: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    request.mockImplementation(async (path: string, init?: RequestInit) =>
+      path === "/licenses.json"
+        ? Response.json([
+            {
+              name: "vue-like",
+              version: "3.5.0",
+              license: "MIT",
+              url: "https://example.test/vue-like",
+              text: "MIT License text",
+              usedIn: ["app", "sw", "server"],
+            },
+          ])
+        : fallback(path, init),
+    );
+    const about = find(
+      container,
+      (n) => n.tag === "button" && n.text.trim() === "TAKO-SEN について",
+    )!;
+    await (about.props.onClick as () => Promise<void>)();
+    await nextTick();
+    const dialog = find(
+      container,
+      (n) => n.props["aria-labelledby"] === "about-title",
+    )!;
+    // example.test is a public host, so it gets the production portal.
+    const portal = "https://kan-game.app";
+    expect(find(dialog, (n) => n.tag === "img")!.props.src).toBe(
+      `${portal}/favicon.svg`,
+    );
+    const links: [string, unknown][] = [];
+    const collect = (n: HostNode): void => {
+      if (n.tag === "a") links.push([textOf(n).trim(), n.props.href]);
+      n.children.forEach(collect);
+    };
+    await vi.waitFor(() =>
+      expect(
+        find(dialog, (n) => n.props.class === "license-list"),
+      ).toBeTruthy(),
+    );
+    collect(dialog);
+    expect(links).toEqual([
+      ["kan-game.app", `${portal}/`],
+      ["利用規約", `${portal}/terms`],
+      ["プライバシーポリシー", `${portal}/privacy`],
+      ["vue-like", "https://example.test/vue-like"],
+    ]);
+    expect(
+      textOf(find(dialog, (n) => n.props.class === "license-meta")!).trim(),
+    ).toBe("MIT ・ 画面、オフライン対応、サーバーで使用");
+    expect(request).toHaveBeenCalledWith("/licenses.json");
+    // The text is rendered only while its details are open.
+    const details = find(dialog, (n) => n.tag === "details")!;
+    expect(find(details, (n) => n.tag === "pre")).toBeUndefined();
+    (details.props.onToggle as (event: Event) => void)({
+      target: { open: true },
+    } as unknown as Event);
+    await nextTick();
+    expect(textOf(find(details, (n) => n.tag === "pre")!)).toBe(
+      "MIT License text",
+    );
   });
 
   it("loads on opening and closes with Escape", async () => {

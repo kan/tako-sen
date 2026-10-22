@@ -22,6 +22,7 @@ import DailyChallenge from "./ui/DailyChallenge.vue";
 import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
 import DailyNoticeSetting from "./ui/DailyNoticeSetting.vue";
+import AboutPanel from "./ui/AboutPanel.vue";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import MigrationDialog from "./ui/MigrationDialog.vue";
@@ -179,7 +180,16 @@ const tutorialFirstVisit = ref(false);
 const menuOpen = ref(false);
 const historyDialogOpen = ref(false);
 const weeklyRankingOpen = ref(false);
-const toolsDialog = ref<"settings" | "share">();
+const toolsDialogTitles = {
+  settings: { id: "settings-title", title: "設定" },
+  share: { id: "seed-share-title", title: "シード・共有" },
+  about: { id: "about-title", title: "TAKO-SEN について" },
+} as const;
+type ToolsDialog = keyof typeof toolsDialogTitles;
+function isToolsDialog(name: string): name is ToolsDialog {
+  return Object.hasOwn(toolsDialogTitles, name);
+}
+const toolsDialog = ref<ToolsDialog>();
 const toolsDialogRef = ref<HTMLElement>();
 const historyAccountId = computed(() => accountId.value ?? undefined);
 let resumeAfterMenu = false;
@@ -302,8 +312,7 @@ const activeDialog = computed<
   | "super"
   | "history"
   | "weekly"
-  | "settings"
-  | "share"
+  | ToolsDialog
   | undefined
 >(() => {
   if (tutorialOpen.value) return "tutorial";
@@ -578,8 +587,7 @@ watch(activeDialog, async (dialog, previous) => {
       if (previous === "account" && accountMenuButton.value)
         accountMenuButton.value.focus();
       else menuDialogRef.value?.focus();
-    } else if (dialog === "settings" || dialog === "share")
-      toolsDialogRef.value?.focus();
+    } else if (isToolsDialog(dialog)) toolsDialogRef.value?.focus();
     else if (
       dialog !== "account" &&
       dialog !== "tutorial" &&
@@ -693,9 +701,9 @@ function focusReadyButton(): void {
 }
 
 async function navigateTo(
-  next: "play" | "history" | "weekly" | "settings" | "share",
+  next: "play" | "history" | "weekly" | ToolsDialog,
 ): Promise<void> {
-  if (next === "settings" || next === "share") {
+  if (isToolsDialog(next)) {
     cancelLongPress();
     pauseGame();
     resumeAfterMenu = false;
@@ -2167,6 +2175,9 @@ function formatElapsed(seconds: number): string {
             シード・共有
           </button>
           <button type="button" @click="openTutorial">遊び方</button>
+          <button type="button" @click="navigateTo('about')">
+            TAKO-SEN について
+          </button>
         </nav>
       </section>
     </div>
@@ -2343,7 +2354,7 @@ function formatElapsed(seconds: number): string {
     </div>
 
     <div
-      v-if="activeDialog === 'settings' || activeDialog === 'share'"
+      v-if="toolsDialog && activeDialog === toolsDialog"
       class="dialog-backdrop tools-backdrop"
       role="presentation"
       @click.self="toolsDialog = undefined"
@@ -2353,35 +2364,26 @@ function formatElapsed(seconds: number): string {
         class="dialog-card tools-dialog"
         role="dialog"
         aria-modal="true"
-        :aria-labelledby="
-          toolsDialog === 'settings' ? 'settings-title' : 'seed-share-title'
-        "
+        :aria-labelledby="toolsDialogTitles[toolsDialog].id"
         tabindex="-1"
         @keydown="onToolsKeydown"
       >
         <div class="dialog-header">
-          <h2
-            :id="
-              toolsDialog === 'settings' ? 'settings-title' : 'seed-share-title'
-            "
-          >
-            {{ toolsDialog === "settings" ? "設定" : "シード・共有" }}
+          <h2 :id="toolsDialogTitles[toolsDialog].id">
+            {{ toolsDialogTitles[toolsDialog].title }}
           </h2>
           <button
             type="button"
             class="dialog-close"
-            :aria-label="
-              toolsDialog === 'settings'
-                ? '設定を閉じる'
-                : 'シード・共有を閉じる'
-            "
+            :aria-label="`${toolsDialogTitles[toolsDialog].title}を閉じる`"
             @click="toolsDialog = undefined"
           >
             <span aria-hidden="true">×</span>
           </button>
         </div>
         <div class="tools-dialog-body">
-          <template v-if="toolsDialog === 'settings'">
+          <AboutPanel v-if="toolsDialog === 'about'" />
+          <template v-else-if="toolsDialog === 'settings'">
             <div class="auto-exclusions-settings">
               <label class="settings-toggle">
                 <input
