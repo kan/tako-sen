@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useId } from "./auth";
+import { reportUnlocks } from "./achievements";
 import UiIcon from "./UiIcon.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Puzzle, PlayerState } from "../core/model";
@@ -309,6 +310,8 @@ async function retry(force = false, staleAfter = 0): Promise<void> {
         const data = await readBody(
           await request(`/api/super/${item.kind}`, item.body),
         );
+        if (current(id, generation) && item.kind === "complete")
+          reportUnlocks(item.body.playId, data);
         if (current(id, generation) && data.progress)
           applyProgress(data.progress, id);
       },

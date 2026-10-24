@@ -42,6 +42,7 @@ import { SyncOutbox } from "../core/sync-outbox";
 import type { SyncedRanking } from "../core/leaderboard";
 import type { PlayResult } from "../core/results";
 import { askConfirm } from "./confirm-dialog";
+import { reportUnlocks } from "./achievements";
 
 const props = defineProps<{
   plays: readonly PlayResult[];
@@ -323,6 +324,7 @@ async function synchronize(): Promise<void> {
         const body = (await response.json().catch(() => null)) as {
           entries?: unknown;
         } | null;
+        if (current === epoch) reportUnlocks(play.id, body);
         // 形が想定と違う応答は使わない。画面は従来どおり取得し直す。
         const entries = body?.entries;
         ranking =

@@ -53,6 +53,8 @@ const emit = defineEmits<{
   /** Open the account dialog to set a player name. */
   account: [];
   autoExclusionsChange: [enabled: boolean];
+  /** The last stage was finished: the tutorial achievement is earned. */
+  completed: [];
 }>();
 const lesson = tutorialLesson;
 const puzzle = lesson.puzzle;
@@ -184,8 +186,10 @@ function place(index: number): void {
   if (next !== previous) clearHint();
   if (phase.value === "place" && next.pieces.has(lesson.firstPiece))
     phase.value = "shortcut";
-  else if (phase.value === "free" && isComplete(puzzle, next))
+  else if (phase.value === "free" && isComplete(puzzle, next)) {
     phase.value = "complete";
+    emit("completed");
+  }
 }
 
 function shortcut(index: number): void {

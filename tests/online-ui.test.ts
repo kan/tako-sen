@@ -6,6 +6,7 @@ import DailyChallenge from "../src/ui/DailyChallenge.vue";
 import SuperChallenge from "../src/ui/SuperChallenge.vue";
 import HistoryDialog from "../src/ui/HistoryDialog.vue";
 import WeeklyLeaderboard from "../src/ui/WeeklyLeaderboard.vue";
+import AchievementsPanel from "../src/ui/AchievementsPanel.vue";
 import { generateSuperPuzzle, encodeSuperSeed } from "../src/core/super-puzzle";
 import { puzzleId as identifyPuzzle } from "../src/core/puzzle-identity";
 import { loadSuperGame } from "../src/core/super-storage";
@@ -443,6 +444,45 @@ describe("board pointer input", () => {
     },
     10000,
   );
+
+  it("shows the achievements this clear unlocked in the result dialog", async () => {
+    auth.user!.value = "ui-account";
+    request.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/api/profile")
+        return Response.json({
+          profile: { displayName: "🐙タコ", consentVersion: 1 },
+        });
+      if (path === "/api/plays" && init?.method === "POST")
+        return Response.json({
+          status: "created",
+          entries: [],
+          newAchievements: ["clear_first", "no_mistake", "removed_one"],
+        });
+      return Response.json(
+        path === "/api/plays" ? { plays: [] } : { entries: [] },
+      );
+    });
+    const { container, saved, send } = await setup();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/api/profile", undefined),
+    );
+    for (let i = 0; i < 5; i += 1) await nextTick();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    for (const index of saved().puzzle.solution as number[]) {
+      send("onPointerdown", index);
+      now += LONG_PRESS_MS;
+      send("onPointerup", index);
+      await nextTick();
+    }
+    const line = () =>
+      find(container, (n) => n.props.class === "clear-achievements")!;
+    await vi.waitFor(() =>
+      expect(textOf(line())).toBe("実績解除：初クリア、ノーミス"),
+    );
+    // 定義にない id は捨て、アイコンを添える。
+    expect(line().children.filter((n) => n.tag === "img")).toHaveLength(2);
+  });
 
   it("keeps a cleared board unchanged after the result dialog is closed", async () => {
     const { container, saved, cell, send, tap } = await setup();
@@ -1702,6 +1742,7 @@ describe("interactive tutorial", () => {
     const container = root();
     const close = vi.fn();
     const autoChange = vi.fn();
+    const completed = vi.fn();
     const lesson = createTutorialLesson();
     renderer.render(
       h(InteractiveTutorial, {
@@ -1711,6 +1752,7 @@ describe("interactive tutorial", () => {
         autoExclusionsEnabled: true,
         onClose: close,
         onAutoExclusionsChange: autoChange,
+        onCompleted: completed,
       }),
       container,
     );
@@ -1801,6 +1843,8 @@ describe("interactive tutorial", () => {
       await nextTick();
     }
     expect(title()).toBe("チュートリアル完了！");
+    // 最後まで終えたことを知らせる（遊び方の実績）。
+    expect(completed).toHaveBeenCalledOnce();
     expect(localStorage.getItem("tako-sen.results.v2")).toBeNull();
     await click("通常プレイへ");
     expect(close).toHaveBeenCalledOnce();
@@ -3067,6 +3111,7 @@ describe("public leaderboard dialog", () => {
     expect(menu.children.map((child) => child.text.trim())).toEqual([
       "履歴・成績",
       "週間ランキング",
+      "実績",
       "設定",
       "シード・共有",
       "遊び方",
@@ -3600,5 +3645,108 @@ describe("transfer by QR code", () => {
     expect(
       find(container, (n) => n.tag === "strong" && textOf(n) === "ABCD2345"),
     ).toBeDefined();
+  });
+});
+
+describe("achievements panel", () => {
+  const listed = {
+    achievements: [
+      { id: "clear_first", unlockedAt: 2000, progress: 1 },
+      { id: "no_mistake", unlockedAt: 900, progress: 1 },
+      { id: "clear_10", unlockedAt: null, progress: 3 },
+      { id: "clear_500", unlockedAt: null, progress: null },
+    ],
+  };
+  async function openPanel() {
+    const container = root();
+    teleportBody = root();
+    renderer.render(h(AchievementsPanel), container);
+    await nextTick();
+    return container;
+  }
+  const tile = (container: HostNode, label: string) =>
+    find(
+      container,
+      (n) =>
+        n.tag === "button" && String(n.props["aria-label"]).startsWith(label),
+    );
+
+  it("shows only a notice without an ID or a connection", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const offline = await openPanel();
+    expect(textOf(offline)).toContain("実績はオンラインで表示します。");
+    vi.stubGlobal("navigator", { onLine: true });
+    auth.user!.value = null;
+    const withoutId = await openPanel();
+    expect(textOf(withoutId)).toContain("実績はオンラインで表示します。");
+    expect(
+      request.mock.calls.some(([path]) => path === "/api/achievements"),
+    ).toBe(false);
+  });
+
+  it("draws locked tiles as silhouettes and marks unlocks not seen yet", async () => {
+    localStorage.setItem("tako-sen.achievements-seen.v1:ui-account", "1000");
+    request.mockImplementation(async () => Response.json(listed));
+    const container = await openPanel();
+    await vi.waitFor(() => expect(textOf(container)).toContain("解除 2 / 20"));
+    const first = tile(container, "初クリア")!;
+    expect(first.props["aria-label"]).toBe("初クリア、解除済み、新しく解除");
+    expect(first.props.class).toBe("achievement-tile is-new");
+    // 前に見たときより前に解除したものには付けない。
+    expect(tile(container, "ノーミス")!.props.class).toBe("achievement-tile");
+    expect(tile(container, "10回クリア")!.props.class).toBe(
+      "achievement-tile is-locked",
+    );
+    // 秘密の実績は、名前もアイコンも伏せる。
+    const secret = tile(container, "秘密の実績")!;
+    expect(secret.props["aria-label"]).toBe("秘密の実績、未解除");
+    expect(String(find(secret, (n) => n.tag === "img")!.props.src)).toContain(
+      "secret",
+    );
+    expect(textOf(container)).not.toContain("500回");
+    expect(
+      localStorage.getItem("tako-sen.achievements-seen.v1:ui-account"),
+    ).toBe("2000");
+  });
+
+  it("opens the details over the list and closes them with Escape", async () => {
+    request.mockImplementation(async () => Response.json(listed));
+    const container = await openPanel();
+    await vi.waitFor(() => expect(tile(container, "10回クリア")).toBeDefined());
+    const target = Object.assign(tile(container, "10回クリア")!, {
+      isConnected: true,
+    });
+    await (target.props.onClick as (e: unknown) => Promise<void>)({
+      currentTarget: target,
+    });
+    await nextTick();
+    const dialog = find(teleportBody!, (n) => n.props.role === "dialog")!;
+    expect(textOf(dialog)).toContain("10回クリア");
+    expect(textOf(dialog)).toContain("通常の問題を10回クリアする");
+    expect(textOf(dialog)).toContain("未解除（3 / 10）");
+    expect(dialog.focus).toHaveBeenCalled();
+    const stopPropagation = vi.fn();
+    (dialog.props.onKeydown as (e: unknown) => void)({
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopPropagation,
+    });
+    await nextTick();
+    // 一覧のダイアログまで Escape を届かせず、詳細だけを閉じる。
+    expect(stopPropagation).toHaveBeenCalled();
+    expect(
+      find(teleportBody!, (n) => n.props.role === "dialog"),
+    ).toBeUndefined();
+    expect(target.focus).toHaveBeenCalled();
+  });
+
+  it("explains a failure instead of showing an empty list", async () => {
+    request.mockImplementation(async () =>
+      Response.json({ error: "service_unavailable" }, { status: 503 }),
+    );
+    const container = await openPanel();
+    await vi.waitFor(() =>
+      expect(textOf(container)).toContain("実績を取得できません。"),
+    );
   });
 });

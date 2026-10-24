@@ -17,6 +17,7 @@ import type {
 import GameName from "./GameName.vue";
 import UiIcon from "./UiIcon.vue";
 import { dailyStartFailureText } from "./daily-start";
+import { reportUnlocks } from "./achievements";
 import { PLAY_CONTINUES, START_FAILURE, accountChanged } from "./notice-text";
 
 const props = defineProps<{
@@ -289,6 +290,11 @@ async function sendCompletion(
     } catch {
       /* 保存不可 */
     }
+    // 完了は登録済みなので、本文（解除した実績）の読み取りは待たず、読めなくても成功とする。
+    void response
+      .json()
+      .then((body) => reportUnlocks(completion.playId, body))
+      .catch(() => {});
     emit("synced");
     if (panelOpen.value) await refresh();
   } catch {

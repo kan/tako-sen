@@ -23,6 +23,11 @@ import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
 import DailyNoticeSetting from "./ui/DailyNoticeSetting.vue";
 import AboutPanel from "./ui/AboutPanel.vue";
+import {
+  completeTutorial,
+  startTutorialAchievementSync,
+  unlockSummaries,
+} from "./ui/achievements";
 import WeeklyLeaderboard from "./ui/WeeklyLeaderboard.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import MigrationDialog from "./ui/MigrationDialog.vue";
@@ -156,9 +161,15 @@ import { assignRegionColorIndexes, cellBaseStyle } from "./ui/region-visuals";
 const InteractiveTutorial = defineAsyncComponent(
   () => import("./ui/InteractiveTutorial.vue"),
 );
+const AchievementsPanel = defineAsyncComponent(
+  () => import("./ui/AchievementsPanel.vue"),
+);
 
 const dragStartThresholdPx = 12;
 const { id: accountId } = useId();
+startTutorialAchievementSync();
+/** このクリアで解除した実績（クリアダイアログに出す） */
+const clearUnlocks = computed(() => unlockSummaries(playId.value));
 const privacyUrl = portalUrl("/privacy");
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");
@@ -183,6 +194,7 @@ const weeklyRankingOpen = ref(false);
 const toolsDialogTitles = {
   settings: { id: "settings-title", title: "設定" },
   share: { id: "seed-share-title", title: "シード・共有" },
+  achievements: { id: "achievements-title", title: "実績" },
   about: { id: "about-title", title: "TAKO-SEN について" },
 } as const;
 type ToolsDialog = keyof typeof toolsDialogTitles;
@@ -2170,6 +2182,9 @@ function formatElapsed(seconds: number): string {
           <button type="button" @click="navigateTo('weekly')">
             週間ランキング
           </button>
+          <button type="button" @click="navigateTo('achievements')">
+            実績
+          </button>
           <button type="button" @click="navigateTo('settings')">設定</button>
           <button type="button" @click="navigateTo('share')">
             シード・共有
@@ -2383,6 +2398,7 @@ function formatElapsed(seconds: number): string {
         </div>
         <div class="tools-dialog-body">
           <AboutPanel v-if="toolsDialog === 'about'" />
+          <AchievementsPanel v-else-if="toolsDialog === 'achievements'" />
           <template v-else-if="toolsDialog === 'settings'">
             <div class="auto-exclusions-settings">
               <label class="settings-toggle">
@@ -2717,6 +2733,23 @@ function formatElapsed(seconds: number): string {
             <dd :title="hintStageLabel(state)">{{ state.hintsUsed }}</dd>
           </div>
         </dl>
+        <!-- The unlocks arrive with the upload, after the dialog opened. -->
+        <p class="clear-achievements" role="status">
+          <template v-if="clearUnlocks.length">
+            <img
+              v-for="unlock in clearUnlocks"
+              :key="unlock.id"
+              :src="unlock.icon"
+              alt=""
+              draggable="false"
+            />
+            <span
+              >実績解除：{{
+                clearUnlocks.map((unlock) => unlock.name).join("、")
+              }}</span
+            >
+          </template>
+        </p>
         <!-- The preview below is a button, so its own text is not announced
           when it changes; this region announces it instead. -->
         <p class="sr-only" role="status">{{ clearRankingMessage }}</p>
@@ -2835,6 +2868,7 @@ function formatElapsed(seconds: number): string {
         accountDialogOpen = true;
       "
       @auto-exclusions-change="autoExclusionsEnabled = $event"
+      @completed="completeTutorial"
     />
     <div
       v-if="waitingToStart && !activeDialog"
