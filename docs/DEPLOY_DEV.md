@@ -114,6 +114,16 @@ Clerk の webhook は非同期で、配信失敗や遅延があり得る。失�
 
 利用者は追加調整を「ほぼ OK」と確認し、最初のページの図を複数のタコにするよう依頼した。ルールページのみ異なる行・列・エリアに隣接しない2匹を置き、両方から導かれる×を表示するよう変更した。定石ページの単体タコの操作前後は変更しない。全99テスト・型チェック・ビルド・整形確認と deploy dry-run が成功し、承認を得て再デプロイした。バージョン ID は `c1906c5e-cd93-4f78-9d6a-85662743fcbb`。最新 HTML・JS・CSS の `200` とローカルビルドとの一致、未認証プロフィールの `401` を確認した。DB 変更なし。利用者が2匹の図を含む最終調整を確認し、コミットを承認した。支援技術・キーボード操作などの個別確認は継続する。
 
+## 2026-10-25: 実績（A5、開発環境）
+
+利用者の指示により、コミット `67ea221`、`4c2b734`、`e36fe94` を <https://tako-dev.kan-game.app> へ出した（`docs/NEXT_PHASE.md`「実績の導入計画」の A5）。
+
+- 先に `npx wrangler d1 migrations apply tako-dev --env dev --remote` で `0016_achievements.sql` を当て、そのあと `npx wrangler deploy --env dev` でデプロイした。Worker のバージョン ID は `2531b597-a041-4339-b777-13d5dba5d16f`。ほかに未適用のマイグレーションはなかった。
+- 最初の `migrations list --remote` は Cloudflare の認可エラー（`code: 7403`）で失敗したが、ログインのアカウントと権限は正しく、再実行で通った。一時的なものと判断した。
+- デプロイ前に、全 564 テスト、型チェック、ビルド、整形確認、deploy dry-run が成功した。Generator は変えていないので、全件監査は回していない。
+- 公開先のメイン JS と CSS はローカルビルドと一致した。実績のアイコンは `200`、Cookie のない `GET /api/achievements` は `401`、Origin のない `POST /api/achievements/unlock` は `403`、週間ランキングは `200`。
+- ブラウザで、新しい ID のメニューから「実績」を開き、20 枚のタイルとアイコンがサーバーから読めることを確かめた。既存の記録から遡って解除されること、クリアで解除されることは、利用者が実機で確かめた。続けて本番へ出した（`docs/NEXT_PHASE.md`「実績の導入計画」の進行状況）。
+
 ## 2026-10-18: 依存パッケージのメジャー更新（#8）
 
 利用者の指示により、コミット `e1a15bc`、`3223d33`、`d8ae1c5` を <https://tako-sen.kan-fushihara.workers.dev> へデプロイした。Worker のバージョン ID は `57c11e00-95fe-4586-9e2b-4c2aefe696ab`。DB の変更はなく、未適用のマイグレーションもない。vite 8、vitest 5、vue-tsc 3、TypeScript 6.0 に上げ、マイナーとパッチの更新も取り込んだ。vite 8 はビルドの既定の対象を Safari 16.4 に上げたが、`vite.config.ts` で vite 6 の既定の対象（Safari 14 など）を指定し、対応ブラウザは変えていない。CSS の圧縮が Lightning CSS に変わったので、古い iPhone 向けの書き方（`rgb(var(--…) / …)` と `@supports selector(:has(*))`）がビルド後も残ることを、更新前のビルドと比べて確かめた。GitHub Actions の `test:full`（全 424 テストと盤面生成の大量監査）、型チェック、ビルド、deploy dry-run が成功し、公開先のメイン JS と CSS はローカルビルドと一致した。未認証の `/api/daily/history` は `401`、週間ランキングは `200`。
