@@ -5,10 +5,10 @@ import { ACHIEVEMENTS, achievementDefinition } from "../src/core/achievements";
 import {
   achievementIcon,
   completeTutorial,
-  lastSeenUnlock,
-  markUnlocksSeen,
+  markAchievementSeen,
   parseAchievementList,
   reportUnlocks,
+  seenAchievements,
   startTutorialAchievementSync,
   unlockSummaries,
 } from "../src/ui/achievements";
@@ -112,16 +112,57 @@ describe("seen unlocks", () => {
     progress: null,
   });
 
-  it("remembers the newest server time, never moving back", () => {
-    expect(lastSeenUnlock("me")).toBe(0);
-    markUnlocksSeen("me", [
-      status("clear_first", 2000),
-      status("clear_10", null),
-    ]);
-    expect(lastSeenUnlock("me")).toBe(2000);
-    markUnlocksSeen("me", [status("clear_first", 1000)]);
-    expect(lastSeenUnlock("me")).toBe(2000);
-    expect(lastSeenUnlock("someone-else")).toBe(0);
+  const list = [
+    status("clear_first", 900),
+    status("no_mistake", 2000),
+    status("clear_10", null),
+  ];
+
+  it("remembers each tapped achievement per ID", () => {
+    expect(seenAchievements("me", list)).toEqual(new Set());
+    const seen = markAchievementSeen("me", new Set(), "no_mistake");
+    expect(markAchievementSeen("me", seen, "clear_first")).toEqual(
+      new Set(["no_mistake", "clear_first"]),
+    );
+    expect(seenAchievements("me", list)).toEqual(
+      new Set(["no_mistake", "clear_first"]),
+    );
+    expect(seenAchievements("someone-else", list)).toEqual(new Set());
+  });
+
+  it("takes over v1: what was unlocked by the time the list was seen", () => {
+    data.set("tako-sen.achievements-seen.v1:me", "1000");
+    expect(seenAchievements("me", list)).toEqual(new Set(["clear_first"]));
+    // 読んだ時点で v2 を書き、v1 は消す。
+    expect(data.get("tako-sen.achievements-seen.v2:me")).toBe(
+      JSON.stringify(["clear_first"]),
+    );
+    expect(data.has("tako-sen.achievements-seen.v1:me")).toBe(false);
+    // 読めない v1 は、何も押していないものとして引き継ぐ。
+    data.set("tako-sen.achievements-seen.v1:other", "later");
+    expect(seenAchievements("other", list)).toEqual(new Set());
+    expect(data.has("tako-sen.achievements-seen.v1:other")).toBe(false);
+  });
+
+  it("keeps what another tab marked", () => {
+    const thisTab = seenAchievements("me", list);
+    // 別のタブが先に no_mistake を押した。
+    markAchievementSeen("me", seenAchievements("me", list), "no_mistake");
+    expect(markAchievementSeen("me", thisTab, "clear_first")).toEqual(
+      new Set(["clear_first", "no_mistake"]),
+    );
+    expect(seenAchievements("me", list)).toEqual(
+      new Set(["clear_first", "no_mistake"]),
+    );
+  });
+
+  it("treats an unreadable record as nothing seen", () => {
+    data.set("tako-sen.achievements-seen.v2:me", "{broken");
+    expect(seenAchievements("me", list)).toEqual(new Set());
+    data.set("tako-sen.achievements-seen.v2:me", JSON.stringify({ id: 1 }));
+    expect(seenAchievements("me", list)).toEqual(new Set());
+    data.set("tako-sen.achievements-seen.v2:me", JSON.stringify(["a", 3]));
+    expect(seenAchievements("me", list)).toEqual(new Set(["a"]));
   });
 });
 

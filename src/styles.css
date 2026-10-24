@@ -1889,14 +1889,23 @@ button:not(.cell):not(:disabled):active,
   font-size: var(--text-small);
 }
 
+/* A button that opens the achievements list, drawn like a solved tile. */
 .clear-achievements {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: 4px 6px;
-  margin: 0 0 12px;
+  max-width: 100%;
+  min-height: 44px;
+  margin: 0 auto 12px;
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  padding: 4px 12px;
+  background: var(--color-highlight);
+  color: var(--color-ink);
   font-weight: 700;
+  cursor: pointer;
 }
 
 .clear-achievements img {

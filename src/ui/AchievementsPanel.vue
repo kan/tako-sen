@@ -7,9 +7,9 @@ import {
 import { apiFetch, useId } from "./auth";
 import {
   achievementIcon,
-  lastSeenUnlock,
-  markUnlocksSeen,
+  markAchievementSeen,
   parseAchievementList,
+  seenAchievements,
   type AchievementStatus,
 } from "./achievements";
 import { trapDialogFocus } from "./dialog";
@@ -24,8 +24,10 @@ const { id } = useId();
 const online = ref(navigator.onLine !== false);
 const list = ref<AchievementStatus[]>();
 const failed = ref(false);
-/** 開いた時点で「NEW」とする基準（開いたら既読にするので、開く前の値を使う） */
-const seenBefore = ref(0);
+/** NEW を消した実績。解除済みでここにないタイルに NEW を付け、押したら消す */
+const seen = ref<ReadonlySet<string>>(new Set());
+/** 一覧を読んだ ID（NEW を消した記録の持ち主） */
+let listAccount: string | null = null;
 let generation = 0;
 
 interface Tile {
@@ -51,7 +53,7 @@ const tiles = computed<Tile[]>(() =>
   (list.value ?? []).map(({ definition, unlockedAt, progress }) => {
     const unlocked = unlockedAt !== null;
     const hidden = isAchievementHidden(definition, unlocked);
-    const isNew = (unlockedAt ?? 0) > seenBefore.value;
+    const isNew = unlocked && !seen.value.has(definition.id);
     const name = hidden ? "秘密の実績" : definition.name;
     return {
       definition,
@@ -94,9 +96,9 @@ async function load(): Promise<void> {
     if (!parsed) throw new Error("Unexpected achievements.");
     // ID か接続が変われば load() が呼び直され、generation が進む。
     if (current !== generation) return;
-    seenBefore.value = lastSeenUnlock(account);
+    listAccount = account;
+    seen.value = seenAchievements(account, parsed);
     list.value = parsed;
-    markUnlocksSeen(account, parsed);
   } catch {
     if (current === generation) failed.value = true;
   } finally {
@@ -130,7 +132,14 @@ let opener: HTMLElement | null = null;
 
 async function openDetail(tile: Tile, event: MouseEvent): Promise<void> {
   opener = event.currentTarget as HTMLElement;
+  // 詳細は押した時点の内容で出し（「新しく解除」のまま）、タイルの NEW は消す。
   selected.value = tile;
+  if (tile.isNew && listAccount)
+    seen.value = markAchievementSeen(
+      listAccount,
+      seen.value,
+      tile.definition.id,
+    );
   await nextTick();
   detail.value?.focus();
 }

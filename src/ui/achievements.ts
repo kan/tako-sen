@@ -95,35 +95,82 @@ export function unlockSummaries(
   }));
 }
 
-/** 「NEW」の基準: この端末で一覧を最後に見たとき、解除日時がいちばん新しかったもの */
-function seenKey(accountId: string): string {
-  return `tako-sen.achievements-seen.v1:${accountId}`;
+/**
+ * 「NEW」を消した実績（この端末で、解除済みのタイルを押したもの）。ID ごとに
+ * id の配列を残す。v1 は「一覧を最後に見たときの、いちばん新しい解除日時」で、
+ * 一覧を開いただけで NEW が消えていた。v2 がなければ、v1 の日時までに解除した
+ * 実績を押したものとして引き継ぐ。読めない値は空として扱う（NEW が残るだけ）。
+ */
+const seenKeyV1 = (accountId: string) =>
+  `tako-sen.achievements-seen.v1:${accountId}`;
+const seenKey = (accountId: string) =>
+  `tako-sen.achievements-seen.v2:${accountId}`;
+
+/** 保存済みの v2。ないときは null、読めない値は空 */
+function storedSeen(accountId: string): Set<string> | null {
+  const stored = localStorage.getItem(seenKey(accountId));
+  if (stored === null) return null;
+  try {
+    const ids: unknown = JSON.parse(stored);
+    return new Set(
+      Array.isArray(ids)
+        ? ids.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
 }
 
-export function lastSeenUnlock(accountId: string): number {
+function saveSeen(accountId: string, seen: ReadonlySet<string>): void {
+  localStorage.setItem(seenKey(accountId), JSON.stringify([...seen]));
+}
+
+export function seenAchievements(
+  accountId: string,
+  list: readonly AchievementStatus[],
+): Set<string> {
   try {
-    const value = Number(localStorage.getItem(seenKey(accountId)));
-    return Number.isSafeInteger(value) ? value : 0;
+    const stored = storedSeen(accountId);
+    if (stored) return stored;
+    const v1 = localStorage.getItem(seenKeyV1(accountId));
+    if (v1 === null) return new Set();
+    // v1 を引き継いで v2 を書き、v1 は消す（以後は v2 だけを読む）。
+    const before = Number(v1);
+    const seen = new Set(
+      Number.isSafeInteger(before) && before > 0
+        ? list
+            .filter(
+              (item) => item.unlockedAt !== null && item.unlockedAt <= before,
+            )
+            .map((item) => item.definition.id)
+        : [],
+    );
+    saveSeen(accountId, seen);
+    localStorage.removeItem(seenKeyV1(accountId));
+    return seen;
   } catch {
-    return 0;
+    return new Set();
   }
 }
 
 /**
- * 一覧を見たことを残す。端末の時計ではなく、サーバーが付けた解除日時の最大値を
- * 使うので、時計のずれで「NEW」が消えたり残ったりしない。
+ * タイルを押して NEW を消したことを残す。seen は画面が持っている集合。保存の直前に
+ * 読み直して合わせるので、別のタブで押した記録を上書きで消さない。
  */
-export function markUnlocksSeen(
+export function markAchievementSeen(
   accountId: string,
-  list: readonly AchievementStatus[],
-): void {
-  const newest = Math.max(0, ...list.map((item) => item.unlockedAt ?? 0));
-  if (newest <= lastSeenUnlock(accountId)) return;
+  seen: ReadonlySet<string>,
+  id: string,
+): Set<string> {
+  const next = new Set(seen).add(id);
   try {
-    localStorage.setItem(seenKey(accountId), String(newest));
+    for (const stored of storedSeen(accountId) ?? []) next.add(stored);
+    saveSeen(accountId, next);
   } catch {
-    // 保存できなければ、次に開いたときも「NEW」が残るだけ。
+    // 保存できなければ、次に開いたときも NEW が残るだけ。
   }
+  return next;
 }
 
 /**

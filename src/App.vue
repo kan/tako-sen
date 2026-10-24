@@ -170,6 +170,11 @@ const { id: accountId } = useId();
 startTutorialAchievementSync();
 /** このクリアで解除した実績（クリアダイアログに出す） */
 const clearUnlocks = computed(() => unlockSummaries(playId.value));
+const clearUnlockText = computed(() =>
+  clearUnlocks.value.length
+    ? `実績解除：${clearUnlocks.value.map((unlock) => unlock.name).join("、")}`
+    : "",
+);
 const privacyUrl = portalUrl("/privacy");
 const nextPuzzleLoading = ref(false);
 const nextPuzzleMessage = ref("");
@@ -1907,6 +1912,31 @@ function onClearBackdropClick(event: MouseEvent): void {
   if (pressed && event.target === event.currentTarget) closeClearDialog();
 }
 
+// クリアダイアログの「実績解除」から実績の一覧を開き、閉じたらクリアダイアログへ戻る
+// （ランキングを開いたときと同じ）。一覧はどの閉じ方でも toolsDialog が空になる。
+const returnToClearAfterAchievements = ref(false);
+function showAchievementsFromClear(): void {
+  returnToClearAfterAchievements.value = true;
+  closeClearDialog();
+  toolsDialog.value = "achievements";
+}
+// 閉じたその場で戻す（sync）。描画の前に戻さないと、開いているダイアログが一瞬
+// なくなり、フォーカスの戻り先がメニューボタンに置き換わる。
+watch(
+  toolsDialog,
+  (next, previous) => {
+    if (previous !== "achievements") return;
+    if (
+      next === undefined &&
+      returnToClearAfterAchievements.value &&
+      complete.value
+    )
+      showClearDialog.value = true;
+    returnToClearAfterAchievements.value = false;
+  },
+  { flush: "sync" },
+);
+
 function showDailyRankingFromClear(): void {
   if (!activeDailyDate.value) return;
   returnToClearAfterRanking.value = true;
@@ -2733,23 +2763,25 @@ function formatElapsed(seconds: number): string {
             <dd :title="hintStageLabel(state)">{{ state.hintsUsed }}</dd>
           </div>
         </dl>
-        <!-- The unlocks arrive with the upload, after the dialog opened. -->
-        <p class="clear-achievements" role="status">
-          <template v-if="clearUnlocks.length">
-            <img
-              v-for="unlock in clearUnlocks"
-              :key="unlock.id"
-              :src="unlock.icon"
-              alt=""
-              draggable="false"
-            />
-            <span
-              >実績解除：{{
-                clearUnlocks.map((unlock) => unlock.name).join("、")
-              }}</span
-            >
-          </template>
-        </p>
+        <!-- The unlocks arrive with the upload, after the dialog opened; the
+          button's own text is not announced when it appears, so this is. -->
+        <p class="sr-only" role="status">{{ clearUnlockText }}</p>
+        <button
+          v-if="clearUnlocks.length"
+          type="button"
+          class="clear-achievements"
+          :aria-label="`${clearUnlockText}。実績を表示`"
+          @click="showAchievementsFromClear"
+        >
+          <img
+            v-for="unlock in clearUnlocks"
+            :key="unlock.id"
+            :src="unlock.icon"
+            alt=""
+            draggable="false"
+          />
+          <span>{{ clearUnlockText }}</span>
+        </button>
         <!-- The preview below is a button, so its own text is not announced
           when it changes; this region announces it instead. -->
         <p class="sr-only" role="status">{{ clearRankingMessage }}</p>

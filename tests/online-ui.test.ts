@@ -482,6 +482,25 @@ describe("board pointer input", () => {
     );
     // 定義にない id は捨て、アイコンを添える。
     expect(line().children.filter((n) => n.tag === "img")).toHaveLength(2);
+    // 押すと実績の一覧を開き、閉じるとクリアダイアログへ戻る。
+    const clearDialog = () =>
+      find(container, (n) => n.props["aria-labelledby"] === "clear-title");
+    (line().props.onClick as () => void)();
+    await nextTick();
+    expect(clearDialog()).toBeUndefined();
+    expect(
+      find(
+        container,
+        (n) => n.props["aria-labelledby"] === "achievements-title",
+      ),
+    ).toBeDefined();
+    const close = find(
+      container,
+      (n) => n.tag === "button" && n.props["aria-label"] === "実績を閉じる",
+    )!;
+    (close.props.onClick as () => void)();
+    await nextTick();
+    expect(clearDialog()).toBeDefined();
   });
 
   it("keeps a cleared board unchanged after the result dialog is closed", async () => {
@@ -3684,15 +3703,18 @@ describe("achievements panel", () => {
     ).toBe(false);
   });
 
-  it("draws locked tiles as silhouettes and marks unlocks not seen yet", async () => {
-    localStorage.setItem("tako-sen.achievements-seen.v1:ui-account", "1000");
+  it("draws locked tiles as silhouettes and marks unlocks not tapped yet", async () => {
+    localStorage.setItem(
+      "tako-sen.achievements-seen.v2:ui-account",
+      JSON.stringify(["no_mistake"]),
+    );
     request.mockImplementation(async () => Response.json(listed));
     const container = await openPanel();
     await vi.waitFor(() => expect(textOf(container)).toContain("解除 2 / 20"));
     const first = tile(container, "初クリア")!;
     expect(first.props["aria-label"]).toBe("初クリア、解除済み、新しく解除");
     expect(first.props.class).toBe("achievement-tile is-new");
-    // 前に見たときより前に解除したものには付けない。
+    // 前に押したものには付けない。
     expect(tile(container, "ノーミス")!.props.class).toBe("achievement-tile");
     expect(tile(container, "10回クリア")!.props.class).toBe(
       "achievement-tile is-locked",
@@ -3704,9 +3726,35 @@ describe("achievements panel", () => {
       "secret",
     );
     expect(textOf(container)).not.toContain("500回");
+    // 開いただけでは NEW を消さない。
     expect(
-      localStorage.getItem("tako-sen.achievements-seen.v1:ui-account"),
-    ).toBe("2000");
+      localStorage.getItem("tako-sen.achievements-seen.v2:ui-account"),
+    ).toBe(JSON.stringify(["no_mistake"]));
+  });
+
+  it("clears NEW from a tile when it is tapped", async () => {
+    request.mockImplementation(async () => Response.json(listed));
+    const container = await openPanel();
+    await vi.waitFor(() => expect(tile(container, "初クリア")).toBeDefined());
+    const first = tile(container, "初クリア")!;
+    expect(first.props.class).toBe("achievement-tile is-new");
+    await (first.props.onClick as (e: unknown) => Promise<void>)({
+      currentTarget: first,
+    });
+    await nextTick();
+    expect(tile(container, "初クリア")!.props.class).toBe("achievement-tile");
+    expect(tile(container, "初クリア")!.props["aria-label"]).toBe(
+      "初クリア、解除済み",
+    );
+    // 押していないものには残る。
+    expect(tile(container, "ノーミス")!.props.class).toBe(
+      "achievement-tile is-new",
+    );
+    expect(
+      JSON.parse(
+        localStorage.getItem("tako-sen.achievements-seen.v2:ui-account")!,
+      ),
+    ).toEqual(["clear_first"]);
   });
 
   it("opens the details over the list and closes them with Escape", async () => {
