@@ -8,7 +8,9 @@ import { GENERATOR_VERSIONS } from "../core/generator";
 
 // Every ordinary generator version counts; daily and super boards do not.
 // The names are constants of this codebase, so they are inlined.
-const ORDINARY_VERSIONS = GENERATOR_VERSIONS.map((v) => `'${v}'`).join(", ");
+export const ORDINARY_VERSIONS = GENERATOR_VERSIONS.map((v) => `'${v}'`).join(
+  ", ",
+);
 
 // Search only this week's eligible ordinary clears via the covering index.
 // Replays count once per account/puzzle/week, using the earliest completed

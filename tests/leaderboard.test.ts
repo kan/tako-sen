@@ -488,6 +488,7 @@ describe("consented automatic first-clear ranking", () => {
       mistakes: 0,
     });
     // 登録の応答に、その問題のランキングを自分の記録込みで返す。再送でも同じ。
+    // 新しく解除した実績は登録したときだけ返し、再送では空にする。
     const ownEntry = [
       expect.objectContaining({ rank: 1, displayName: "HTTPタコ" }),
     ];
@@ -496,12 +497,14 @@ describe("consented automatic first-clear ranking", () => {
     expect(await created.json()).toEqual({
       status: "created",
       entries: ownEntry,
+      newAchievements: ["clear_first", "no_mistake", "perfect_solve"],
     });
     const resent = await call("plays", "POST", upload);
     expect(resent.status).toBe(200);
     expect(await resent.json()).toEqual({
       status: "duplicate",
       entries: ownEntry,
+      newAchievements: [],
     });
     expect(
       (await call("plays", "POST", { ...upload, mistakes: 1 })).status,
@@ -520,6 +523,7 @@ describe("consented automatic first-clear ranking", () => {
     expect(await withoutConsent.json()).toEqual({
       status: "duplicate",
       entries: [],
+      newAchievements: [],
     });
     await consent(1);
     expect(

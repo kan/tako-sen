@@ -22,6 +22,7 @@ const ACCOUNT_TABLES = [
   "leaderboard_profiles",
   "publication_limits",
   "push_subscriptions",
+  "achievements",
 ];
 
 /**

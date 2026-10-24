@@ -13,6 +13,12 @@ import { listWeeklyRanking } from "./weekly-ranking";
 import { listRankedPuzzleCandidates } from "./next-puzzle";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 import {
+  listAchievements,
+  recordWithAchievements,
+  unlockClientAchievement,
+} from "./achievements";
+import { isClientUnlockable } from "../core/achievements";
+import {
   completeDailyAttempt,
   getDailyStatus,
   listDailyHistory,
@@ -173,6 +179,8 @@ export default {
         return json({ error: "service_unavailable" }, 503);
       }
     }
+    const isAchievementList = pathname === "/api/achievements";
+    const isAchievementUnlock = pathname === "/api/achievements/unlock";
     if (
       pathname !== "/api/plays" &&
       pathname !== "/api/puzzles" &&
@@ -184,6 +192,8 @@ export default {
       pathname !== "/api/daily/ranking" &&
       pathname !== "/api/daily/history" &&
       pathname !== "/api/push/subscription" &&
+      !isAchievementList &&
+      !isAchievementUnlock &&
       !isSuper
     ) {
       if (pathname.startsWith("/api/"))
@@ -202,9 +212,9 @@ export default {
       ? superReads.includes(pathname)
         ? ["GET"]
         : ["POST"]
-      : isPuzzleCreation || isDailyWrite
+      : isPuzzleCreation || isDailyWrite || isAchievementUnlock
         ? ["POST"]
-        : isDailyRead || isNextPuzzle
+        : isDailyRead || isNextPuzzle || isAchievementList
           ? ["GET"]
           : pathname === "/api/push/subscription"
             ? ["POST", "DELETE"]
@@ -289,15 +299,19 @@ export default {
               Date.now(),
             ),
           });
-        if (pathname === "/api/super/complete")
-          return json({
-            status: await completeSuperAttempt(
-              env.DB,
-              accountId,
-              parseSuperCompletion(body),
-              Date.now(),
-            ),
-          });
+        if (pathname === "/api/super/complete") {
+          const completion = parseSuperCompletion(body);
+          const now = Date.now();
+          const { result, newAchievements } = await recordWithAchievements(
+            env.DB,
+            accountId,
+            now,
+            completion.playId,
+            () => completeSuperAttempt(env.DB, accountId, completion, now),
+            (status) => status === "completed",
+          );
+          return json({ status: result, newAchievements });
+        }
         const value = body as Record<string, unknown> | null;
         if (pathname === "/api/super/defer") {
           if (
@@ -437,6 +451,39 @@ export default {
         return json(await getDailyStatus(env.DB, accountId, Date.now()));
       }
 
+      // Achievements need an ID only, like the history: no name or consent.
+      if (isAchievementList) {
+        return json({
+          achievements: await listAchievements(env.DB, accountId, Date.now()),
+        });
+      }
+
+      if (isAchievementUnlock) {
+        if (
+          !request.headers.get("Content-Type")?.startsWith("application/json")
+        )
+          return json({ error: "unsupported_media_type" }, 415);
+        let body: unknown;
+        try {
+          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
+        } catch {
+          return json({ error: "invalid_body" }, 400);
+        }
+        const id = (body as { id?: unknown } | null)?.id;
+        if (typeof id !== "string" || !isClientUnlockable(id))
+          return json({ error: "invalid_achievement" }, 400);
+        return json({
+          newAchievements: (await unlockClientAchievement(
+            env.DB,
+            accountId,
+            id,
+            Date.now(),
+          ))
+            ? [id]
+            : [],
+        });
+      }
+
       if (pathname === "/api/daily/ranking") {
         const date = new URL(request.url).searchParams.get("date");
         if (!date || !isDailyDate(date))
@@ -494,16 +541,19 @@ export default {
         } catch {
           return json({ error: "invalid_body" }, 400);
         }
-        const outcome = await completeDailyAttempt(
-          env.DB,
-          accountId,
-          completion,
-          Date.now(),
-        );
-        return json(
-          { status: outcome },
-          outcome === "completed" || outcome === "duplicate" ? 200 : 409,
-        );
+        const now = Date.now();
+        const { result: outcome, newAchievements } =
+          await recordWithAchievements(
+            env.DB,
+            accountId,
+            now,
+            completion.playId,
+            () => completeDailyAttempt(env.DB, accountId, completion, now),
+            (status) => status === "completed",
+          );
+        if (outcome !== "completed" && outcome !== "duplicate")
+          return json({ status: outcome }, 409);
+        return json({ status: outcome, newAchievements });
       }
 
       if (isPuzzleCreation) {
@@ -560,7 +610,16 @@ export default {
       } catch {
         return json({ error: "invalid_play" }, 400);
       }
-      const outcome = await saveCompletedPlay(env.DB, accountId, play);
+      // A const, so the closure below keeps the narrowed type.
+      const verified = play;
+      const { result: outcome, newAchievements } = await recordWithAchievements(
+        env.DB,
+        accountId,
+        Date.now(),
+        verified.playId,
+        () => saveCompletedPlay(env.DB, accountId, verified),
+        (status) => status === "created",
+      );
       if (outcome === "conflict")
         return json({ error: "play_id_conflict" }, 409);
       // The client shows this board's ranking right after a clear; returning
@@ -569,7 +628,7 @@ export default {
         () => undefined,
       );
       return json(
-        { status: outcome, entries },
+        { status: outcome, entries, newAchievements },
         outcome === "created" ? 201 : 200,
       );
     } catch (error) {

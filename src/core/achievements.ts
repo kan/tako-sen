@@ -227,6 +227,17 @@ export function isClientUnlockable(id: string): boolean {
   return achievementDefinition(id)?.metric === "client";
 }
 
+/**
+ * 名前・条件・進み具合・アイコンを伏せるか（未解除の秘密の実績）。Worker の応答と
+ * 画面の表示（タイル、詳細、読み上げ）は、どちらもこの判定に従う。
+ */
+export function isAchievementHidden(
+  definition: AchievementDefinition,
+  unlocked: boolean,
+): boolean {
+  return definition.secret === true && !unlocked;
+}
+
 /** 記録から判定する実績が条件を満たすか。画面が解除する実績は常に false */
 export function isAchievementUnlocked(
   definition: AchievementDefinition,

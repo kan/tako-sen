@@ -3,6 +3,7 @@ import {
   ACHIEVEMENTS,
   achievementDefinition,
   achievementProgress,
+  isAchievementHidden,
   isAchievementUnlocked,
   isClientUnlockable,
   longestDailyStreak,
@@ -85,6 +86,14 @@ describe("achievement definitions", () => {
     expect(
       ACHIEVEMENTS.filter((item) => item.secret).map((item) => item.id),
     ).toEqual(["clear_500"]);
+  });
+
+  it("hides a secret achievement only until it is unlocked", () => {
+    const secret = achievementDefinition("clear_500")!;
+    const open = achievementDefinition("clear_100")!;
+    expect(isAchievementHidden(secret, false)).toBe(true);
+    expect(isAchievementHidden(secret, true)).toBe(false);
+    expect(isAchievementHidden(open, false)).toBe(false);
   });
 
   it("lets the screen unlock only client achievements", () => {

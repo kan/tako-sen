@@ -36,6 +36,7 @@ export async function migrateTestDatabase(
     "0013_deleted_accounts.sql",
     "0014_unnamed_history.sql",
     "0015_push_subscriptions.sql",
+    "0016_achievements.sql",
   ]) {
     if (file === "0004_automatic_ranking.sql") await beforeAutomaticRanking?.();
     if (file === "0005_hint_stage.sql") await beforeHintStage?.();
