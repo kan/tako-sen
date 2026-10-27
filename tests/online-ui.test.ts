@@ -3091,6 +3091,20 @@ describe("public leaderboard dialog", () => {
       find(container, (n) => n.props.class === "ready-overlay"),
     ).toBeUndefined();
 
+    // リセットは元に戻せ、やり直せる。履歴は途中状態と一緒に保存する。
+    const undoButton = () =>
+      find(container, (n) => n.props["aria-label"] === "元に戻す")!;
+    const redoButton = () =>
+      find(container, (n) => n.props["aria-label"] === "やり直す")!;
+    expect(redoButton().props.disabled).toBe(true);
+    await press(container, "元に戻す");
+    expect(excluded()).toEqual([0]);
+    expect(redoButton().props.disabled).toBe(false);
+    expect(savedGame().state.history.redo).toHaveLength(1);
+    await press(container, "やり直す");
+    expect(excluded()).toEqual([]);
+    expect(undoButton().props.disabled).toBe(false);
+
     // 消す印がなければ、確認も新しい試行も作らない。
     await press(container, "リセット");
     expect(dialog()).toBeUndefined();

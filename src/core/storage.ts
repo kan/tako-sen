@@ -8,6 +8,11 @@ import type { SavedPlayTimer } from "./play-timer";
 import { BOARD_SIZE, DAILY_BOARD_SIZE } from "./model";
 import { validateSolution } from "./rules";
 import {
+  MARK_HISTORY_LIMIT,
+  type MarkHistory,
+  type MarkHistoryEntry,
+} from "./mark-history";
+import {
   maximumHintStage,
   validHintProgress,
   type HintStage,
@@ -38,7 +43,46 @@ interface SavedGame {
     readonly hintsUsed: number;
     readonly maxHintStage?: HintStage | null;
     readonly startedAt: number;
+    /** undo / redo の履歴。検証に通らなければ履歴だけを捨てて盤面は読む。 */
+    readonly history?: unknown;
   };
+}
+
+/** 操作の番号（openGroup）は画面を開いている間だけの値なので、保存しない。 */
+function historyForSave(
+  history: MarkHistory | undefined,
+): MarkHistory | undefined {
+  if (!history || (history.undo.length === 0 && history.redo.length === 0))
+    return undefined;
+  return { undo: history.undo, redo: history.redo };
+}
+
+function isHistoryEntry(
+  value: unknown,
+  puzzle: Pick<Puzzle, "size" | "solution">,
+): value is MarkHistoryEntry {
+  return (
+    isRecord(value) &&
+    isCellArray(value.added, puzzle.size) &&
+    isCellArray(value.removed, puzzle.size) &&
+    isCellArray(value.piecesRemoved, puzzle.size) &&
+    // undo で戻すタコは正解のマスに限る。不正なタコを置かせない。
+    value.piecesRemoved.every((cell) => puzzle.solution.includes(cell))
+  );
+}
+
+/** 保存から読んだ履歴を検証する。正しくなければ履歴だけを捨てる。 */
+export function parseMarkHistory(
+  value: unknown,
+  puzzle: Pick<Puzzle, "size" | "solution">,
+): MarkHistory | undefined {
+  if (!isRecord(value)) return undefined;
+  const valid = (list: unknown): list is MarkHistoryEntry[] =>
+    Array.isArray(list) &&
+    list.length <= MARK_HISTORY_LIMIT &&
+    list.every((entry) => isHistoryEntry(entry, puzzle));
+  if (!valid(value.undo) || !valid(value.redo)) return undefined;
+  return { undo: value.undo, redo: value.redo };
 }
 
 export function saveGame(
@@ -62,6 +106,7 @@ export function saveGame(
       hintsUsed: state.hintsUsed,
       maxHintStage: maximumHintStage(state),
       startedAt: state.startedAt,
+      history: historyForSave(state.history),
     },
   };
   try {
@@ -116,6 +161,7 @@ export function loadGame(storage: KeyValueStorage = localStorage):
       mistakes: saved.state.mistakes,
       hintsUsed: saved.state.hintsUsed,
       maxHintStage: maximumHintStage(saved.state),
+      history: parseMarkHistory(saved.state.history, saved.puzzle),
     },
   };
   if (key === LEGACY_SAVE_KEY)

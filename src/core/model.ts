@@ -1,4 +1,5 @@
 import type { HintStage } from "./hint-progress";
+import type { MarkHistory } from "./mark-history";
 
 export const BOARD_SIZE = 8;
 export const DAILY_BOARD_SIZE = 10;
@@ -31,6 +32,8 @@ export interface PlayerState {
   readonly hintsUsed: number;
   readonly maxHintStage?: HintStage | null;
   readonly startedAt: number;
+  /** undo / redo の履歴。ないときは空として扱う。 */
+  readonly history?: MarkHistory;
 }
 
 export type CellViewState = "empty" | "excluded" | "piece" | "fixed-error";

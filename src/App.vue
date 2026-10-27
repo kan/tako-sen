@@ -98,6 +98,12 @@ import {
   toggleExcluded,
 } from "./core/player";
 import {
+  canRedoMarks,
+  canUndoMarks,
+  recordMarkChange,
+  stepMarkHistory,
+} from "./core/mark-history";
+import {
   loadAutoExclusionsEnabled,
   saveAutoExclusionsEnabled,
   loadDifficultySelection,
@@ -296,7 +302,8 @@ const holdingCell = ref<number | undefined>();
 const cellFeedbacks = ref<Record<number, CellFeedback & { token: number }>>({});
 let longPressTimer: number | undefined;
 let feedbackToken = 0;
-let lastPointerTap: { cell: number; at: number } | undefined;
+let lastPointerTap:
+  { cell: number; at: number; historyGroup: number } | undefined;
 let activePointer:
   | {
       readonly pointerId: number;
@@ -309,8 +316,11 @@ let activePointer:
       longPressCanceled: boolean;
       readonly pieceDisabled: boolean;
       readonly dragMarkAction: "add" | "remove";
+      /** undo で 1 回の操作の変化を 1 手にまとめる番号。ダブルタップの 2 回目は 1 回目の番号を引き継ぐ。 */
+      historyGroup: number;
     }
   | undefined;
+let historyGroupCounter = 0;
 let clockTimer: number | undefined;
 
 const cells = computed(() =>
@@ -693,6 +703,9 @@ function saveCurrentGame(): void {
 
 watch(complete, (isCompleteNow, wasComplete) => {
   if (isCompleteNow && !wasComplete) {
+    // クリア後は undo を使わないので、履歴を保存に残さない。
+    if (state.value.history)
+      state.value = { ...state.value, history: undefined };
     finalizePlay();
     clearDialogMessage.value = "";
     clearBackdropPressed = false;
@@ -977,7 +990,11 @@ function registerPlay(countForSuper = true): void {
     );
 }
 
-function commitPlayerState(next: PlayerState): void {
+/**
+ * プレイヤーの操作を盤面へ反映する。undo / redo 自身の反映では
+ * recordHistory を false にし、履歴を二重に積まない。
+ */
+function commitPlayerState(next: PlayerState, recordHistory = true): void {
   if (complete.value) return;
   if (isSuper.value && !superChallengeRef.value?.canPlay()) {
     pauseGame();
@@ -987,12 +1004,27 @@ function commitPlayerState(next: PlayerState): void {
     registerPlay();
     touchedPlayId.value = playId.value;
   }
-  state.value = next;
+  state.value = recordHistory
+    ? recordMarkChange(state.value, next, activePointer?.historyGroup)
+    : next;
+}
+
+const canUndo = computed(() => canUndoMarks(state.value));
+const canRedo = computed(() => canRedoMarks(state.value));
+
+function stepHistory(direction: "undo" | "redo"): void {
+  if (waitingToStart.value) return;
+  const next = stepMarkHistory(state.value, direction, puzzle.value.size);
+  if (next === state.value) return;
+  hint.value = undefined;
+  // リセットを戻して盤面が埋まったときも、ほかのクリアと同じ音と振動を出す。
+  commitPlayerStateWithFeedback(next, "shortcut", false);
 }
 
 function commitPlayerStateWithFeedback(
   next: PlayerState,
   source: FeedbackSource,
+  recordHistory = true,
 ): void {
   if (complete.value) return;
   if (isSuper.value && !superChallengeRef.value?.canPlay()) {
@@ -1001,7 +1033,7 @@ function commitPlayerStateWithFeedback(
   }
   const feedbacks = cellFeedbacksForStateChange(state.value, next, source);
   const wasComplete = complete.value;
-  commitPlayerState(next);
+  commitPlayerState(next, recordHistory);
   triggerCellFeedbacks(feedbacks);
   const haptic = strongestHapticFeedback(feedbacks);
   if (haptic) vibrateForFeedback(navigator, haptic, hapticsEnabled.value);
@@ -1558,7 +1590,7 @@ async function resetBoard(): Promise<void> {
     !(await askConfirm({
       title: "盤面をリセットしますか？",
       message:
-        "置いたタコと×を消します。赤い×・ミス・ヒントの回数と時間はそのまま残ります。元に戻せません。",
+        "置いたタコと×を消します。赤い×・ミス・ヒントの回数と時間はそのまま残ります。「元に戻す」で取り消せます。",
       confirmLabel: "リセットする",
     }))
   )
@@ -1660,6 +1692,7 @@ function startPointerPress(event: PointerEvent): void {
     longPressCanceled: false,
     pieceDisabled,
     dragMarkAction: pieceDisabled ? "remove" : "add",
+    historyGroup: ++historyGroupCounter,
   };
   if (!pieceDisabled) startLongPress(index);
 }
@@ -1737,16 +1770,22 @@ function endPointerPress(event: PointerEvent): void {
     );
     hint.value = undefined;
   } else if (action === "tap") {
-    onTap(activePointer.startCell);
     const now = Date.now();
-    if (
+    const doubleTap =
       lastPointerTap?.cell === activePointer.startCell &&
-      now - lastPointerTap.at < DOUBLE_TAP_MS
-    ) {
+      now - lastPointerTap.at < DOUBLE_TAP_MS;
+    // ダブルタップは 2 回のタップとショートカットを合わせて 1 手にする。
+    if (doubleTap) activePointer.historyGroup = lastPointerTap!.historyGroup;
+    onTap(activePointer.startCell);
+    if (doubleTap) {
       onShortcut(activePointer.startCell);
       lastPointerTap = undefined;
     } else {
-      lastPointerTap = { cell: activePointer.startCell, at: now };
+      lastPointerTap = {
+        cell: activePointer.startCell,
+        at: now,
+        historyGroup: activePointer.historyGroup,
+      };
     }
   }
   if (action !== "tap") lastPointerTap = undefined;
@@ -2327,6 +2366,28 @@ function formatElapsed(seconds: number): string {
         >
           <UiIcon name="hint" />
         </button>
+        <template v-if="!complete">
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="元に戻す"
+            title="元に戻す"
+            :disabled="!canUndo || waitingToStart"
+            @click="stepHistory('undo')"
+          >
+            <UiIcon name="undo" />
+          </button>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="やり直す"
+            title="やり直す"
+            :disabled="!canRedo || waitingToStart"
+            @click="stepHistory('redo')"
+          >
+            <UiIcon name="redo" />
+          </button>
+        </template>
         <button
           v-if="!complete || !isSpecial"
           type="button"

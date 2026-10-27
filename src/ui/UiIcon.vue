@@ -7,6 +7,8 @@ defineProps<{
     | "clock"
     | "difficulty"
     | "reset"
+    | "undo"
+    | "redo"
     | "next"
     | "daily"
     | "super"
@@ -76,6 +78,14 @@ defineProps<{
       <path d="M4 20v-5h3v5ZM10 20V9h3v11ZM16 20V3h3v17Z" />
     </template>
     <path v-else-if="name === 'reset'" d="M4 11a8 8 0 1 1 2 7M4 4v7h7" />
+    <path
+      v-else-if="name === 'undo'"
+      d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
+    />
+    <path
+      v-else-if="name === 'redo'"
+      d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"
+    />
     <path v-else-if="name === 'next'" d="m3 5 8 7-8 7Zm9 0 8 7-8 7ZM21 5v14" />
     <template v-else-if="name === 'ranking'">
       <path d="M3 20h18M4 20v-5h5v5M9 20V8h6v12M15 20v-7h5v7" />

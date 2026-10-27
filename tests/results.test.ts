@@ -92,6 +92,32 @@ describe("local results", () => {
     expect(loadResultHistory(storage).plays).toHaveLength(1);
   });
 
+  it("keeps undo history in the save without the open group, and drops a broken one", () => {
+    const storage = memoryStorage();
+    const entry = { added: [1, 2], removed: [3], piecesRemoved: [] };
+    saveGame(
+      savedPuzzle,
+      {
+        ...createInitialPlayerState(0),
+        excluded: new Set([1, 2]),
+        history: { undo: [entry], redo: [entry], openGroup: 5 },
+      },
+      storage,
+      "attempt",
+    );
+    expect(loadGame(storage)?.state.history).toEqual({
+      undo: [entry],
+      redo: [entry],
+    });
+
+    const raw = JSON.parse(storage.getItem("tako-sen.current-game.v2")!);
+    raw.state.history = { undo: [{ added: [999] }], redo: [] };
+    storage.setItem("tako-sen.current-game.v2", JSON.stringify(raw));
+    const loaded = loadGame(storage);
+    expect(loaded?.state.history).toBeUndefined();
+    expect([...loaded!.state.excluded]).toEqual([1, 2]);
+  });
+
   it("treats an older save without a ready flag as already started", () => {
     const storage = memoryStorage();
     storage.setItem(

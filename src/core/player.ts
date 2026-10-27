@@ -144,5 +144,6 @@ export function resetPlayerProgress(
     hintsUsed: 0,
     maxHintStage: 0,
     startedAt: now,
+    history: undefined,
   };
 }
