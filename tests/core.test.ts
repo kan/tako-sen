@@ -12,6 +12,7 @@ import {
 } from "../src/core/generator";
 import {
   addExcludedMarks,
+  clearBoardMarks,
   removeExcludedMarks,
   placePiece,
   resetPlayerProgress,
@@ -200,6 +201,27 @@ describe("player operations", () => {
     expect(state.mistakes).toBe(0);
     expect(state.hintsUsed).toBe(0);
     expect(state.startedAt).toBe(200);
+  });
+
+  it("clears marks and correct pieces mid-play but keeps errors, counts, and start time", () => {
+    const before = {
+      ...createInitialPlayerState(100),
+      excluded: new Set([cellIndex(0, 0)]),
+      pieces: new Set([cellIndex(1, 2), cellIndex(5, 5)]),
+      fixedErrors: new Set([cellIndex(3, 4)]),
+      mistakes: 2,
+      hintsUsed: 3,
+      maxHintStage: 2 as const,
+    };
+    const state = clearBoardMarks(before, [cellIndex(5, 5)]);
+
+    expect([...state.excluded]).toEqual([]);
+    expect([...state.pieces]).toEqual([cellIndex(5, 5)]);
+    expect([...state.fixedErrors]).toEqual([cellIndex(3, 4)]);
+    expect(state.mistakes).toBe(2);
+    expect(state.hintsUsed).toBe(3);
+    expect(state.maxHintStage).toBe(2);
+    expect(state.startedAt).toBe(100);
   });
 });
 

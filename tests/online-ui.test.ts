@@ -3076,14 +3076,26 @@ describe("public leaderboard dialog", () => {
     expect(dialog()).toBeUndefined();
     expect(excluded()).toEqual([0]);
 
+    const savedGame = () =>
+      JSON.parse(localStorage.getItem("tako-sen.current-game.v2")!);
+    const playIdBefore = savedGame().playId;
+    expect(playIdBefore).toBeTruthy();
     await press(container, "リセット");
     await press(body, "リセットする");
     expect(dialog()).toBeUndefined();
     expect(excluded()).toEqual([]);
+    // 同じ試行のまま計時を続け、READY に戻さない。
+    expect(savedGame().playId).toBe(playIdBefore);
+    expect(savedGame().waitingToStart).toBe(false);
+    expect(
+      find(container, (n) => n.props.class === "ready-overlay"),
+    ).toBeUndefined();
 
-    // An empty board resets without asking.
+    // 消す印がなければ、確認も新しい試行も作らない。
     await press(container, "リセット");
     expect(dialog()).toBeUndefined();
+    expect(savedGame().playId).toBe(playIdBefore);
+    expect(savedGame().waitingToStart).toBe(false);
   });
 
   it("tells under the board that a shared link is broken until the first mark", async () => {

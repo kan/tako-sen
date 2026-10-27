@@ -92,6 +92,7 @@ import {
   removeExcludedMarks,
   countHintUsed,
   placePieceWithAutoExclusions,
+  clearBoardMarks,
   resetPlayerProgress,
   recordHintStage,
   toggleExcluded,
@@ -1547,16 +1548,42 @@ async function confirmDiscardProgress(
   );
 }
 
-async function resetProgress(): Promise<void> {
-  if (isSpecial.value) return;
+/** プレイ中のリセット。同じ試行のまま×と正解のタコを消し、時間は止めない。 */
+async function resetBoard(): Promise<void> {
+  if (complete.value || waitingToStart.value) return;
+  const cleared = () => clearBoardMarks(state.value, puzzle.value.givens);
+  if (!playerMarksChanged(state.value, cleared())) return;
+  const expectedPlayId = playId.value;
   if (
-    !(await confirmDiscardProgress({
+    !(await askConfirm({
       title: "盤面をリセットしますか？",
-      message: "置いたタコと×をすべて消します。元に戻せません。",
+      message:
+        "置いたタコと×を消します。赤い×・ミス・ヒントの回数と時間はそのまま残ります。元に戻せません。",
       confirmLabel: "リセットする",
     }))
   )
     return;
+  // 確認中にクリアした、または別の試行へ切り替わった場合は何もしない。
+  // 確認中に中断（READY）になっても、承諾したリセットは行う。
+  if (complete.value || playId.value !== expectedPlayId) return;
+  const before = state.value;
+  commitPlayerState(cleared());
+  // 超級で続行できないなどで盤面を変えなかったときは、表示中のヒントを残す。
+  if (state.value === before) return;
+  hint.value = undefined;
+  hintStage.value = 1;
+  hintDialogOpen.value = false;
+}
+
+/** 盤面下のリセット。クリア後の通常問題では「もう一度」と同じ新しい試行にする。 */
+function resetFromFooter(): void {
+  if (complete.value) replayPuzzle();
+  else void resetBoard();
+}
+
+/** クリア後の「もう一度」。新しい試行として盤面・成績・時間を初期化する。 */
+function replayPuzzle(): void {
+  if (isSpecial.value || !complete.value) return;
   cancelPendingNextPuzzle();
   state.value = resetPlayerProgress(
     state.value,
@@ -2301,12 +2328,12 @@ function formatElapsed(seconds: number): string {
           <UiIcon name="hint" />
         </button>
         <button
-          v-if="!isSpecial"
+          v-if="!complete || !isSpecial"
           type="button"
           class="icon-button"
-          aria-label="リセット"
-          title="リセット"
-          @click="resetProgress"
+          :aria-label="complete ? 'もう一度' : 'リセット'"
+          :title="complete ? 'もう一度' : 'リセット'"
+          @click="resetFromFooter"
         >
           <UiIcon name="reset" />
         </button>
@@ -2871,7 +2898,7 @@ function formatElapsed(seconds: number): string {
             class="icon-button"
             aria-label="もう一度"
             title="もう一度"
-            @click="resetProgress"
+            @click="replayPuzzle"
           >
             <UiIcon name="reset" />
           </button>

@@ -118,6 +118,18 @@ export function recordHintStage(
   };
 }
 
+/**
+ * プレイ中のリセット。×と正解のタコを消して公開タコだけに戻す。
+ * 固定エラー・ミス・ヒント・開始時刻は残し、同じ試行のまま続ける。
+ */
+export function clearBoardMarks(
+  state: PlayerState,
+  givens: Iterable<number> = [],
+): PlayerState {
+  return { ...state, excluded: new Set(), pieces: new Set(givens) };
+}
+
+/** クリア後の「もう一度」。新しい試行として成績も初期化する。 */
 export function resetPlayerProgress(
   state: PlayerState,
   now = Date.now(),
