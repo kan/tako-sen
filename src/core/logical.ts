@@ -7,7 +7,7 @@ import {
   type Puzzle,
 } from "./model";
 import { exclusionsFromPiece, regionLineExclusions } from "./shortcuts";
-import { hasContradiction } from "./solver";
+import { hasContradiction, solvePuzzle } from "./solver";
 
 // The move finders below serve the hints. difficulty-fast.ts re-implements
 // the same techniques to rate boards, and the generators keep or reject
@@ -79,12 +79,26 @@ export function findLogicalMovesOf(
   );
 }
 
-/** Removing one of these marks alone makes the current constraints solvable. */
+/**
+ * The wrong × marks: removing all of them makes the current constraints
+ * solvable. If the puzzle is not unique, falls back to the marks whose removal
+ * alone resolves the contradiction.
+ */
 export function findContradictionExclusions(
   puzzle: Pick<Puzzle, "size" | "regions">,
   state: PlayerState,
 ): number[] {
   if (!hasContradiction(puzzle, state)) return [];
+  // Placed pieces are checked on placement, so only × marks can cause the
+  // contradiction. With a unique solution, every × on a solution cell must go,
+  // so those cells are exactly the smallest set of × to remove.
+  const unmarked = solvePuzzle(puzzle, {
+    state: { ...state, excluded: new Set() },
+  });
+  if (unmarked.status === "unique") {
+    const solution = new Set(unmarked.solutions[0]);
+    return [...state.excluded].filter((index) => solution.has(index));
+  }
   return [...state.excluded].filter((index) => {
     const excluded = new Set(state.excluded);
     excluded.delete(index);

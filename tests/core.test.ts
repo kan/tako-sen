@@ -359,10 +359,33 @@ describe("logical hints", () => {
     expect(hintStageCount(move)).toBe(4);
     expect(hintFocusCells(puzzle, move, 1, causes)).toEqual([]);
     expect(hintFocusCells(puzzle, move, 4, causes)).toEqual(causes);
-    expect(hintStageLines(move, 4, causes)[0]).toContain("1個");
+    expect(hintStageLines(move, 4, causes)[0]).toContain("この×を外す");
     expect(
       findContradictionExclusions(puzzle, createInitialPlayerState(0)),
     ).toEqual([]);
+  });
+
+  it("pinpoints every wrong × when several must be removed together", () => {
+    const puzzle = generatePuzzle({ seed: "hint-cause" });
+    const wrongMarks = puzzle.solution.slice(0, 3);
+    const rightMark = Array.from(
+      { length: BOARD_SIZE * BOARD_SIZE },
+      (_, index) => index,
+    ).find((index) => !puzzle.solution.includes(index));
+    expect(rightMark).toBeDefined();
+    if (rightMark === undefined) return;
+    const state = addExcludedMarks(createInitialPlayerState(0), [
+      ...wrongMarks,
+      rightMark,
+    ]);
+    const move = findLogicalMoves(puzzle, state)[0];
+    expect(move.technique).toBe("contradiction");
+    const causes = findContradictionExclusions(puzzle, state);
+    expect([...causes].sort((a, b) => a - b)).toEqual(
+      [...wrongMarks].sort((a, b) => a - b),
+    );
+    expect(hintFocusCells(puzzle, move, 4, causes)).toEqual(causes);
+    expect(hintStageLines(move, 4, causes)[0]).toContain("3個");
   });
 
   it("does not suggest another piece in a row that already has a confirmed piece, even when fixed errors leave one open cell", () => {

@@ -20,11 +20,11 @@ export function hintStageLines(
     if (stage === 3) return [move.explanation[2]];
     return contradictionCells.length > 0
       ? [
-          `×を1つ外すだけで矛盾を解消できるマスが${contradictionCells.length}個見つかりました。盤面で示します。`,
+          contradictionCells.length === 1
+            ? "この×を外すと矛盾が解消します。盤面で示します。"
+            : `誤った×が${contradictionCells.length}個あります。すべて外すと矛盾が解消します。盤面で示します。`,
         ]
-      : [
-          "1つの×を外すだけでは矛盾を解消できません。複数の×を見直してください。",
-        ];
+      : ["誤った×を特定できませんでした。複数の×を見直してください。"];
   }
   if (stage === 1)
     return [
