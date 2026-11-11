@@ -22,7 +22,7 @@ export function hintStageLines(
       ? [
           contradictionCells.length === 1
             ? "この×を外すと矛盾が解消します。盤面で示します。"
-            : `誤った×が${contradictionCells.length}個あります。すべて外すと矛盾が解消します。盤面で示します。`,
+            : `誤った×が${contradictionCells.length}個あります。そのうち1つを盤面で示します。`,
         ]
       : ["誤った×を特定できませんでした。複数の×を見直してください。"];
   }
@@ -40,8 +40,14 @@ export function hintFocusCells(
   stage: number,
   contradictionCells: readonly number[] = [],
 ): readonly number[] {
+  // Show only one wrong ×: pointing at all of them would reveal every piece
+  // once the player marks the whole board with × and asks for a hint.
   if (move.technique === "contradiction")
-    return stage === 4 ? contradictionCells : stage >= 2 ? move.focusCells : [];
+    return stage === 4
+      ? contradictionCells.slice(0, 1)
+      : stage >= 2
+        ? move.focusCells
+        : [];
   if (stage === 1) {
     if (
       move.technique === "line-region" ||
