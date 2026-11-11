@@ -4,11 +4,11 @@
 
 ## 週間プレイヤーランキング
 
-- `GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|time` は ID がなくても閲覧可能な読み取り専用API。無効な条件は400、GET以外は405、DB障害は503。応答は `Cache-Control: no-store`。
-- 応答は `{ start, end, entries }`。`start` / `end` は日本時間の現在週（月曜0時〜翌月曜0時）のUTC epochミリ秒。各行は `{ rank, displayName, clears, averageSeconds }` のみで、最大100人。アカウントID・シード・個別履歴は返さない。
+- `GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|score` は ID がなくても閲覧可能な読み取り専用API。平均タイム順だった頃の画面が送る `metric=time` は、その画面が平均タイムを表示するので、従来どおり週5クリア以上の平均タイムの短い順で返す。無効な条件は400、GET以外は405、DB障害は503。応答は `Cache-Control: no-store`。
+- 応答は `{ start, end, entries }`。`start` / `end` は日本時間の現在週（月曜0時〜翌月曜0時）のUTC epochミリ秒。各行は `{ rank, displayName, clears, averageScore, averageSeconds }` のみで、最大100人。アカウントID・シード・個別履歴は返さない。
 - 現在時刻までに完了した `completed_plays` の `ranking_eligible = 1` かつ通常 `g1` / `g2` / `g3` / `g4` の記録を対象とし、現在の公開同意が有効なプロフィールだけを公開する。問題別の初回公開フラグ `is_public` は使わず、過去の別週でクリア済みの問題も今週クリアすれば対象とする。同意前の記録を再公開しない。
-- 同一アカウント・問題ID・週は最も早い `completed_at` の試行を1件だけ採用し、同時刻は `play_id` 順で決定する。その試行の難易度に集計し、異なる難易度コードで同一盤面を再クリアしても二重に数えない。平均タイムは採用試行の単純平均で、週内の対象問題が5つ以上の参加者のみ順位付けする。丸め前の平均で比較し、同値は同順位。
-- `0010_weekly_ranking_index.sql` は対象週の時刻範囲と必要列をカバーする部分索引を追加するだけで、履歴・同意・問題別順位を変更しない。
+- 同一アカウント・問題ID・週は最も早い `completed_at` の試行を1件だけ採用し、同時刻は `play_id` 順で決定する。その試行の難易度に集計し、異なる難易度コードで同一盤面を再クリアしても二重に数えない。平均スコアと平均タイムは採用試行の単純平均で、スコアは問題別ランキングと同じ式（`rankingScoreSql`）で求める。平均スコア順は週内の対象問題が5つ以上の参加者のみ順位付けする。丸め前の平均で比較し、同値は同順位。
+- `0010_weekly_ranking_index.sql` は対象週の時刻範囲と必要列をカバーする部分索引を追加するだけで、履歴・同意・問題別順位を変更しない。`0017_weekly_score_index.sql` は平均スコアの計算に使う `mistakes` / `hints_used` を加えて同じ名前の索引を作り直すだけで、記録は変更しない。
 - `0011_super_query_indexes.sql` は超級の盤面別ランキングと候補取得のための索引を2本追加するだけで、超級の記録・挑戦権・初回スコアを変更しない。
 
 ## 問題の同一性と再現

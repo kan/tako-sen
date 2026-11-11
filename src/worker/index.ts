@@ -90,12 +90,13 @@ export default {
         return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
       const params = new URL(request.url).searchParams;
       const difficulty = params.get("difficulty");
+      // A client cached before the average score still asks for "time".
       const metric = params.get("metric");
       if (
         (difficulty !== "easy" &&
           difficulty !== "normal" &&
           difficulty !== "hard") ||
-        (metric !== "clears" && metric !== "time")
+        (metric !== "clears" && metric !== "score" && metric !== "time")
       )
         return json({ error: "invalid_ranking_filter" }, 400);
       try {

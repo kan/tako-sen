@@ -152,14 +152,14 @@ onUnmounted(() => {
               class="sr-only"
               type="radio"
               name="weekly-metric"
-              value="time"
-            /><span>平均タイム</span></label
+              value="score"
+            /><span>平均スコア</span></label
           >
         </fieldset>
       </div>
       <div class="ranking-dialog-body">
         <p class="ranking-note">
-          日本時間の月曜0時〜翌月曜0時。通常問題のみ、同じ問題は週に1クリアとして集計します。平均タイムは週5クリア以上が対象です。
+          日本時間の月曜0時〜翌月曜0時。通常問題のみ、同じ問題は週に1クリアとして集計します。平均スコアは週5クリア以上が対象です。
         </p>
         <p v-if="data" class="ranking-note">
           {{ dateFormat.format(data.start) }} 0:00 〜
@@ -207,14 +207,14 @@ onUnmounted(() => {
               <strong class="ranking-time">{{
                 metric === "clears"
                   ? `${entry.clears}クリア`
-                  : `${entry.averageSeconds.toFixed(1)}秒`
+                  : `${Math.round(entry.averageScore)}点`
               }}</strong>
             </div>
             <div class="ranking-score-meta">
               <span>{{
                 metric === "clears"
-                  ? `平均 ${entry.averageSeconds.toFixed(1)}秒`
-                  : `${entry.clears}クリア`
+                  ? `平均 ${Math.round(entry.averageScore)}点 · ${entry.averageSeconds.toFixed(1)}秒`
+                  : `${entry.clears}クリア · 平均 ${entry.averageSeconds.toFixed(1)}秒`
               }}</span>
             </div>
           </li>
@@ -222,7 +222,7 @@ onUnmounted(() => {
         <details class="ranking-guide">
           <summary>順位の付け方</summary>
           <p>
-            クリア数は多い順、平均タイムは短い順です。同じ値は同順位。各問題は週内で最初にクリアした試行を採用し、再挑戦の速いタイムへの差し替えはしません。最大100人を表示します。
+            クリア数は多い順、平均スコアは高い順です。スコアは問題別ランキングと同じ計算で、クリア時間の速さ点（60,000÷秒数、小数点以下切り捨て）に、ノーミスで300点、ノーヒントで200点を加えます。同じ値は同順位。各問題は週内で最初にクリアした試行を採用し、再挑戦の速いタイムへの差し替えはしません。最大100人を表示します。
           </p>
         </details>
         <p class="ranking-note">

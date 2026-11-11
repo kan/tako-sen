@@ -1,6 +1,7 @@
-export const SCORE_BASE = 10_000;
-export const MISTAKE_PENALTY = 180;
-export const HINT_PENALTY = 30;
+/** Speed points are this divided by the clear seconds: 60 s earns 1,000. */
+export const SPEED_POINTS = 60_000;
+export const NO_MISTAKE_BONUS = 300;
+export const NO_HINT_BONUS = 200;
 
 export interface RankingScoreInput {
   readonly elapsedSeconds: number;
@@ -8,13 +9,15 @@ export interface RankingScoreInput {
   readonly hintsUsed: number;
 }
 
-/** Scores are not clamped: even a long play must retain its ordering. */
+/**
+ * Points are only added, and speed points never reach 0, so even a long play
+ * keeps its ordering. Integer division keeps the result equal to the D1 query.
+ */
 export function rankingScore(result: RankingScoreInput): number {
   return (
-    SCORE_BASE -
-    result.elapsedSeconds -
-    MISTAKE_PENALTY * result.mistakes -
-    HINT_PENALTY * result.hintsUsed
+    Math.floor(SPEED_POINTS / Math.max(1, result.elapsedSeconds)) +
+    (result.mistakes === 0 ? NO_MISTAKE_BONUS : 0) +
+    (result.hintsUsed === 0 ? NO_HINT_BONUS : 0)
   );
 }
 

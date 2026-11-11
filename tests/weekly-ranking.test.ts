@@ -106,27 +106,68 @@ describe("weekly player ranking", () => {
       now,
     );
     expect(result.entries).toEqual([
-      { rank: 1, displayName: "🐙丙", clears: 5, averageSeconds: 70 },
-      { rank: 1, displayName: "🐙甲", clears: 5, averageSeconds: 70 },
-      { rank: 3, displayName: "🐙乙", clears: 4, averageSeconds: 10 },
+      {
+        rank: 1,
+        displayName: "🐙丙",
+        clears: 5,
+        averageScore: 1357,
+        averageSeconds: 70,
+      },
+      {
+        rank: 1,
+        displayName: "🐙甲",
+        clears: 5,
+        averageScore: 1394.6,
+        averageSeconds: 70,
+      },
+      {
+        rank: 3,
+        displayName: "🐙乙",
+        clears: 4,
+        averageScore: 6500,
+        averageSeconds: 10,
+      },
     ]);
     expect(result).not.toHaveProperty("accountId");
   });
-  it("requires five distinct clears for average time, isolates difficulty and never chooses faster replays", async () => {
+  it("requires five distinct clears for average score, ranks it highest first, isolates difficulty and never chooses faster replays", async () => {
+    // beta has the best average but only four clears.
     expect(
-      (await listWeeklyRanking(platform.env.DB, "easy", "time", now)).entries,
-    ).toHaveLength(2);
+      (await listWeeklyRanking(platform.env.DB, "easy", "score", now)).entries,
+    ).toEqual([
+      {
+        rank: 1,
+        displayName: "🐙甲",
+        clears: 5,
+        averageScore: 1394.6,
+        averageSeconds: 70,
+      },
+      {
+        rank: 2,
+        displayName: "🐙丙",
+        clears: 5,
+        averageScore: 1357,
+        averageSeconds: 70,
+      },
+    ]);
     expect(
       (await listWeeklyRanking(platform.env.DB, "normal", "clears", now))
         .entries,
     ).toEqual([
-      { rank: 1, displayName: "🐙乙", clears: 1, averageSeconds: 100 },
+      {
+        rank: 1,
+        displayName: "🐙乙",
+        clears: 1,
+        averageScore: 1100,
+        averageSeconds: 100,
+      },
     ]);
     expect(
       (await listWeeklyRanking(platform.env.DB, "hard", "clears", now)).entries,
     ).toEqual([]);
     expect(
-      (await listWeeklyRanking(platform.env.DB, "normal", "time", now)).entries,
+      (await listWeeklyRanking(platform.env.DB, "normal", "score", now))
+        .entries,
     ).toEqual([]);
   });
   it("counts a puzzle again next week and removes participation when consent is withdrawn", async () => {
@@ -134,7 +175,13 @@ describe("weekly player ranking", () => {
       (await listWeeklyRanking(platform.env.DB, "easy", "clears", week.end + 2))
         .entries,
     ).toEqual([
-      { rank: 1, displayName: "🐙甲", clears: 2, averageSeconds: 1.5 },
+      {
+        rank: 1,
+        displayName: "🐙甲",
+        clears: 2,
+        averageScore: 45500,
+        averageSeconds: 1.5,
+      },
     ]);
     await platform.env.DB.prepare(
       "UPDATE leaderboard_profiles SET consent_version = NULL WHERE account_id = 'beta'",
@@ -149,15 +196,16 @@ describe("weekly player ranking", () => {
   });
   it("uses the weekly time range index instead of scanning all history", async () => {
     const plan = await platform.env.DB.prepare(
-      `EXPLAIN QUERY PLAN ${weeklyRankingSql("time")}`,
+      `EXPLAIN QUERY PLAN ${weeklyRankingSql("score")}`,
     )
       .bind("easy", week.start, week.end, now)
       .all<{ detail: string }>();
     expect(
       plan.results.some(
         (row) =>
-          row.detail.includes("completed_plays_weekly_eligible") &&
-          row.detail.includes("SEARCH"),
+          row.detail.includes(
+            "COVERING INDEX completed_plays_weekly_eligible",
+          ) && row.detail.includes("SEARCH"),
       ),
     ).toBe(true);
   });
@@ -178,5 +226,17 @@ describe("weekly player ranking", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.text()).not.toContain('"account');
+    // A client cached before the change still asks for "time" and shows the
+    // average seconds, so it keeps the shortest-first order.
+    expect((await get("?difficulty=easy&metric=time")).status).toBe(200);
+    // Both average 70 s, so they tie, unlike in the average score order.
+    expect(
+      (
+        await listWeeklyRanking(platform.env.DB, "easy", "time", now)
+      ).entries.map((entry) => [entry.rank, entry.averageSeconds]),
+    ).toEqual([
+      [1, 70],
+      [1, 70],
+    ]);
   });
 });

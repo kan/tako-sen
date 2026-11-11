@@ -1,8 +1,9 @@
-export type WeeklyMetric = "clears" | "time";
+export type WeeklyMetric = "clears" | "score";
 export interface WeeklyEntry {
   readonly rank: number;
   readonly displayName: string;
   readonly clears: number;
+  readonly averageScore: number;
   readonly averageSeconds: number;
 }
 export interface WeeklyRanking {

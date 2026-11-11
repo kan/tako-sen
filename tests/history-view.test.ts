@@ -35,7 +35,7 @@ describe("unified difficulty history", () => {
       plays: 3,
       clears: 2,
       averageSeconds: 45,
-      bestScore: 9970,
+      bestScore: 2500,
     });
     expect(
       historyView(records, "easy").trend.map((point) => point.play.id),

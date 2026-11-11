@@ -181,12 +181,13 @@ describe("consented automatic first-clear ranking", () => {
     for (const [account] of records) await deleteAccount(db, account);
   });
 
-  it("puts a slower clean solve ahead of a faster solve with a mistake", async () => {
+  it("puts a slightly slower clean solve ahead of a faster solve with a mistake", async () => {
     const db = platform.env.DB;
     const id = `p1:${"f".repeat(64)}`;
+    // 30 s with a mistake: 2,000 + 200. 35 s clean: 1,714 + 500.
     for (const [account, elapsedSeconds, mistakes] of [
       ["score-fast-miss", 30, 1],
-      ["score-slow-clean", 120, 0],
+      ["score-slow-clean", 35, 0],
     ] as const) {
       await registerAccountProfile(db, account, account);
       expect(

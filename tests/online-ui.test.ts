@@ -1879,7 +1879,13 @@ describe("weekly ranking dialog", () => {
         start: Date.parse("2026-10-11T15:00:00Z"),
         end: Date.parse("2026-10-18T15:00:00Z"),
         entries: [
-          { rank: 1, displayName: "🐙タコ", clears: 5, averageSeconds: 12.25 },
+          {
+            rank: 1,
+            displayName: "🐙タコ",
+            clears: 5,
+            averageScore: 4321.6,
+            averageSeconds: 12.25,
+          },
         ],
       }),
     );
@@ -1914,16 +1920,26 @@ describe("weekly ranking dialog", () => {
     ).toBe("fieldset");
     const select = (label: string) =>
       find(container, (n) => n.props["aria-label"] === label)!;
+    expect(
+      textOf(
+        find(container, (n) => n.props.class === "ranking-score-meta")!,
+      ).trim(),
+    ).toBe("平均 4322点 · 12.3秒");
     (
-      find(container, (n) => n.tag === "input" && n.props.value === "time")!
+      find(container, (n) => n.tag === "input" && n.props.value === "score")!
         .props["onUpdate:modelValue"] as (s: string) => void
-    )("time");
+    )("score");
     await vi.waitFor(() =>
       expect(
         find(container, (n) => n.props.class === "ranking-time")?.text,
-      ).toBe("12.3秒"),
+      ).toBe("4322点"),
     );
-    expect(String(request.mock.calls.at(-1)![0])).toContain("metric=time");
+    expect(
+      textOf(
+        find(container, (n) => n.props.class === "ranking-score-meta")!,
+      ).trim(),
+    ).toBe("5クリア · 平均 12.3秒");
+    expect(String(request.mock.calls.at(-1)![0])).toContain("metric=score");
     (
       select("週間ランキングの難易度").props["onUpdate:modelValue"] as (
         s: string,
@@ -1950,9 +1966,9 @@ describe("weekly ranking dialog", () => {
     renderer.render(h(WeeklyLeaderboard, { open: true }), container);
     expect(pending).toHaveLength(1);
     (
-      find(container, (n) => n.tag === "input" && n.props.value === "time")!
+      find(container, (n) => n.tag === "input" && n.props.value === "score")!
         .props["onUpdate:modelValue"] as (s: string) => void
-    )("time");
+    )("score");
     await nextTick();
     pending[1](new Response("", { status: 503 }));
     await vi.waitFor(() =>
@@ -2908,7 +2924,7 @@ describe("daily leaderboard layout", () => {
       const label = find(columns[1], (n) => n.props.class === "ranking-you");
       if (index === 0) expect(label?.text).toBe("あなた");
       else expect(label).toBeUndefined();
-      expect(columns[2].text).toBe("9940点");
+      expect(columns[2].text).toBe("1500点");
       expect(columns[3].props.class).toBe("ranking-time");
       expect(columns[3].text).toBe("60秒");
       expect(row.props.class).toBe(index === 0 ? "daily-self" : "");
