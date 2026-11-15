@@ -1,7 +1,11 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  licenseText,
+  mergeCopies,
+  ownLicense,
   packageDirOf,
   repositoryUrl,
   SERVER_PACKAGES,
@@ -114,5 +118,81 @@ describe("licenses plugin", () => {
     // A homepage that is not a web page is not linked.
     expect(repositoryUrl({ homepage: "javascript:alert(1)" })).toBeNull();
     expect(repositoryUrl({ homepage: "./docs" })).toBeNull();
+  });
+
+  it("keeps a licence's own text, not its bundled dependencies'", () => {
+    const vite = [
+      "# Vite core license",
+      "MIT License",
+      "",
+      "# Licenses of bundled dependencies",
+      "## @jridgewell/trace-mapping",
+    ].join("\n");
+    expect(ownLicense("vite", vite)).toBe("# Vite core license\nMIT License");
+    expect(ownLicense("vue", "MIT License\n\nCopyright (c) Vue\n")).toBe(
+      "MIT License\n\nCopyright (c) Vue",
+    );
+    // Another package may inline its dependencies into the browser code:
+    // their notices stay.
+    expect(ownLicense("some-lib", vite)).toBe(vite);
+  });
+
+  // Should Vite rename the heading, the whole section would come back.
+  it("finds the bundled dependencies in the installed Vite's licence", () => {
+    const installed = fs.readFileSync(
+      path.join(import.meta.dirname, "../node_modules/vite/LICENSE.md"),
+      "utf8",
+    );
+    const own = ownLicense("vite", installed);
+    expect(own).toMatch(/^# Vite core license/);
+    expect(own).not.toMatch(/bundled dependencies/i);
+    expect(own.length).toBeLessThan(installed.length / 10);
+  });
+
+  it("reads every licence file of a package, in name order", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "licenses-"));
+    try {
+      fs.writeFileSync(path.join(dir, "LICENSE-MIT"), "MIT text\n");
+      fs.writeFileSync(path.join(dir, "LICENSE-APACHE"), "Apache text\n");
+      fs.writeFileSync(path.join(dir, "README.md"), "Not a licence");
+      // A directory with a licence's name is not read.
+      fs.mkdirSync(path.join(dir, "LICENSE.d"));
+      // The same text in another format shows once; an empty file not at all.
+      fs.writeFileSync(path.join(dir, "LICENSE.txt"), "MIT text");
+      fs.writeFileSync(path.join(dir, "COPYING"), "\n");
+      expect(licenseText(dir, "dual")).toBe("Apache text\n\n----\n\nMIT text");
+      // A symlinked licence is read through the link.
+      fs.rmSync(path.join(dir, "LICENSE-APACHE"));
+      fs.symlinkSync(
+        path.join(dir, "LICENSE-MIT"),
+        path.join(dir, "LICENSE-APACHE"),
+      );
+      expect(licenseText(dir, "linked")).toBe("MIT text");
+      for (const file of ["LICENSE-MIT", "LICENSE-APACHE", "LICENSE.txt"])
+        fs.rmSync(path.join(dir, file));
+      expect(licenseText(dir, "none")).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lists the same version left in two places once, with both uses", () => {
+    const copy = (version: string) => ({
+      name: "a",
+      version,
+      license: "MIT",
+      url: null,
+      text: null,
+    });
+    expect(
+      mergeCopies([
+        [copy("1.0.0"), new Set(["sw"] as const)],
+        [copy("1.0.0"), new Set(["app"] as const)],
+        [copy("2.0.0"), new Set(["server"] as const)],
+      ]),
+    ).toEqual([
+      { ...copy("1.0.0"), usedIn: ["app", "sw"] },
+      { ...copy("2.0.0"), usedIn: ["server"] },
+    ]);
   });
 });
