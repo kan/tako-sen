@@ -23,6 +23,8 @@ import SuperChallenge from "./ui/SuperChallenge.vue";
 import HistoryDialog from "./ui/HistoryDialog.vue";
 import DailyNoticeSetting from "./ui/DailyNoticeSetting.vue";
 import AboutPanel from "./ui/AboutPanel.vue";
+import InstallSteps from "./ui/InstallSteps.vue";
+import { installOffer, promptInstall } from "./ui/install";
 import {
   completeTutorial,
   startTutorialAchievementSync,
@@ -208,6 +210,7 @@ const toolsDialogTitles = {
   share: { id: "seed-share-title", title: "シード・共有" },
   achievements: { id: "achievements-title", title: "実績" },
   about: { id: "about-title", title: "TAKO-SEN について" },
+  install: { id: "install-title", title: "ホーム画面に追加" },
 } as const;
 type ToolsDialog = keyof typeof toolsDialogTitles;
 function isToolsDialog(name: string): name is ToolsDialog {
@@ -767,6 +770,17 @@ async function navigateTo(
   if (waitingToStart.value) focusReadyButton();
   else menuButton.value?.focus();
   window.scrollTo({ top: 0 });
+}
+
+// The browser's prompt, or the steps on iPhone and iPad (src/ui/install.ts).
+// The button goes as the prompt is shown, so focus stays in the menu.
+function installFromMenu(): void {
+  if (installOffer.value === "steps") {
+    void navigateTo("install");
+    return;
+  }
+  void promptInstall();
+  void nextTick(() => menuDialogRef.value?.focus());
 }
 
 function openMenu(): void {
@@ -2286,6 +2300,14 @@ function formatElapsed(seconds: number): string {
             シード・共有
           </button>
           <button type="button" @click="openTutorial">遊び方</button>
+          <button
+            v-if="installOffer"
+            type="button"
+            :aria-haspopup="installOffer === 'steps' ? 'dialog' : undefined"
+            @click="installFromMenu"
+          >
+            ホーム画面に追加
+          </button>
           <button type="button" @click="navigateTo('about')">
             TAKO-SEN について
           </button>
@@ -2516,6 +2538,7 @@ function formatElapsed(seconds: number): string {
         </div>
         <div class="tools-dialog-body">
           <AboutPanel v-if="toolsDialog === 'about'" />
+          <InstallSteps v-else-if="toolsDialog === 'install'" />
           <AchievementsPanel v-else-if="toolsDialog === 'achievements'" />
           <template v-else-if="toolsDialog === 'settings'">
             <div class="auto-exclusions-settings">

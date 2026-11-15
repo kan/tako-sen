@@ -1,5 +1,6 @@
 import { ref, watch } from "vue";
 import { apiFetch, idWithdrawals, useId } from "./auth";
+import { isAppleTouchDevice, isStandalone } from "./install";
 
 /**
  * The daily notice on this device (kan/tako-sen#10, src/worker/push.ts),
@@ -24,21 +25,6 @@ export type PushProblem = "failed" | "offline" | "too_many";
 export const pushState = ref<PushState>("checking");
 export const pushBusy = ref(false);
 export const pushProblem = ref<PushProblem>();
-
-function isAppleTouchDevice(): boolean {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    // iPadOS reports itself as a Mac.
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-function isStandalone(): boolean {
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    (navigator as { standalone?: boolean }).standalone === true
-  );
-}
 
 let knownKey: string | undefined;
 /**

@@ -4,6 +4,7 @@ import App from "./App.vue";
 import { applyHandoffSettings, parseHandoff } from "./core/handoff";
 import { startId } from "./ui/auth";
 import { offerMigration, offerTransfer } from "./ui/migration";
+import { startInstallOffer } from "./ui/install";
 import { startPushSync } from "./ui/push";
 import { takeDailyRequestFromUrl } from "./ui/daily-request";
 import { shouldReloadForStaleChunk } from "./ui/stale-chunk";
@@ -40,6 +41,7 @@ takeHandoff(true);
 // The daily notice opened this page (`?daily=1`).
 takeDailyRequestFromUrl();
 startId();
+startInstallOffer();
 createApp(App).mount("#app");
 // A QR code opened in a tab already showing the game changes only the
 // fragment, which does not load the page again.

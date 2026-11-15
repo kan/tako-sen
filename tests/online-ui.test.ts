@@ -3169,7 +3169,9 @@ describe("public leaderboard dialog", () => {
     (open.props.onClick as () => void)();
     await nextTick();
     const menu = find(container, (n) => n.props.class === "screen-menu")!;
-    expect(menu.children.map((child) => child.text.trim())).toEqual([
+    // 「ホーム画面に追加」 stays out without an install offer (tests/install.test.ts).
+    const items = menu.children.filter((child) => child.tag === "button");
+    expect(items.map((child) => child.text.trim())).toEqual([
       "履歴・成績",
       "週間ランキング",
       "実績",

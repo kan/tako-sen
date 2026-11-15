@@ -460,6 +460,15 @@ button:not(.cell):not(:disabled):active,
   text-align: left;
 }
 
+.install-steps p,
+.install-steps li {
+  line-height: 1.6;
+}
+
+.install-steps li + li {
+  margin-top: 8px;
+}
+
 .auto-exclusions-settings p,
 .haptics-settings p,
 .sound-settings p,
