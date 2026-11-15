@@ -122,7 +122,7 @@ Clerk の webhook は非同期で、配信失敗や遅延があり得る。失�
 - 開発環境: Worker のバージョン ID は `2aa22633-801b-45b9-9cde-6fa5203c1c2b`。
 - 本番: Worker のバージョン ID は `a13f45f1-25d0-41b8-b5a3-8a0646e1aaf2`。
 - どちらも、トップは `200` で、公開先のメイン JS と CSS はローカルビルドと一致した。Cookie のない `GET /api/daily/history` は `401`、`GET /api/weekly-ranking?difficulty=hard&metric=score` は `200`。
-- Android の Chrome でのインストールと、iPhone の Safari の手順どおりの追加は、実機で確かめる。
+- 利用者が実機で、Android の Chrome でのインストールと、iPhone の Safari の手順どおりの追加を確認した。PC の Chrome や Edge でもボタンが出て、デスクトップアプリとしてインストールされるが、それでよいと判断した。
 
 ## 2026-11-14: 依存の更新（#19）
 
