@@ -92,6 +92,8 @@ describe("the home screen button in the menu", () => {
   it("offers no steps in other browsers or in-app browsers on iPhone", async () => {
     for (const userAgent of [
       IPHONE_SAFARI.replace("Version/26.0", "CriOS/140.0"),
+      IPHONE_SAFARI.replace("Version/26.0", "GSA/400.0"),
+      `${IPHONE_SAFARI} YJApp-IOS jp.co.yahoo.ipn.appli/4.0`,
       `${IPHONE_SAFARI} Line/15.0.0`,
       "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
     ]) {

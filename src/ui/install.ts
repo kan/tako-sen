@@ -28,7 +28,10 @@ function isSafari(): boolean {
   const agent = navigator.userAgent;
   return (
     /Safari\//.test(agent) &&
-    !/CriOS|FxiOS|EdgiOS|OPiOS|Line\/|Instagram|FBAN|FBAV/.test(agent)
+    // GSA: the Google app; YJApp: the Yahoo! JAPAN app.
+    !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\/|YJApp|Line\/|Instagram|FBAN|FBAV/.test(
+      agent,
+    )
   );
 }
 
