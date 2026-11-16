@@ -19,7 +19,8 @@ import {
 } from "../src/worker/profile";
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
-import { fetchAs, session, testAccount } from "./worker-env";
+import { fetchAs, ids, idVars, session, testAccount } from "./worker-env";
+import { createTestIdIssuer } from "./kan-game/test-id-cookie";
 import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
 
 /** The fake ID platform as the Worker's ID binding. */
@@ -542,7 +543,11 @@ describe("consented automatic first-clear ranking", () => {
     // 登録の応答に、その問題のランキングを自分の記録込みで返す。再送でも同じ。
     // 新しく解除した実績は登録したときだけ返し、再送では空にする。
     const ownEntry = [
-      expect.objectContaining({ rank: 1, displayName: "HTTPタコ" }),
+      expect.objectContaining({
+        rank: 1,
+        displayName: "HTTPタコ",
+        isSelf: true,
+      }),
     ];
     const created = await call("plays", "POST", upload);
     expect(created.status).toBe(201);
@@ -597,6 +602,39 @@ describe("consented automatic first-clear ranking", () => {
       "rank",
     ]);
     expect((await call("leaderboards/%ZZ")).status).toBe(400);
+    // With an ID cookie, the rows say which one is the requester's; the IDs
+    // never appear. A cookie that cannot be verified reads as none.
+    const ranking = async (headers: Record<string, string> = {}) => {
+      const answer = await worker.fetch(
+        new Request(
+          `https://example.com/api/leaderboards/${encodeURIComponent(upload.puzzleId)}`,
+          { headers },
+        ) as Parameters<typeof worker.fetch>[0],
+        { ...apiEnv, ...idVars },
+      );
+      expect(answer.status).toBe(200);
+      const text = await answer.text();
+      expect(text).not.toContain(testAccount("http"));
+      return (JSON.parse(text) as { entries: { isSelf?: boolean }[] }).entries;
+    };
+    expect((await ranking()).map((entry) => entry.isSelf)).toEqual([undefined]);
+    const signed = async (account: string) => ({
+      Cookie: await ids.cookie(account),
+    });
+    expect(
+      (await ranking(await signed(testAccount("http")))).map((e) => e.isSelf),
+    ).toEqual([true]);
+    expect(
+      (await ranking(await signed(testAccount("other-http")))).map(
+        (e) => e.isSelf,
+      ),
+    ).toEqual([false]);
+    const stranger = await createTestIdIssuer({ kid: "stranger" });
+    expect(
+      (
+        await ranking({ Cookie: await stranger.cookie(testAccount("http")) })
+      ).map((e) => e.isSelf),
+    ).toEqual([undefined]);
     session.account = testAccount("http");
     // Withdrawal moved to kan-game.app, which calls GameService.deleteAccount.
     expect((await call("account", "DELETE")).status).toBe(404);

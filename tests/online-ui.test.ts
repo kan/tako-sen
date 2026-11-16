@@ -2986,6 +2986,35 @@ describe("public leaderboard dialog", () => {
     expect(self()).toBeUndefined();
   });
 
+  it("marks the row the server marks as the requester's, over the name", async () => {
+    request.mockImplementation(async () =>
+      Response.json({
+        entries: ["🐙タコ", "🐙別の人"].map((displayName, index) => ({
+          rank: index + 1,
+          displayName,
+          elapsedSeconds: 60,
+          hintsUsed: 0,
+          mistakes: 0,
+          isSelf: index === 1,
+        })),
+      }),
+    );
+    const container = root();
+    renderer.render(
+      h(PublicLeaderboard, { puzzle, open: true, gameName: "🐙タコ" }),
+      container,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const self = find(
+      container,
+      (n) => n.tag === "li" && n.props.class === "ranking-self",
+    );
+    expect(find(self!, (n) => n.props.class === "ranking-place")?.text).toBe(
+      "2位",
+    );
+  });
+
   it("decorates the ranking title with the shared octopus without changing its accessible label", async () => {
     const container = root();
     renderer.render(h(PublicLeaderboard, { puzzle, open: true }), container);

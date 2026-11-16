@@ -14,4 +14,6 @@ export interface LeaderboardEntry {
   readonly hintsUsed: number;
   readonly maxHintStage?: HintStage | null;
   readonly mistakes: number;
+  /** Whether the row is the requester's; only when the request had an ID. */
+  readonly isSelf?: boolean;
 }

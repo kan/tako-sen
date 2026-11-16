@@ -157,7 +157,13 @@ export default {
       }
       if (!isPuzzleId(id)) return json({ error: "invalid_puzzle_id" }, 400);
       try {
-        return json({ entries: await listLeaderboard(env.DB, id) });
+        return json({
+          entries: await listLeaderboard(
+            env.DB,
+            id,
+            await optionalAccount(request, env),
+          ),
+        });
       } catch {
         console.error(JSON.stringify({ event: "leaderboard_read_failure" }));
         return json({ error: "service_unavailable" }, 503);
@@ -606,9 +612,11 @@ export default {
         return json({ error: "play_id_conflict" }, 409);
       // The client shows this board's ranking right after a clear; returning
       // it here saves a second request. The record is stored either way.
-      const entries = await listLeaderboard(env.DB, claimed.puzzleId).catch(
-        () => undefined,
-      );
+      const entries = await listLeaderboard(
+        env.DB,
+        claimed.puzzleId,
+        accountId,
+      ).catch(() => undefined);
       return json(
         { status: outcome, entries, newAchievements },
         outcome === "created" ? 201 : 200,
@@ -691,6 +699,23 @@ function json(
     status,
     headers: { "Cache-Control": "no-store", ...headers },
   });
+}
+
+/**
+ * The requester's ID for a read open to anyone, or undefined. The ranking is
+ * the same without one, so a missing, invalid or deleted ID is not an error.
+ */
+async function optionalAccount(
+  request: Request,
+  env: Env,
+): Promise<string | undefined> {
+  if (!request.headers.get("Cookie")) return undefined;
+  try {
+    const auth = await authenticateAccount(request, env);
+    return auth.status === "ok" ? auth.accountId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
