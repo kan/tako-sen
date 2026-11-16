@@ -100,7 +100,51 @@ export async function saveCompletedPlay(
     )
     .run();
   if (inserted.meta.changes > 0) return "created";
+  const outcome = await compareStoredPlay(db, accountId, play);
+  if (!outcome) throw new Error("Stored play disappeared after conflict.");
+  return outcome;
+}
 
+/** New uploads an ID may make in a fixed window of UPLOAD_WINDOW_MS. */
+export const UPLOADS_PER_WINDOW = 10;
+const UPLOAD_WINDOW_MS = 60_000;
+
+/**
+ * Counts one new upload for the ID and says whether it is within the limit,
+ * ranked or not. Taken before the upload is verified, since verifying
+ * regenerates the board; a resend of a stored record takes none.
+ */
+export async function takeUploadSlot(
+  db: D1Database,
+  accountId: string,
+  now: number,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `INSERT INTO publication_limits (account_id, window_start, attempts)
+       VALUES (?, ?, 1)
+       ON CONFLICT(account_id) DO UPDATE SET
+         window_start = IIF(excluded.window_start >= window_start + ${UPLOAD_WINDOW_MS},
+           excluded.window_start, window_start),
+         attempts = IIF(excluded.window_start >= window_start + ${UPLOAD_WINDOW_MS},
+           1, attempts + 1)
+       RETURNING attempts`,
+    )
+    .bind(accountId, now)
+    .first<{ attempts: number }>();
+  return (row?.attempts ?? 0) <= UPLOADS_PER_WINDOW;
+}
+
+/**
+ * How an upload compares with what the ID stored under its playId, or
+ * undefined when nothing is stored. A stored record was verified when it was
+ * saved, so a matching resend needs no new verification.
+ */
+export async function compareStoredPlay(
+  db: D1Database,
+  accountId: string,
+  play: CompletedPlayUpload,
+): Promise<"duplicate" | "conflict" | undefined> {
   const existing = await db
     .prepare(
       `SELECT puzzle_id, seed_code, generator_version, difficulty, started_at,
@@ -109,7 +153,7 @@ export async function saveCompletedPlay(
     )
     .bind(accountId, play.playId)
     .first<StoredPlay>();
-  if (!existing) throw new Error("Stored play disappeared after conflict.");
+  if (!existing) return undefined;
   return samePlay(existing, play) ? "duplicate" : "conflict";
 }
 

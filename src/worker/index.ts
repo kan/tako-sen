@@ -1,11 +1,18 @@
 import { authenticateAccount } from "./auth";
 import { idPlatform } from "./id-platform";
-import { verifyCompletedPlayUpload } from "../core/online-history";
+import {
+  parseCompletedPlayUpload,
+  verifyCompletedPlayUpload,
+  type CompletedPlayUpload,
+} from "../core/online-history";
 import { createSharedPuzzleSnapshot } from "../core/shared-puzzle";
 import {
+  compareStoredPlay,
   listCompletedPlays,
   saveCompletedPlay,
   sweepDeletedAccounts,
+  takeUploadSlot,
+  type SaveOutcome,
 } from "./history";
 import { getSharedPuzzle, saveSharedPuzzle } from "./puzzles";
 import { listLeaderboard } from "./leaderboard";
@@ -560,27 +567,44 @@ export default {
       const read = await readJsonBody(request, maxBodyBytes);
       if (read.error) return read.error;
       const submitted = read.value;
-      let play;
-      try {
-        play = await verifyCompletedPlayUpload(submitted);
-      } catch {
-        return json({ error: "invalid_play" }, 400);
+      const claimed = parseCompletedPlayUpload(submitted);
+      if (!claimed) return json({ error: "invalid_play" }, 400);
+      // A resend is answered from what is stored, and an upload past the
+      // limit is refused, before the board is regenerated: that takes far
+      // more CPU than either lookup.
+      const stored = await compareStoredPlay(env.DB, accountId, claimed);
+      let outcome: SaveOutcome;
+      let newAchievements: string[] = [];
+      if (stored) {
+        outcome = stored;
+      } else {
+        if (!(await takeUploadSlot(env.DB, accountId, Date.now()))) {
+          // Watched in the logs (docs/DEPLOY_PROD.md「濫用の監視」).
+          console.log(
+            JSON.stringify({ event: "play_rate_limited", accountId }),
+          );
+          return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+        }
+        let verified: CompletedPlayUpload;
+        try {
+          verified = await verifyCompletedPlayUpload(claimed);
+        } catch {
+          return json({ error: "invalid_play" }, 400);
+        }
+        ({ result: outcome, newAchievements } = await recordWithAchievements(
+          env.DB,
+          accountId,
+          Date.now(),
+          verified.playId,
+          () => saveCompletedPlay(env.DB, accountId, verified),
+          (status) => status === "created",
+        ));
       }
-      // A const, so the closure below keeps the narrowed type.
-      const verified = play;
-      const { result: outcome, newAchievements } = await recordWithAchievements(
-        env.DB,
-        accountId,
-        Date.now(),
-        verified.playId,
-        () => saveCompletedPlay(env.DB, accountId, verified),
-        (status) => status === "created",
-      );
       if (outcome === "conflict")
         return json({ error: "play_id_conflict" }, 409);
       // The client shows this board's ranking right after a clear; returning
       // it here saves a second request. The record is stored either way.
-      const entries = await listLeaderboard(env.DB, play.puzzleId).catch(
+      const entries = await listLeaderboard(env.DB, claimed.puzzleId).catch(
         () => undefined,
       );
       return json(
@@ -595,8 +619,6 @@ export default {
           error.status === 429 ? { "Retry-After": "60" } : {},
         );
       if (String(error).includes("super_rate_limited"))
-        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
-      if (String(error).includes("play_rate_limited"))
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       console.error(
         JSON.stringify({ event: "history_api_failure", error: String(error) }),

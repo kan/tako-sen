@@ -2,11 +2,15 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CompletedPlayUpload } from "../src/core/online-history";
 import { createCompletedPlayUpload } from "../src/core/online-history";
+import { generatePuzzle } from "../src/core/generator";
+import { encodePuzzleSeed } from "../src/core/puzzle-code";
 import {
   CONSENT_CLOCK_SKEW_MS,
   deleteAccount,
   listCompletedPlays,
   saveCompletedPlay,
+  takeUploadSlot,
+  UPLOADS_PER_WINDOW,
 } from "../src/worker/history";
 import { listLeaderboard } from "../src/worker/leaderboard";
 import {
@@ -333,40 +337,106 @@ describe("consented automatic first-clear ranking", () => {
     for (const owner of owners) await deleteAccount(db, owner);
   });
 
-  it("limits new uploads, leaves retries idempotent, and rolls back denied scores", async () => {
-    const db = env.DB;
-    await registerAccountProfile(db, "limited", "制限タコ");
-    const records = Array.from({ length: 10 }, () => play());
-    for (const record of records)
-      await saveCompletedPlay(db, "limited", record);
-    expect(await saveCompletedPlay(db, "limited", records[0])).toBe(
-      "duplicate",
+  /** POST /api/plays as `account`. */
+  async function upload(account: string, body: unknown): Promise<Response> {
+    session.account = account;
+    try {
+      return await fetchAs(
+        new Request("https://example.com/api/plays", {
+          method: "POST",
+          headers: {
+            Origin: "https://example.com",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+        { DB: env.DB, ALLOWED_ORIGINS: "https://example.com" } as Env,
+      );
+    } finally {
+      session.account = null;
+    }
+  }
+  const slots = async (account: string) =>
+    await env.DB.prepare(
+      "SELECT attempts FROM publication_limits WHERE account_id = ?",
+    )
+      .bind(account)
+      .first("attempts");
+
+  // play() names a puzzle its seed code does not make, so verifying it (which
+  // regenerates the board) answers 400. An answer other than 400 shows the
+  // board was not regenerated.
+  it("answers a resend from the stored record, without a slot or a board", async () => {
+    const account = testAccount("resender");
+    const stored = play();
+    expect(await saveCompletedPlay(env.DB, account, stored)).toBe("created");
+    const resend = await upload(account, stored);
+    expect(resend.status).toBe(200);
+    expect(await resend.json()).toMatchObject({
+      status: "duplicate",
+      newAchievements: [],
+    });
+    expect((await upload(account, { ...stored, mistakes: 1 })).status).toBe(
+      409,
     );
-    const blocked = play({ puzzleId: `p1:${"c".repeat(64)}` });
-    await expect(saveCompletedPlay(db, "limited", blocked)).rejects.toThrow(
-      "play_rate_limited",
-    );
-    expect(await listCompletedPlays(db, "limited")).toHaveLength(10);
-    expect(await listLeaderboard(db, blocked.puzzleId)).toEqual([]);
-    await db
-      .prepare(
-        "UPDATE publication_limits SET window_start = 0 WHERE account_id = ?",
-      )
-      .bind("limited")
+    expect(await slots(account)).toBeNull();
+    // A new upload of the same unverifiable claim is verified, and refused.
+    expect((await upload(account, play())).status).toBe(400);
+    expect(await slots(account)).toBe(1);
+    await deleteAccount(env.DB, account);
+  });
+
+  it("refuses an upload past the limit before regenerating its board", async () => {
+    const account = testAccount("limited");
+    await registerAccountProfile(env.DB, account, "制限タコ");
+    const now = Date.now();
+    for (let i = 0; i < UPLOADS_PER_WINDOW; i++)
+      expect(await takeUploadSlot(env.DB, account, now)).toBe(true);
+    const stored = play();
+    await saveCompletedPlay(env.DB, account, stored);
+    const refused = await upload(account, play());
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("Retry-After")).toBe("60");
+    // A resend is not limited.
+    expect((await upload(account, stored)).status).toBe(200);
+    expect(await listCompletedPlays(env.DB, account)).toHaveLength(1);
+    // The window starts over a minute later.
+    await env.DB.prepare(
+      "UPDATE publication_limits SET window_start = 0 WHERE account_id = ?",
+    )
+      .bind(account)
       .run();
-    expect(await saveCompletedPlay(db, "limited", blocked)).toBe("created");
-    await deleteAccount(db, "limited");
+    expect((await upload(account, play())).status).toBe(400);
+    const puzzle = generatePuzzle({ seed: "upload-slot", difficulty: "easy" });
+    const valid = await createCompletedPlayUpload({
+      id: crypto.randomUUID(),
+      userId: "",
+      status: "completed",
+      seedCode: encodePuzzleSeed(puzzle),
+      generatorVersion: puzzle.generatorVersion ?? "g1",
+      difficulty: puzzle.difficulty ?? "easy",
+      startedAt: later,
+      completedAt: later + 100000,
+      elapsedSeconds: 100,
+      mistakes: 0,
+      hintsUsed: 0,
+    });
+    expect((await upload(account, valid)).status).toBe(201);
+    expect(await slots(account)).toBe(2);
+    await deleteAccount(env.DB, account);
   });
 
   it("limits uploads from an ID without a name too", async () => {
-    const db = env.DB;
-    for (let i = 0; i < 10; i++)
-      await saveCompletedPlay(db, "unnamed-limited", play());
-    await expect(
-      saveCompletedPlay(db, "unnamed-limited", play()),
-    ).rejects.toThrow("play_rate_limited");
-    expect(await listCompletedPlays(db, "unnamed-limited")).toHaveLength(10);
-    await deleteAccount(db, "unnamed-limited");
+    const account = testAccount("unnamed-limited");
+    for (let i = 0; i < UPLOADS_PER_WINDOW; i++)
+      expect(await takeUploadSlot(env.DB, account, Date.now())).toBe(true);
+    expect(await takeUploadSlot(env.DB, account, Date.now())).toBe(false);
+    expect((await upload(account, play())).status).toBe(429);
+    // A slot is not given back when the window is past: the next one starts it.
+    expect(await takeUploadSlot(env.DB, account, Date.now() + 60_000)).toBe(
+      true,
+    );
+    await deleteAccount(env.DB, account);
   });
 
   it("requires authenticated explicit consent and never exposes account identifiers", async () => {
