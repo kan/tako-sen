@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generatePuzzle } from "../src/core/generator";
 import {
   createCompletedPlayUpload,
+  parseCompletedPlayUpload,
   verifyCompletedPlayUpload,
 } from "../src/core/online-history";
 import { encodePuzzleSeed } from "../src/core/puzzle-code";
@@ -44,8 +45,14 @@ describe("online history contract", () => {
     ).rejects.toThrow("Invalid puzzle seed code");
     const upload = await createCompletedPlayUpload(completed);
     await expect(
-      verifyCompletedPlayUpload({ ...upload, puzzleId: "p1:wrong" }),
+      verifyCompletedPlayUpload({
+        ...upload,
+        puzzleId: `p1:${"0".repeat(64)}`,
+      }),
     ).rejects.toThrow("Puzzle ID does not match");
+    await expect(
+      verifyCompletedPlayUpload({ ...upload, puzzleId: "p1:wrong" }),
+    ).rejects.toThrow("Invalid completed play");
     await expect(
       verifyCompletedPlayUpload({ ...upload, elapsedSeconds: -1 }),
     ).rejects.toThrow("Invalid completed play");
@@ -73,5 +80,25 @@ describe("online history contract", () => {
       (await verifyCompletedPlayUpload({ ...upload, maxHintStage: undefined }))
         .maxHintStage,
     ).toBeNull();
+  });
+
+  it("parses a claimed upload without generating its board", async () => {
+    const upload = await createCompletedPlayUpload(completed);
+    expect(parseCompletedPlayUpload(upload)).toEqual(upload);
+    // The puzzle ID is the claim: only verifyCompletedPlayUpload checks it.
+    const claimed = { ...upload, puzzleId: `p1:${"0".repeat(64)}` };
+    expect(parseCompletedPlayUpload(claimed)).toEqual(claimed);
+    for (const tampered of [
+      null,
+      [],
+      { ...upload, puzzleId: "p1:wrong" },
+      { ...upload, playId: "not-a-uuid" },
+      { ...upload, completedAt: 999 },
+      { ...upload, mistakes: 1.5 },
+      { ...upload, generatorVersion: "g99" },
+      { ...upload, seedCode: ` ${upload.seedCode}` },
+      { ...upload, hintsUsed: 0, maxHintStage: 3 },
+    ])
+      expect(parseCompletedPlayUpload(tampered)).toBeUndefined();
   });
 });

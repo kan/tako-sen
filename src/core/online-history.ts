@@ -1,6 +1,6 @@
 import { generatePuzzle } from "./generator";
 import { parsePuzzleSeedCode } from "./puzzle-code";
-import { puzzleId } from "./puzzle-identity";
+import { isPuzzleId, puzzleId } from "./puzzle-identity";
 import type { PlayResult } from "./results";
 import {
   maximumHintStage,
@@ -30,6 +30,19 @@ export interface OnlinePlay extends CompletedPlayUpload {
 export async function createCompletedPlayUpload(
   play: PlayResult,
 ): Promise<CompletedPlayUpload> {
+  const code = checkPlayResult(play);
+  const puzzle = generatePuzzle({
+    version: code.version,
+    seed: code.seed,
+    difficulty: code.difficulty,
+  });
+  return uploadOf(play, await puzzleId(puzzle));
+}
+
+/** Throws unless the play is a well-formed completed one; gives its seed code. */
+function checkPlayResult(
+  play: PlayResult,
+): NonNullable<ReturnType<typeof parsePuzzleSeedCode>> {
   if (
     play.status !== "completed" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -57,37 +70,41 @@ export async function createCompletedPlayUpload(
   ) {
     throw new Error("Invalid puzzle seed code.");
   }
-  const puzzle = generatePuzzle({
-    version: code.version,
-    seed: code.seed,
-    difficulty: code.difficulty,
-  });
+  return code;
+}
+
+/** The upload of a play that passed checkPlayResult, which proved the counts. */
+function uploadOf(play: PlayResult, id: string): CompletedPlayUpload {
   return {
     playId: play.id,
-    puzzleId: await puzzleId(puzzle),
+    puzzleId: id,
     seedCode: play.seedCode,
     generatorVersion: play.generatorVersion,
     difficulty: play.difficulty,
     startedAt: play.startedAt,
-    completedAt: play.completedAt,
-    elapsedSeconds: play.elapsedSeconds,
-    mistakes: play.mistakes,
-    hintsUsed: play.hintsUsed,
+    completedAt: play.completedAt!,
+    elapsedSeconds: play.elapsedSeconds!,
+    mistakes: play.mistakes!,
+    hintsUsed: play.hintsUsed!,
     maxHintStage: maximumHintStage(play),
   };
 }
 
-/** The server recomputes the board identity instead of trusting the claim. */
-export async function verifyCompletedPlayUpload(
+/**
+ * The upload as claimed, after the checks that need no board: field types,
+ * hint progress, the seed code's form and the puzzle ID's form. Undefined when
+ * any fails. The puzzle ID is still the client's claim; the Worker compares a
+ * resend with what it stored before paying for verifyCompletedPlayUpload.
+ */
+export function parseCompletedPlayUpload(
   value: unknown,
-): Promise<CompletedPlayUpload> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Invalid completed play.");
-  }
+): CompletedPlayUpload | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return undefined;
   const record = value as Record<string, unknown>;
   if (
     typeof record.playId !== "string" ||
-    typeof record.puzzleId !== "string" ||
+    !isPuzzleId(record.puzzleId) ||
     typeof record.seedCode !== "string" ||
     typeof record.generatorVersion !== "string" ||
     (record.difficulty !== "easy" &&
@@ -98,10 +115,9 @@ export async function verifyCompletedPlayUpload(
     !isNonnegativeSafeInteger(record.elapsedSeconds) ||
     !isNonnegativeSafeInteger(record.mistakes) ||
     !isNonnegativeSafeInteger(record.hintsUsed)
-  ) {
-    throw new Error("Invalid completed play.");
-  }
-  const verified = await createCompletedPlayUpload({
+  )
+    return undefined;
+  const play: PlayResult = {
     id: record.playId,
     userId: "",
     status: "completed",
@@ -114,8 +130,37 @@ export async function verifyCompletedPlayUpload(
     mistakes: record.mistakes,
     hintsUsed: record.hintsUsed,
     maxHintStage: record.maxHintStage as HintStage | null | undefined,
+  };
+  try {
+    checkPlayResult(play);
+  } catch {
+    return undefined;
+  }
+  return uploadOf(play, record.puzzleId);
+}
+
+/** The server recomputes the board identity instead of trusting the claim. */
+export async function verifyCompletedPlayUpload(
+  value: unknown,
+): Promise<CompletedPlayUpload> {
+  const claimed = parseCompletedPlayUpload(value);
+  if (!claimed) throw new Error("Invalid completed play.");
+  const record = value as Record<string, unknown>;
+  const verified = await createCompletedPlayUpload({
+    id: claimed.playId,
+    userId: "",
+    status: "completed",
+    seedCode: claimed.seedCode,
+    generatorVersion: claimed.generatorVersion,
+    difficulty: claimed.difficulty,
+    startedAt: claimed.startedAt,
+    completedAt: claimed.completedAt,
+    elapsedSeconds: claimed.elapsedSeconds,
+    mistakes: claimed.mistakes,
+    hintsUsed: claimed.hintsUsed,
+    maxHintStage: record.maxHintStage as HintStage | null | undefined,
   });
-  if (record.puzzleId !== verified.puzzleId) {
+  if (claimed.puzzleId !== verified.puzzleId) {
     throw new Error("Puzzle ID does not match the seed code.");
   }
   return verified;
