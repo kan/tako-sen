@@ -15,7 +15,7 @@ export const CONSENT_CLOCK_SKEW_MS = 10 * 60_000;
 
 // The tables that hold an account's records. The super tables go with
 // leaderboard_profiles and super_progress through ON DELETE CASCADE.
-const ACCOUNT_TABLES = [
+export const ACCOUNT_TABLES = [
   "super_progress",
   "daily_attempts",
   "first_ranked_plays",

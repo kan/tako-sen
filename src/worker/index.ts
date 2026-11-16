@@ -75,6 +75,8 @@ export const CRONS = {
   prepareDaily: "0 14 * * *",
   /** 0:05 in Japan: tells subscribed devices the daily has opened. */
   dailyNotice: "5 15 * * *",
+  /** 3:00 in Japan: deletes what deleted IDs wrote after their withdrawal. */
+  sweepDeletedAccounts: "0 18 * * *",
 } as const;
 
 export default {
@@ -644,6 +646,21 @@ export default {
       }
       return;
     }
+    if (controller.cron === CRONS.sweepDeletedAccounts) {
+      // Its own run, so moving or stopping the daily's leaves it alone.
+      try {
+        await sweepDeletedAccounts(env.DB);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "deleted_account_sweep_failure",
+            error: String(error),
+          }),
+        );
+        throw error;
+      }
+      return;
+    }
     if (controller.cron !== CRONS.prepareDaily) {
       console.error(
         JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
@@ -661,17 +678,6 @@ export default {
         }),
       );
       throw error;
-    } finally {
-      try {
-        await sweepDeletedAccounts(env.DB);
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            event: "deleted_account_sweep_failure",
-            error: String(error),
-          }),
-        );
-      }
     }
   },
 } satisfies ExportedHandler<Env>;
