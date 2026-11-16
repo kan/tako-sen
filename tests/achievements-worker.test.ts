@@ -1,13 +1,5 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CompletedPlayUpload } from "../src/core/online-history";
 import {
   listAchievements,
@@ -20,26 +12,15 @@ import { restoreSharedPuzzleSnapshot } from "../src/core/shared-puzzle";
 import type { DailyStatus } from "../src/worker/daily";
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
-import { auth } from "./auth-mock";
+import { fetchAs, session, testAccount } from "./worker-env";
 
-vi.mock("../src/worker/auth", () => import("./auth-mock"));
-
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const now = Date.parse("2026-10-25T03:00:00Z");
 
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
-});
-afterAll(async () => {
-  await platform?.dispose();
+  await migrateTestDatabase(env.DB);
 });
 afterEach(() => {
-  auth.account = null;
+  session.account = null;
 });
 
 function play(overrides: Partial<CompletedPlayUpload> = {}) {
@@ -66,12 +47,10 @@ async function clears(
 ): Promise<void> {
   for (let i = 0; i < count; i++) {
     // まとめて入れると投稿の頻度制限（1 分 10 件、completed_plays の trigger）に掛かる。
-    await platform.env.DB.prepare(
-      "DELETE FROM publication_limits WHERE account_id = ?",
-    )
+    await env.DB.prepare("DELETE FROM publication_limits WHERE account_id = ?")
       .bind(account)
       .run();
-    await saveCompletedPlay(platform.env.DB, account, play(overrides));
+    await saveCompletedPlay(env.DB, account, play(overrides));
   }
 }
 
@@ -80,7 +59,7 @@ async function clears(
  * ここで使う日付は過去にとどめる。
  */
 async function dailyBoard(date: string): Promise<void> {
-  await platform.env.DB.prepare(
+  await env.DB.prepare(
     `INSERT OR IGNORE INTO daily_puzzles (challenge_date, puzzle_id, regions_json, givens_json, created_at)
      VALUES (?, ?, '[]', '[]', 0)`,
   )
@@ -99,7 +78,7 @@ async function dailyClear(
   date: string,
   values: ClearValues = {},
 ): Promise<void> {
-  const db = platform.env.DB;
+  const db = env.DB;
   await dailyBoard(date);
   await db
     .prepare(
@@ -122,7 +101,7 @@ async function superClear(
   account: string,
   values: ClearValues = {},
 ): Promise<void> {
-  const db = platform.env.DB;
+  const db = env.DB;
   await registerAccountProfile(db, account, `超級${account}`).catch(() => {});
   await db
     .prepare("INSERT OR IGNORE INTO super_progress (account_id) VALUES (?)")
@@ -155,7 +134,7 @@ async function superClear(
 
 async function states(account: string) {
   return new Map(
-    (await listAchievements(platform.env.DB, account, now)).map((item) => [
+    (await listAchievements(env.DB, account, now)).map((item) => [
       item.id,
       item,
     ]),
@@ -212,7 +191,7 @@ describe("achievement counting", () => {
       await dailyClear("daily", date);
     // 始めただけの日は数えない。
     await dailyBoard("2026-09-03");
-    await platform.env.DB.prepare(
+    await env.DB.prepare(
       `INSERT INTO daily_attempts (account_id, challenge_date, play_id, started_at)
        VALUES ('daily', '2026-09-03', ?, 0)`,
     )
@@ -259,7 +238,7 @@ describe("achievement counting", () => {
 
 /** 通常のクリアを 1 件、完了の API と同じ手順で登録する */
 function record(account: string, value = play()) {
-  const db = platform.env.DB;
+  const db = env.DB;
   return recordWithAchievements(
     db,
     account,
@@ -289,12 +268,7 @@ describe("achievement unlocking", () => {
 
   it("keeps past unlocks out of the response after the tutorial", async () => {
     // 遊び方の解除が先に行を作っていても、遡った分は応答に載せない。
-    await unlockClientAchievement(
-      platform.env.DB,
-      "tutored",
-      "tutorial_complete",
-      now,
-    );
+    await unlockClientAchievement(env.DB, "tutored", "tutorial_complete", now);
     await clears("tutored", 9);
     expect((await record("tutored")).newAchievements).toEqual(["clear_10"]);
   });
@@ -304,7 +278,7 @@ describe("achievement unlocking", () => {
     await clears("race", 9);
     const [recorded, listed] = await Promise.all([
       record("race"),
-      listAchievements(platform.env.DB, "race", now),
+      listAchievements(env.DB, "race", now),
     ]);
     expect(recorded.newAchievements).toEqual(["clear_10"]);
     expect(listed).toHaveLength(20);
@@ -312,7 +286,7 @@ describe("achievement unlocking", () => {
   });
 
   it("reads nothing for a resent record", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const batch = vi.spyOn(db, "batch");
     const resent = await recordWithAchievements(
       db,
@@ -330,8 +304,8 @@ describe("achievement unlocking", () => {
   it("keeps accounts apart and forgets a deleted account", async () => {
     expect((await record("mine")).newAchievements).toEqual(["clear_first"]);
     expect((await states("other")).get("clear_first")?.unlockedAt).toBeNull();
-    await deleteAccount(platform.env.DB, "mine");
-    const rows = await platform.env.DB.prepare(
+    await deleteAccount(env.DB, "mine");
+    const rows = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM achievements WHERE account_id = 'mine'",
     ).first<{ n: number }>();
     expect(rows?.n).toBe(0);
@@ -362,7 +336,7 @@ describe("achievement unlocking", () => {
   });
 
   it("saves the tutorial unlock once", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(
       await unlockClientAchievement(db, "client", "tutorial_complete", now),
     ).toBe(true);
@@ -390,10 +364,10 @@ describe("achievement unlocking", () => {
 });
 
 describe("achievement API", () => {
-  const env = () =>
-    ({ DB: platform.env.DB, ALLOWED_ORIGINS: "https://example.test" }) as Env;
+  const apiEnv = () =>
+    ({ DB: env.DB, ALLOWED_ORIGINS: "https://example.test" }) as Env;
   const call = (path: string, init?: RequestInit) =>
-    worker.fetch(
+    fetchAs(
       new Request(`https://example.test${path}`, {
         ...init,
         headers: {
@@ -402,12 +376,12 @@ describe("achievement API", () => {
           ...init?.headers,
         },
       }) as Parameters<typeof worker.fetch>[0],
-      env(),
+      apiEnv(),
     );
 
   it("lists every definition for an ID, and needs one", async () => {
     expect((await call("/api/achievements")).status).toBe(401);
-    auth.account = "api-list";
+    session.account = testAccount("api-list");
     const response = await call("/api/achievements");
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -419,7 +393,7 @@ describe("achievement API", () => {
   });
 
   it("unlocks the tutorial from the screen and refuses others", async () => {
-    auth.account = "api-unlock";
+    session.account = testAccount("api-unlock");
     const unlock = (body: unknown) =>
       call("/api/achievements/unlock", {
         method: "POST",
@@ -446,8 +420,12 @@ describe("achievement API", () => {
   });
 
   it("reports a daily clear's unlocks in the completion", async () => {
-    auth.account = "api-daily";
-    await registerAccountProfile(platform.env.DB, "api-daily", "デイリー実績");
+    session.account = testAccount("api-daily");
+    await registerAccountProfile(
+      env.DB,
+      testAccount("api-daily"),
+      "デイリー実績",
+    );
     const status: DailyStatus = await (await call("/api/daily")).json();
     const playId = crypto.randomUUID();
     expect(

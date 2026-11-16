@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { authenticateAccount } from "../src/worker/auth";
 import { deleteAccount } from "../src/worker/history";
 import worker from "../src/worker/index";
@@ -10,14 +10,13 @@ import {
 import { migrateTestDatabase } from "./migrations";
 
 const origin = "https://tako-dev.kan-game.app";
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 /** The ID platform whose key TAKO-SEN knows, and one whose key it does not. */
 let ids: TestIdIssuer;
 let stranger: TestIdIssuer;
 
-function env(id?: Partial<Pick<Env, "ID">>): Env {
+function apiEnv(id?: Partial<Pick<Env, "ID">>): Env {
   return {
-    DB: platform.env.DB,
+    DB: env.DB,
     ALLOWED_ORIGINS: origin,
     ID_COOKIE_NAME: ids.cookieName,
     ID_ISSUER: ids.issuer,
@@ -29,18 +28,9 @@ function env(id?: Partial<Pick<Env, "ID">>): Env {
 const cookie = (sub: string) => ids.cookie(sub);
 
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
+  await migrateTestDatabase(env.DB);
   ids = await createTestIdIssuer();
   stranger = await createTestIdIssuer({ kid: "other-key" });
-});
-
-afterAll(async () => {
-  await platform?.dispose();
 });
 
 describe("the ID cookie", () => {
@@ -50,7 +40,10 @@ describe("the ID cookie", () => {
   it("names the account of a signed cookie", async () => {
     const id = crypto.randomUUID();
     expect(
-      await authenticateAccount(request({ Cookie: await cookie(id) }), env()),
+      await authenticateAccount(
+        request({ Cookie: await cookie(id) }),
+        apiEnv(),
+      ),
     ).toEqual({ status: "ok", accountId: id });
   });
 
@@ -64,20 +57,20 @@ describe("the ID cookie", () => {
       await ids.cookie(id, { nowMs: Date.now() - 400 * 86_400_000 - 1000 }),
     ])
       expect(
-        await authenticateAccount(request({ Cookie: header }), env()),
+        await authenticateAccount(request({ Cookie: header }), apiEnv()),
       ).toEqual({ status: "unauthorized" });
   });
 
   it("refuses a withdrawn ID whose cookie is still valid", async () => {
     const id = crypto.randomUUID();
-    await deleteAccount(platform.env.DB, id);
+    await deleteAccount(env.DB, id);
     const headers = { Cookie: await cookie(id), Origin: origin };
-    expect(await authenticateAccount(request(headers), env())).toEqual({
+    expect(await authenticateAccount(request(headers), apiEnv())).toEqual({
       status: "deleted",
     });
     const response = await worker.fetch(
       request(headers) as Parameters<typeof worker.fetch>[0],
-      env(),
+      apiEnv(),
     );
     expect(response.status).toBe(410);
     expect(await response.json()).toEqual({ error: "id_deleted" });
@@ -90,7 +83,7 @@ describe("the Worker's API", () => {
       new Request(`${origin}${path}`, init) as Parameters<
         typeof worker.fetch
       >[0],
-      env(id),
+      apiEnv(id),
     );
 
   it("passes /api/id/* on to the ID platform unchanged", async () => {

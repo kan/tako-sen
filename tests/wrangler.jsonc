@@ -1,12 +1,24 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "tako-sen-history-test",
+  // The Worker's tests (vitest.config.ts, project "worker"). The entry is the
+  // real one, so `exports.default` and GameService are the deployed Worker's.
+  "name": "tako-test",
+  "main": "../src/worker/main.ts",
   "compatibility_date": "2026-09-15",
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "tako-sen-dev",
-      "database_id": "0030813b-7c99-403d-b33b-85fd632ebf65",
+      "database_name": "tako-test",
+      // Local only: never a real database.
+      "database_id": "00000000-0000-0000-0000-000000000000",
     },
   ],
+  // The ID platform's dev values. ID_PUBLIC_KEYS accepts no cookie: a test
+  // that signs requests passes its own keys (tests/worker-env.ts).
+  "vars": {
+    "ID_COOKIE_NAME": "__Secure-kgdev_id",
+    "ID_ISSUER": "dev.kan-game.app",
+    "ID_PUBLIC_KEYS": "[]",
+    "ALLOWED_ORIGINS": "https://tako-dev.kan-game.app",
+  },
 }

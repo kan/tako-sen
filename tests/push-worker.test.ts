@@ -1,14 +1,7 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import { readFileSync } from "node:fs";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// The Workers runtime has no file system: Vite inlines the file.
+import wranglerConfig from "../wrangler.jsonc?raw";
 import worker, { CRONS } from "../src/worker/index";
 import { generateVapidKeys } from "../scripts/vapid-keys";
 import { deleteAccount } from "../src/worker/history";
@@ -21,11 +14,8 @@ import {
   sendDailyNotifications,
 } from "../src/worker/push";
 import { migrateTestDatabase } from "./migrations";
-import { auth } from "./auth-mock";
+import { fetchAs, session, testAccount } from "./worker-env";
 
-vi.mock("../src/worker/auth", () => import("./auth-mock"));
-
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const ORIGIN = "https://example.com";
 let vapid: { publicKey: string; privateKey: string };
 
@@ -48,9 +38,9 @@ async function browserSubscription(n: number) {
   };
 }
 
-function env(): Env {
+function apiEnv(): Env {
   return {
-    ...platform.env,
+    ...env,
     ALLOWED_ORIGINS: ORIGIN,
     VAPID_PUBLIC_KEY: vapid.publicKey,
     VAPID_PRIVATE_KEY: vapid.privateKey,
@@ -59,7 +49,7 @@ function env(): Env {
 }
 
 function call(path: string, method = "GET", body?: unknown) {
-  return worker.fetch(
+  return fetchAs(
     new Request(`${ORIGIN}${path}`, {
       method,
       headers:
@@ -68,29 +58,23 @@ function call(path: string, method = "GET", body?: unknown) {
           : { Origin: ORIGIN, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     }) as Parameters<typeof worker.fetch>[0],
-    env(),
+    apiEnv(),
   );
 }
 
 async function owners(): Promise<Record<string, string>> {
-  const { results } = await platform.env.DB.prepare(
+  const { results } = await env.DB.prepare(
     "SELECT endpoint, account_id FROM push_subscriptions ORDER BY endpoint",
   ).all<{ endpoint: string; account_id: string }>();
   return Object.fromEntries(results.map((r) => [r.endpoint, r.account_id]));
 }
 
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
+  await migrateTestDatabase(env.DB);
   vapid = await generateVapidKeys();
 });
-afterAll(async () => platform?.dispose());
 beforeEach(async () => {
-  await platform.env.DB.prepare("DELETE FROM push_subscriptions").run();
+  await env.DB.prepare("DELETE FROM push_subscriptions").run();
 });
 
 describe("push subscriptions", () => {
@@ -118,37 +102,39 @@ describe("push subscriptions", () => {
     expect(await (await call("/api/push/key")).json()).toEqual({
       publicKey: vapid.publicKey,
     });
-    const bare = await worker.fetch(
+    const bare = await fetchAs(
       new Request(`${ORIGIN}/api/push/key`) as Parameters<
         typeof worker.fetch
       >[0],
-      { ...platform.env, ALLOWED_ORIGINS: ORIGIN } as Env,
+      { ...env, ALLOWED_ORIGINS: ORIGIN } as Env,
     );
     expect(await bare.json()).toEqual({ publicKey: "" });
   });
 
   it("stores a device under its ID, moves it with the ID, and deletes only its own", async () => {
     const device = await browserSubscription(1);
-    auth.account = null;
+    session.account = null;
     expect((await call("/api/push/subscription", "POST", device)).status).toBe(
       401,
     );
-    auth.account = "first";
+    session.account = testAccount("first");
     expect((await call("/api/push/subscription", "POST", device)).status).toBe(
       200,
     );
-    expect(await owners()).toEqual({ [device.endpoint]: "first" });
+    expect(await owners()).toEqual({ [device.endpoint]: testAccount("first") });
     // The device took another ID over (a transfer code): it follows.
-    auth.account = "second";
+    session.account = testAccount("second");
     await call("/api/push/subscription", "POST", device);
-    expect(await owners()).toEqual({ [device.endpoint]: "second" });
+    expect(await owners()).toEqual({
+      [device.endpoint]: testAccount("second"),
+    });
     // Another ID cannot remove it.
-    auth.account = "first";
+    session.account = testAccount("first");
     await call("/api/push/subscription", "DELETE", {
       endpoint: device.endpoint,
     });
     expect(Object.keys(await owners())).toHaveLength(1);
-    auth.account = "second";
+    session.account = testAccount("second");
     await call("/api/push/subscription", "DELETE", {
       endpoint: device.endpoint,
     });
@@ -164,12 +150,12 @@ describe("push subscriptions", () => {
   });
 
   it("refuses a device past the most an ID may have, and keeps the others", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const save = async (n: number) => {
       const device = await browserSubscription(n);
       return saveSubscription(
         db,
-        "many",
+        testAccount("many"),
         { endpoint: device.endpoint, ...device.keys },
         1000 + n,
       );
@@ -182,7 +168,7 @@ describe("push subscriptions", () => {
     expect(Object.keys(await owners())).toHaveLength(
       MAX_SUBSCRIPTIONS_PER_ACCOUNT,
     );
-    auth.account = "many";
+    session.account = testAccount("many");
     const extra = await browserSubscription(99);
     expect((await call("/api/push/subscription", "POST", extra)).status).toBe(
       409,
@@ -192,19 +178,19 @@ describe("push subscriptions", () => {
   it("goes with a withdrawal", async () => {
     const device = await browserSubscription(1);
     await saveSubscription(
-      platform.env.DB,
+      env.DB,
       "leaving",
       { endpoint: device.endpoint, ...device.keys },
       1,
     );
-    await deleteAccount(platform.env.DB, "leaving");
+    await deleteAccount(env.DB, "leaving");
     expect(await owners()).toEqual({});
   });
 });
 
 describe("the daily notice", () => {
   it("is sent to every device and forgets those the push service no longer knows", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const devices = await Promise.all([1, 2, 3].map(browserSubscription));
     for (const [i, device] of devices.entries())
       await saveSubscription(
@@ -224,7 +210,7 @@ describe("the daily notice", () => {
         status: String(url).endsWith("device-2") ? 410 : 201,
       });
     });
-    const counts = await sendDailyNotifications(env(), send);
+    const counts = await sendDailyNotifications(apiEnv(), send);
     expect(send).toHaveBeenCalledTimes(3);
     expect(counts).toEqual({ sent: 2, gone: 1, failed: 0 });
     expect(Object.keys(await owners()).sort()).toEqual([
@@ -263,13 +249,13 @@ describe("the daily notice", () => {
   it("sends nothing without a key pair", async () => {
     const device = await browserSubscription(1);
     await saveSubscription(
-      platform.env.DB,
+      env.DB,
       "quiet",
       { endpoint: device.endpoint, ...device.keys },
       1,
     );
     const send = vi.fn();
-    expect(await sendDailyNotifications(platform.env, send)).toEqual({
+    expect(await sendDailyNotifications(env, send)).toEqual({
       sent: 0,
       gone: 0,
       failed: 0,
@@ -284,7 +270,7 @@ describe("the daily notice", () => {
     try {
       const device = await browserSubscription(1);
       await saveSubscription(
-        platform.env.DB,
+        env.DB,
         "cron",
         { endpoint: device.endpoint, ...device.keys },
         1,
@@ -294,7 +280,7 @@ describe("the daily notice", () => {
           cron: CRONS.dailyNotice,
           scheduledTime: Date.now(),
         } as ScheduledController,
-        env(),
+        apiEnv(),
       );
       expect(send).toHaveBeenCalledWith(device.endpoint, expect.anything());
     } finally {
@@ -303,7 +289,7 @@ describe("the daily notice", () => {
   });
 
   it("names every cron of wrangler.jsonc, and runs nothing for another", async () => {
-    const config = readFileSync("wrangler.jsonc", "utf8");
+    const config = wranglerConfig;
     const crons = [...config.matchAll(/"crons": \[([^\]]*)\]/g)].map((m) =>
       JSON.parse(`[${m[1]}]`),
     );
@@ -315,7 +301,7 @@ describe("the daily notice", () => {
     try {
       await worker.scheduled(
         { cron: "0 0 * * *", scheduledTime: Date.now() } as ScheduledController,
-        env(),
+        apiEnv(),
       );
       expect(send).not.toHaveBeenCalled();
       expect(error).toHaveBeenCalledWith(

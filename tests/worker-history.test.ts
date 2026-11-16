@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it } from "vitest";
 import { generatePuzzle } from "../src/core/generator";
 import { createCompletedPlayUpload } from "../src/core/online-history";
 import {
@@ -19,15 +19,8 @@ import { listLeaderboard } from "../src/worker/leaderboard";
 import { registerAccountProfile } from "../src/worker/profile";
 import { migrateTestDatabase } from "./migrations";
 
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
-
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
+  await migrateTestDatabase(env.DB);
 });
 
 describe("public puzzle snapshots", () => {
@@ -35,7 +28,7 @@ describe("public puzzle snapshots", () => {
     const snapshot = await createSharedPuzzleSnapshot(
       "TAKO:g1:easy:d1-shared-puzzle",
     );
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(await saveSharedPuzzle(db, snapshot)).toBe("created");
     expect(await saveSharedPuzzle(db, snapshot)).toBe("existing");
     const stored = await getSharedPuzzle(db, snapshot.id);
@@ -64,10 +57,6 @@ describe("public puzzle snapshots", () => {
   });
 });
 
-afterAll(async () => {
-  await platform?.dispose();
-});
-
 describe("account-owned history storage", () => {
   it("deduplicates matching retries, rejects conflicts, and isolates accounts", async () => {
     const puzzle = generatePuzzle({ seed: "d1-history", difficulty: "easy" });
@@ -84,7 +73,7 @@ describe("account-owned history storage", () => {
       hintsUsed: 1,
       status: "completed",
     });
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(await saveCompletedPlay(db, "account-a", play)).toBe("created");
     expect(await saveCompletedPlay(db, "account-a", play)).toBe("duplicate");
     expect(

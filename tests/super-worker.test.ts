@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it } from "vitest";
 import { explainQueryPlan, migrateTestDatabase } from "./migrations";
-import { auth } from "./auth-mock";
+import { fetchAs, session, testAccount } from "./worker-env";
 import { registerAccountProfile } from "../src/worker/profile";
 import { deleteAccount } from "../src/worker/history";
 import { encodeSuperSeed, generateSuperPuzzle } from "../src/core/super-puzzle";
@@ -28,8 +28,6 @@ import {
 } from "../src/worker/super";
 import worker from "../src/worker/index";
 
-vi.mock("../src/worker/auth", () => import("./auth-mock"));
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 let snapshot: SharedPuzzleSnapshot;
 const now = 1_800_000_000_000;
 const seedCode = encodeSuperSeed("super-regression:0");
@@ -40,47 +38,41 @@ const event = (cycle = 0) => ({
 });
 const legacyTrials = [event(), event(), event()];
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
+  await migrateTestDatabase(env.DB, {
+    "0009_super_clear_credit.sql": async () => {
+      await account("migrationpartial");
+      for (const trial of legacyTrials)
+        await recordSuperEvent(env.DB, "migrationpartial", trial, now);
+      await normalClear("migrationpartial", legacyTrials[0]);
+      await normalClear("migrationpartial", legacyTrials[1]);
+      await normalClear("migrationpartial", event()); // unrelated historical clear
+      await account("migrationright");
+      for (let i = 0; i < 10; i++)
+        await recordSuperEvent(env.DB, "migrationright", event(), now);
+      await deferSuperProgress(env.DB, "migrationright", 0);
+    },
   });
-  await migrateTestDatabase(platform.env.DB, undefined, undefined, async () => {
-    await account("migrationpartial");
-    for (const trial of legacyTrials)
-      await recordSuperEvent(platform.env.DB, "migrationpartial", trial, now);
-    await normalClear("migrationpartial", legacyTrials[0]);
-    await normalClear("migrationpartial", legacyTrials[1]);
-    await normalClear("migrationpartial", event()); // unrelated historical clear
-    await account("migrationright");
-    for (let i = 0; i < 10; i++)
-      await recordSuperEvent(platform.env.DB, "migrationright", event(), now);
-    await deferSuperProgress(platform.env.DB, "migrationright", 0);
-  });
-  await registerAccountProfile(platform.env.DB, "creator", "超級作成者");
+  await registerAccountProfile(env.DB, testAccount("creator"), "超級作成者");
   snapshot = await prepareSuperPuzzle(
-    platform.env.DB,
-    "creator",
+    env.DB,
+    testAccount("creator"),
     seedCode,
     now,
   );
 });
-afterAll(async () => {
-  await platform?.dispose();
-});
 async function account(id: string) {
-  await registerAccountProfile(platform.env.DB, id, `超級-${id}`);
-  return getSuperProgress(platform.env.DB, id);
+  await registerAccountProfile(env.DB, id, `超級-${id}`);
+  return getSuperProgress(env.DB, id);
 }
 async function earn(id: string, cycle = 0) {
   for (let i = 0; i < 10; i += 1) {
     const trial = event(cycle);
-    await recordSuperEvent(platform.env.DB, id, trial, now);
+    await recordSuperEvent(env.DB, id, trial, now);
     await normalClear(id, trial);
   }
 }
 async function normalClear(id: string, trial: ReturnType<typeof event>) {
-  await platform.env.DB.prepare(
+  await env.DB.prepare(
     `INSERT INTO completed_plays
     (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
      started_at, completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
@@ -103,7 +95,7 @@ function completion(playId: string): SuperCompletion {
 
 describe("super challenge server", () => {
   it("recounts only completed eligible legacy trials and preserves an earned deferred right", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(await getSuperProgress(db, "migrationpartial")).toEqual({
       cycle: 0,
       count: 2,
@@ -121,7 +113,7 @@ describe("super challenge server", () => {
   });
 
   it("requires matching account, play and seed, not just an event or unrelated completed history", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("verifiedclear");
     await account("otherclear");
     const trial = event();
@@ -137,7 +129,7 @@ describe("super challenge server", () => {
     expect((await getSuperProgress(db, "verifiedclear")).count).toBe(0);
   });
   it("rolls back both right consumption and trial insertion when durable start fails", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("rollback");
     await earn("rollback");
     const id = crypto.randomUUID();
@@ -174,8 +166,10 @@ describe("super challenge server", () => {
     }
   });
   it("requires consent, records exactly ten unique events, persists ignored and deferred events", async () => {
-    const db = platform.env.DB;
-    await expect(getSuperProgress(db, "unknown")).rejects.toMatchObject({
+    const db = env.DB;
+    await expect(
+      getSuperProgress(db, testAccount("unknown")),
+    ).rejects.toMatchObject({
       status: 403,
     });
     expect(await account("credit")).toEqual({
@@ -243,7 +237,7 @@ describe("super challenge server", () => {
     expect((await getSuperProgress(db, "isolated")).count).toBe(0);
   });
   it("atomically consumes once across concurrent tabs, permits identical retries and shared starts", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("race");
     await expect(
       startSuperAttempt(
@@ -299,7 +293,7 @@ describe("super challenge server", () => {
     expect((await getSuperProgress(db, "sharedheld")).count).toBe(10);
   });
   it("does not reveal solutions, validates completion and publishes only the first registered score", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(snapshot).not.toHaveProperty("solution");
     expect(await restoreSharedPuzzleSnapshot(snapshot)).toMatchObject({
       size: 10,
@@ -367,16 +361,18 @@ describe("super challenge server", () => {
     expect(
       (await listSuperRanking(db, "scorea", snapshot.id)).map((r) => r.rank),
     ).toEqual([1, 1]);
-    const candidates = await listSuperCandidates(db, "creator");
+    const candidates = await listSuperCandidates(db, testAccount("creator"));
     expect(candidates.find((r) => r.puzzleId === snapshot.id)?.players).toBe(2);
     expect(await listSuperCandidates(db, "scorea")).not.toContainEqual(
       expect.objectContaining({ puzzleId: snapshot.id }),
     );
     await deleteAccount(db, "scorea");
     expect(await listSuperHistory(db, "scorea")).toHaveLength(0);
-    expect(await listSuperRanking(db, "creator", snapshot.id)).toHaveLength(1);
     expect(
-      (await listSuperCandidates(db, "creator")).find(
+      await listSuperRanking(db, testAccount("creator"), snapshot.id),
+    ).toHaveLength(1);
+    expect(
+      (await listSuperCandidates(db, testAccount("creator"))).find(
         (r) => r.puzzleId === snapshot.id,
       )?.players,
     ).toBe(1);
@@ -385,11 +381,11 @@ describe("super challenge server", () => {
     });
   });
   it("keeps super-v1 codes playable and ranked without offering them as candidates", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const seed = "super-regression:0";
     const legacy = await prepareSuperPuzzle(
       db,
-      "creator",
+      testAccount("creator"),
       encodeSuperSeed(seed, "super-v1"),
       now,
     );
@@ -420,17 +416,19 @@ describe("super challenge server", () => {
         now,
       ),
     ).toBe("completed");
-    expect(await listSuperRanking(db, "creator", legacy.id)).toHaveLength(1);
-    expect(await listSuperCandidates(db, "creator")).not.toContainEqual(
-      expect.objectContaining({ puzzleId: legacy.id }),
-    );
+    expect(
+      await listSuperRanking(db, testAccount("creator"), legacy.id),
+    ).toHaveLength(1);
+    expect(
+      await listSuperCandidates(db, testAccount("creator")),
+    ).not.toContainEqual(expect.objectContaining({ puzzleId: legacy.id }));
     for (const code of ["TAKO:super-v3:hard:seed", ` ${seedCode}`])
       await expect(
-        prepareSuperPuzzle(db, "creator", code, now),
+        prepareSuperPuzzle(db, testAccount("creator"), code, now),
       ).rejects.toMatchObject({ status: 400 });
   });
   it("limits new shared starts without blocking same-ID retries", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("limited");
     const first = {
       playId: crypto.randomUUID(),
@@ -468,7 +466,7 @@ describe("super challenge server", () => {
   });
 
   it("limits new credit events but accepts identical retries and leaves progress unchanged on rejection", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("eventlimit");
     const first = event();
     await recordSuperEvent(db, "eventlimit", first, now);
@@ -505,7 +503,7 @@ describe("super challenge server", () => {
   });
 
   it("rate-limits expensive new preparation while allowing cached retry", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("preparelimit");
     await db
       .prepare(
@@ -529,12 +527,12 @@ describe("super challenge server", () => {
     ).rejects.toMatchObject({ status: 403 });
   });
   it("reads rankings and candidates through the puzzle and completion indexes", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const ranking = await explainQueryPlan(
       db,
       SUPER_RANKING_SQL,
       snapshot.id,
-      "creator",
+      testAccount("creator"),
     );
     expect(ranking).toMatch(
       /SEARCH f USING COVERING INDEX super_first_scores_puzzle \(puzzle_id=\?\)/,
@@ -545,14 +543,14 @@ describe("super challenge server", () => {
         db,
         SUPER_CANDIDATES_SQL,
         "TAKO:super-v2:%",
-        "creator",
+        testAccount("creator"),
       ),
     ).toMatch(
       /SEARCH a USING INDEX super_attempts_completed_puzzle \(account_id=\? AND puzzle_id=\?\)/,
     );
   });
   it("creates progress on the first read and refuses accounts without consent", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await account("progressfirst");
     const initial = { cycle: 0, count: 0, offerPending: false };
     expect(await getSuperProgress(db, "progressfirst")).toEqual(initial);
@@ -579,22 +577,22 @@ describe("super challenge server", () => {
     ).rejects.toMatchObject(refused);
   });
   it("protects API ownership, methods, Origin and body validation", async () => {
-    const env = {
-      DB: platform.env.DB,
+    const apiEnv = {
+      DB: env.DB,
       ALLOWED_ORIGINS: "https://example.test",
     } as Env;
     // Browsers send Origin with every request that changes state.
     const call = (path: string, init?: RequestInit) =>
-      worker.fetch(
+      fetchAs(
         new Request(`https://example.test${path}`, {
           ...init,
           headers: { Origin: "https://example.test", ...init?.headers },
         }) as Parameters<typeof worker.fetch>[0],
-        env,
+        apiEnv,
       );
-    auth.account = null;
+    session.account = null;
     expect((await call("/api/super/progress")).status).toBe(401);
-    auth.account = "creator";
+    session.account = testAccount("creator");
     expect(
       (
         await call("/api/super/progress", {
@@ -602,11 +600,11 @@ describe("super challenge server", () => {
         })
       ).status,
     ).toBe(403);
-    const withoutOrigin = await worker.fetch(
+    const withoutOrigin = await fetchAs(
       new Request("https://example.test/api/super/event", {
         method: "POST",
       }) as Parameters<typeof worker.fetch>[0],
-      env,
+      apiEnv,
     );
     expect(withoutOrigin.status).toBe(403);
     expect((await call("/api/super/progress", { method: "POST" })).status).toBe(
@@ -633,11 +631,11 @@ describe("super challenge server", () => {
       body: JSON.stringify({ ...event(), accountId: "apiisolated" }),
     });
     expect(response.status).toBe(200);
-    expect((await getSuperProgress(platform.env.DB, "creator")).count).toBe(0);
-    expect((await getSuperProgress(platform.env.DB, "apiisolated")).count).toBe(
+    expect((await getSuperProgress(env.DB, testAccount("creator"))).count).toBe(
       0,
     );
-    auth.account = "unknown";
+    expect((await getSuperProgress(env.DB, "apiisolated")).count).toBe(0);
+    session.account = testAccount("unknown");
     expect((await call("/api/super/progress")).status).toBe(403);
   });
 });
