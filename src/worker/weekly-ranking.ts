@@ -1,3 +1,4 @@
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import {
   currentRankingWeek,
   type WeeklyMetric,
@@ -45,7 +46,7 @@ export function weeklyRankingSql(metric: WeeklyQueryMetric): string {
   SELECT p.display_name, t.clears, t.average_score, t.average_seconds,
     RANK() OVER (ORDER BY ${ordering}) AS rank
   FROM totals t JOIN leaderboard_profiles p ON p.account_id = t.account_id
-  WHERE p.consent_version = 1
+  WHERE p.consent_version = ${RANKING_CONSENT_VERSION}
   ORDER BY rank, p.display_name LIMIT 100`;
 }
 

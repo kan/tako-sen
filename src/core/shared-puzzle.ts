@@ -1,7 +1,7 @@
 import { generatePuzzle } from "./generator";
 import { BOARD_SIZE, DAILY_BOARD_SIZE, type Puzzle } from "./model";
 import { isDailyDate, isDailyVersion } from "./daily-puzzle";
-import { puzzleId } from "./puzzle-identity";
+import { isPuzzleId, puzzleId } from "./puzzle-identity";
 import { parsePuzzleSeedCode } from "./puzzle-code";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
@@ -47,8 +47,7 @@ export async function restoreSharedPuzzleSnapshot(
   const snapshot = input as Partial<SharedPuzzleSnapshot>;
   const size = snapshot.size;
   if (
-    typeof snapshot.id !== "string" ||
-    !/^p1:[0-9a-f]{64}$/.test(snapshot.id) ||
+    !isPuzzleId(snapshot.id) ||
     (size !== BOARD_SIZE && size !== DAILY_BOARD_SIZE) ||
     !Array.isArray(snapshot.regions) ||
     snapshot.regions.length !== size * size ||

@@ -2,6 +2,11 @@ import { BOARD_SIZE, DAILY_BOARD_SIZE, type Puzzle } from "./model";
 import { validateSolution } from "./rules";
 import { solvePuzzle } from "./solver";
 
+/** Whether `value` has the form of a puzzle ID (`p1:` and a SHA-256 hex). */
+export function isPuzzleId(value: unknown): value is string {
+  return typeof value === "string" && /^p1:[0-9a-f]{64}$/.test(value);
+}
+
 /** The seed and solution are deliberately absent: identity is the playable board. */
 export function canonicalPuzzleDefinition(
   puzzle: Pick<Puzzle, "size" | "regions" | "givens" | "generatorVersion">,

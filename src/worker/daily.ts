@@ -1,10 +1,11 @@
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import {
   dailyDate,
   dailyVersion,
   generateDailyPuzzle,
   isDailyDate,
 } from "../core/daily-puzzle";
-import { puzzleId } from "../core/puzzle-identity";
+import { isPuzzleId, puzzleId } from "../core/puzzle-identity";
 import {
   restoreSharedPuzzleSnapshot,
   type SharedPuzzleSnapshot,
@@ -180,8 +181,7 @@ export function parseDailyCompletion(value: unknown): DailyCompletion {
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       record.playId,
     ) ||
-    typeof record.puzzleId !== "string" ||
-    !/^p1:[0-9a-f]{64}$/.test(record.puzzleId) ||
+    !isPuzzleId(record.puzzleId) ||
     !Array.isArray(record.pieces) ||
     record.pieces.length !== 10 ||
     !record.pieces.every(
@@ -291,7 +291,7 @@ export async function listDailyLeaderboard(
          RANK() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used) AS rank,
          ROW_NUMBER() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used, p.display_name) AS place
        FROM daily_attempts a JOIN leaderboard_profiles p ON p.account_id = a.account_id
-       WHERE a.challenge_date = ? AND a.completed_at IS NOT NULL AND p.consent_version = 1
+       WHERE a.challenge_date = ? AND a.completed_at IS NOT NULL AND p.consent_version = ${RANKING_CONSENT_VERSION}
      )
      SELECT * FROM ranked WHERE place <= 100 OR account_id = ?
      ORDER BY place LIMIT 101`,

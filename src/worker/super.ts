@@ -7,7 +7,7 @@ import {
   parseSuperSeedCode,
 } from "../core/super-puzzle";
 import { parsePuzzleSeedCode, seedCodePrefix } from "../core/puzzle-code";
-import { puzzleId } from "../core/puzzle-identity";
+import { isPuzzleId, puzzleId } from "../core/puzzle-identity";
 import {
   restoreSharedPuzzleSnapshot,
   type SharedPuzzleSnapshot,
@@ -34,7 +34,6 @@ export class SuperApiError extends Error {
   }
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const identity = /^p1:[0-9a-f]{64}$/;
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new SuperApiError(400, "invalid_body");
@@ -64,7 +63,7 @@ export function parseSuperStart(value: unknown): SuperStart {
     typeof data.playId !== "string" ||
     !uuid.test(data.playId) ||
     typeof data.puzzleId !== "string" ||
-    !identity.test(data.puzzleId) ||
+    !isPuzzleId(data.puzzleId) ||
     !Number.isSafeInteger(data.cycle) ||
     (data.cycle as number) < 0 ||
     (data.entry !== "earned" && data.entry !== "shared")
@@ -380,7 +379,7 @@ export async function completeSuperAttempt(
 const CURRENT_SUPER_CODES = `${seedCodePrefix(SUPER_GENERATOR_VERSION)}%`;
 export const SUPER_CANDIDATES_SQL = `SELECT f.puzzle_id AS puzzleId, p.seed_code AS seedCode, COUNT(*) AS players
     FROM super_first_scores f JOIN super_puzzles p ON p.puzzle_id = f.puzzle_id
-    JOIN leaderboard_profiles n ON n.account_id = f.account_id AND n.consent_version = 1
+    JOIN leaderboard_profiles n ON n.account_id = f.account_id AND n.consent_version = ${RANKING_CONSENT_VERSION}
     WHERE p.seed_code LIKE ?
     AND NOT EXISTS (SELECT 1 FROM super_attempts a WHERE a.account_id = ? AND a.puzzle_id = f.puzzle_id AND a.completed_at IS NOT NULL)
     GROUP BY f.puzzle_id ORDER BY players DESC, RANDOM() LIMIT 30`;
@@ -389,7 +388,7 @@ export const SUPER_RANKING_SQL = `WITH ranked AS (
       RANK() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used) AS rank,
       ROW_NUMBER() OVER (ORDER BY ${rankingScoreSql("a")} DESC, a.elapsed_seconds, a.mistakes, a.hints_used, p.display_name) AS place
     FROM super_first_scores f JOIN super_attempts a ON a.account_id = f.account_id AND a.play_id = f.play_id
-    JOIN leaderboard_profiles p ON p.account_id = f.account_id AND p.consent_version = 1
+    JOIN leaderboard_profiles p ON p.account_id = f.account_id AND p.consent_version = ${RANKING_CONSENT_VERSION}
     WHERE f.puzzle_id = ?)
     SELECT * FROM ranked WHERE place <= 100 OR account_id = ? ORDER BY place LIMIT 101`;
 export async function listSuperCandidates(
@@ -421,7 +420,7 @@ export async function listSuperRanking(
   accountId: string,
   id: string,
 ): Promise<DailyLeaderboardEntry[]> {
-  if (!identity.test(id)) throw new SuperApiError(400, "invalid_puzzle_id");
+  if (!isPuzzleId(id)) throw new SuperApiError(400, "invalid_puzzle_id");
   const rows = await db.prepare(SUPER_RANKING_SQL).bind(id, accountId).all<{
     account_id: string;
     display_name: string;
