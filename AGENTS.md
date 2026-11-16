@@ -142,6 +142,24 @@ Workersが利用できるという理由だけで、Solverや問題生成をサ�
 
 D1 のスキーマ変更はマイグレーションを追加して行い、適用済みのマイグレーションを書き換えないでください。リモートの D1 への適用とデプロイは、利用者の承認を得てから行ってください。
 
+#### kan/game からの写し
+
+次のファイルは kan/game（<https://github.com/kan/game>）からの写しです。書き換えず、kan/game の写し元が変わったら写し直してください。写し直したら、この表の写し元のコミットも更新します。
+
+| ファイル                             | 写し元（kan/game）            | 写し元のコミット |
+| ------------------------------------ | ----------------------------- | ---------------- |
+| `src/worker/id-token.ts`             | `src/token.ts`                | `86882df`        |
+| `src/worker/id-rpc.ts`               | `src/rpc.ts`                  | `567dad0`        |
+| `tests/id-token-vectors.json`        | `test-vectors/id-token.json`  | `86882df`        |
+| `tests/kan-game/fake-id-platform.ts` | `testing/fake-id-platform.ts` | `258c299`        |
+| `tests/kan-game/test-id-cookie.ts`   | `testing/test-id-cookie.ts`   | `258c299`        |
+| `tests/kan-game/0001_initial.sql`    | `migrations/0001_initial.sql` | `1c89d35`        |
+
+写し元のコミットは、そのファイルを最後に変えた kan/game のコミットです。2026-11-16 に kan/game の `3499779` と比べ、どれも差分がないことを確かめました。
+
+- `id-token.ts` は `tests/id-token.test.ts` が `id-token-vectors.json` で確かめます。2 つは同じコミットから写してください
+- `0001_initial.sql` は `tests/legacy-migration.test.ts` が ID 基盤の D1 の代わりに使います。kan/game にマイグレーションが増えたら、写しを足すかを確かめてください
+
 ## ドメインモデル
 
 ゲーム上の概念を明示的にモデル化してください。
