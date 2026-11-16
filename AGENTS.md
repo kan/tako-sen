@@ -400,7 +400,7 @@ SolverやGeneratorをVueのリアクティビティ等へ不要に結合せず�
 - Coreと表示処理の密結合
 - テストやコメントにしか存在しないゲームルール
 
-変更を完了と判断する前に、format、type check、関連テストを実行してください。
+変更を完了と判断する前に、format（`npm run format:check`）、type check（`npm run typecheck`）、関連テストを実行してください。CI も format の崩れで落ちます。
 
 ## スコープ管理
 

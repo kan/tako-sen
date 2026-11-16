@@ -17,5 +17,11 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["./worker-configuration.d.ts", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "*.config.ts"
+  ]
 }
