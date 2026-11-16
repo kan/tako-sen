@@ -75,6 +75,20 @@ node scripts/migrate-legacy.ts --dump "$OUT/export.sql" --expires <移行期間�
 
 告知（R4）までは、`public/_headers` の `X-Robots-Tag: noindex` で検索エンジンに載せません。
 
+## デイリーの seed の秘密（DAILY_SEED_SECRET）
+
+2026-11-17 以降のデイリー（`daily-v3`）は、Worker の secret `DAILY_SEED_SECRET` から盤面を作ります（`docs/DATA_CONTRACT.md`「デイリーチャレンジの契約」）。`tako-dev` と `tako` で別の値にし、どちらも `secrets.required` に入れてあるので、secret がないとデプロイが止まります。**`daily-v3` を含む版を初めて出す前に、両方の環境に登録します。**
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))" | npx wrangler secret put DAILY_SEED_SECRET --env dev
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))" | npx wrangler secret put DAILY_SEED_SECRET --env production
+```
+
+- 値は画面にもチャットにもリポジトリにも出さない（上のとおりパイプで渡す）。控えも要らない。保存済みの盤面は secret に依らないので、失っても困らない
+- `wrangler secret put` はその場で今の Worker の新しい版を出す。旧版のコードは `DAILY_SEED_SECRET` を読まないので、新しい版を出す前に登録しても動作は変わらない。ほかの secret と同じく、利用者の承認を得てから行う
+- secret を替えると、まだ作っていない日の盤面だけが変わる。値が漏れたおそれがあって替えるときは、明日以降の作成済みの行（23:00 以降なら明日の行）を `daily_puzzles` から消してから替える。今日の行は消さない（挑戦中の人の盤面が変わる）
+- 切り替え日（2026-11-17）より前に、日付だけの seed（`daily-v2`）で作った日は、そのまま残る。新しい版を出したのが切り替え日より後でも、それまでに旧版が作った日の盤面は `daily-v2` のまま
+
 ## デイリーの通知の鍵（VAPID）
 
 デイリーの通知（`docs/DATA_CONTRACT.md`「デイリーの通知（Web Push）」）には、環境ごとに鍵の組が要ります。公開鍵は `wrangler.jsonc` の `VAPID_PUBLIC_KEY` に書き、秘密鍵は Worker の secret `VAPID_PRIVATE_KEY` に入れます。`tako-dev` と `tako` は `secrets.required` に入れてあるので、秘密鍵がないとデプロイが止まります。

@@ -12,23 +12,72 @@ import { solvePuzzle } from "./solver";
  */
 export const DAILY_V2_START_DATE = "2026-10-14";
 
+/**
+ * First date built as daily-v3, whose seed comes from a secret
+ * (`dailySeed`): this repository is public, and with a seed made of the date
+ * alone anyone could build and solve a coming day's board in advance. Dates
+ * before it keep their daily-v1 and daily-v2 boards.
+ */
+export const DAILY_V3_START_DATE = "2026-11-17";
+
 /** A date has more than one seed to try, so that every day gets a board. */
 const DAILY_V2_SEEDS = 8;
 
-const DAILY_GENERATORS: Record<string, (date: string) => Puzzle> = {
+/**
+ * Builds a daily board from `seed`, trying `seed:1`, `seed:2`… until one is
+ * hard. The board's own seed is the date: the secret seed of daily-v3 must not
+ * be stored or sent with it.
+ */
+function generateExactDaily(seed: string, date: string): Puzzle {
+  for (let index = 0; index < DAILY_V2_SEEDS; index += 1) {
+    const board = generateExactBoard(
+      index === 0 ? seed : `${seed}:${index}`,
+      DAILY_V2_SPEC,
+    );
+    if (board?.analysis.rating === "hard")
+      return { ...board.puzzle, seed: date };
+  }
+  throw new Error("Could not build a hard 10×10 puzzle.");
+}
+
+const DAILY_GENERATORS: Record<
+  string,
+  (date: string, keyedSeed?: string) => Puzzle
+> = {
   "daily-v1": (date) => generateTenBySeed(date, "daily-v1"),
-  "daily-v2": (date) => {
-    for (let index = 0; index < DAILY_V2_SEEDS; index += 1) {
-      const board = generateExactBoard(
-        index === 0 ? date : `${date}:${index}`,
-        DAILY_V2_SPEC,
-      );
-      if (board?.analysis.rating === "hard")
-        return { ...board.puzzle, seed: date };
-    }
-    throw new Error("Could not build a hard 10×10 puzzle.");
+  "daily-v2": (date) => generateExactDaily(date, date),
+  "daily-v3": (date, keyedSeed) => {
+    if (!keyedSeed) throw new Error("daily-v3 needs the keyed seed.");
+    return {
+      ...generateExactDaily(keyedSeed, date),
+      generatorVersion: "daily-v3",
+    };
   },
 };
+
+/**
+ * The seed of a daily-v3 board: HMAC-SHA256 of `tako-sen-daily:<date>` under
+ * the Worker's secret DAILY_SEED_SECRET, in hex. Without the secret, the
+ * board cannot be built from the date and the code here.
+ */
+export async function dailySeed(secret: string, date: string): Promise<string> {
+  if (!secret) throw new Error("The daily seed secret is not set.");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`tako-sen-daily:${date}`),
+  );
+  return [...new Uint8Array(mac)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 export function isDailyVersion(version: unknown): version is string {
   return (
@@ -38,7 +87,11 @@ export function isDailyVersion(version: unknown): version is string {
 
 /** The version a board for this date is built with when none is stored. */
 export function dailyVersion(date: string): string {
-  return date >= DAILY_V2_START_DATE ? "daily-v2" : "daily-v1";
+  return date >= DAILY_V3_START_DATE
+    ? "daily-v3"
+    : date >= DAILY_V2_START_DATE
+      ? "daily-v2"
+      : "daily-v1";
 }
 
 export function dailyDate(now: number): string {
@@ -53,14 +106,19 @@ export function isDailyDate(value: string): boolean {
   );
 }
 
+/**
+ * The daily board of `date`. daily-v3 needs `keyedSeed`, the date's
+ * `dailySeed`; the earlier versions are built from the date alone.
+ */
 export function generateDailyPuzzle(
   date: string,
   version: string = dailyVersion(date),
+  keyedSeed?: string,
 ): Puzzle {
   if (!isDailyDate(date)) throw new Error("Invalid daily date.");
   if (!isDailyVersion(version))
     throw new Error(`Unsupported daily version: ${version}`);
-  return DAILY_GENERATORS[version](date);
+  return DAILY_GENERATORS[version](date, keyedSeed);
 }
 
 /** The construction of daily-v1 and super-v1: embeds the proven 8×8 hard

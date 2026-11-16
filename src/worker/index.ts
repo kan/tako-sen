@@ -445,7 +445,14 @@ export default {
       }
 
       if (pathname === "/api/daily") {
-        return json(await getDailyStatus(env.DB, accountId, Date.now()));
+        return json(
+          await getDailyStatus(
+            env.DB,
+            accountId,
+            Date.now(),
+            env.DAILY_SEED_SECRET,
+          ),
+        );
       }
 
       // Achievements need an ID only, like the history: no name or consent.
@@ -509,6 +516,7 @@ export default {
               value.date,
               value.playId,
               Date.now(),
+              env.DAILY_SEED_SECRET,
             );
           } catch {
             return json({ error: "invalid_body" }, 400);
@@ -677,7 +685,11 @@ export default {
     }
     try {
       // The planned time, so a late run still prepares the day it was for.
-      await prepareNextDailyPuzzle(env.DB, controller.scheduledTime);
+      await prepareNextDailyPuzzle(
+        env.DB,
+        controller.scheduledTime,
+        env.DAILY_SEED_SECRET,
+      );
     } catch (error) {
       console.error(
         JSON.stringify({

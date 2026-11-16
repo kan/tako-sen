@@ -89,6 +89,11 @@ const apiArgs = [
 ];
 // .dev.vars lists the localhost origins only; roji's URL differs by machine.
 if (rojiUrl) apiArgs.push("--var", `ALLOWED_ORIGINS:${screenOrigins}`);
+// The daily-v3 boards need a seed secret. A local one is fine to be known; a
+// value in this repository's .dev.vars wins.
+const ownVars = fileURLToPath(new URL("../.dev.vars", import.meta.url));
+if (!(existsSync(ownVars) && devVar(ownVars, "DAILY_SEED_SECRET")))
+  apiArgs.push("--var", "DAILY_SEED_SECRET:local-daily-seed");
 // Web Push stays off locally unless a key pair is given, from .dev.vars or
 // here (scripts/generate-vapid-keys.ts).
 for (const name of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"])

@@ -77,6 +77,8 @@ npm run dev
    ALLOWED_ORIGINS="http://localhost:5173"
    ```
 
+   デイリーの盤面を作る `DAILY_SEED_SECRET` は、ここになければ `scripts/dev.mjs` がローカル用の値を渡す
+
 3. ローカル D1 へマイグレーションを適用し、画面を一度ビルドしてから、まとめて起動する（API の `wrangler dev` は `dist` がないと起動しない）
 
    ```bash

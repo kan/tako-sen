@@ -39,8 +39,10 @@
     "VAPID_PUBLIC_KEY": "BBchosiFIPF4nqIPVsI3dZH4B_N_Nf6-vs9oYCTk81C-ze5VRWR9ZxhUIkcEbn4yQMGb2g8Y3ExXZKgfNYeutwQ",
     "VAPID_SUBJECT": "https://kan-game.app",
   },
+  // DAILY_SEED_SECRET makes the daily-v3 boards (src/core/daily-puzzle.ts
+  // dailySeed); scripts/dev.mjs gives a local one unless .dev.vars has it.
   "secrets": {
-    "required": ["ALLOWED_ORIGINS"],
+    "required": ["ALLOWED_ORIGINS", "DAILY_SEED_SECRET"],
   },
   "observability": {
     "enabled": true,
@@ -76,8 +78,9 @@
         "VAPID_PUBLIC_KEY": "BPA7S87ONByvgig1y_amEQIDxUA2zThYdSbYMpi8EbCyi7M1mwxQiU3P0zJDu0e-B181GcQ8POYKUI5FLM3zqpc",
         "VAPID_SUBJECT": "https://kan-game.app",
       },
-      // Not inherited from the top level.
-      "secrets": { "required": ["VAPID_PRIVATE_KEY"] },
+      // Not inherited from the top level. DAILY_SEED_SECRET is the environment's
+      // own (docs/DEPLOY_PROD.md「デイリーの seed の秘密」).
+      "secrets": { "required": ["VAPID_PRIVATE_KEY", "DAILY_SEED_SECRET"] },
     },
     // Production (docs/DEPLOY_PROD.md): `npx wrangler deploy --env production`.
     "production": {
@@ -106,7 +109,7 @@
         "VAPID_PUBLIC_KEY": "BA7Uz9g26veZhYMAJFdv8zqE1KjubVJuguV3-h1uc-m-4j-YS9EVa1F-0oK_TrAqWpGuO80wD9GVoGkuiCwbiYA",
         "VAPID_SUBJECT": "https://kan-game.app",
       },
-      "secrets": { "required": ["VAPID_PRIVATE_KEY"] },
+      "secrets": { "required": ["VAPID_PRIVATE_KEY", "DAILY_SEED_SECRET"] },
     },
   },
 }
