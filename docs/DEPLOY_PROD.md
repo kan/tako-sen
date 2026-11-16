@@ -4,6 +4,19 @@ TAKO-SEN の本番（<https://tako.kan-game.app>）を作り、旧 URL（<https:
 
 リモートの D1 への書き込み、D1 の作成と削除、デプロイは、どれも利用者の承認を得てから行います。
 
+## 通常のデプロイ
+
+構築と移行が済んだあとの、ふだんのデプロイは npm script で行います。どれもビルド（型検査を含む）、リモートの D1 へのマイグレーションの適用、デプロイの順に進み、途中で失敗すると先へ進みません。
+
+```bash
+npm run deploy:dev          # tako-dev.kan-game.app
+npm run deploy:production   # tako.kan-game.app
+```
+
+- 先に `npm run format:check`、`npm test`、`npx wrangler deploy --env <環境> --dry-run` を通す
+- マイグレーションだけを当てるときは `npm run db:migrate:dev` / `npm run db:migrate:production`。未適用のものがなければ何もしない。適用の前に `wrangler` が確認を求める
+- `wrangler.jsonc` の binding や vars を変えたら `npm run cf-typegen` で `worker-configuration.d.ts` を作り直してコミットする
+
 ## 構成
 
 | 環境 | ホスト                  | Worker     | D1             | ID 基盤        | 設定                                 |
@@ -50,7 +63,7 @@ node scripts/migrate-legacy.ts --dump "$OUT/export.sql" --expires <移行期間�
    npx wrangler d1 execute tako-prod --env production --remote --file "$OUT/out/tako-import.sql"
    ```
 
-3. ビルドしてデプロイする
+3. ビルドしてデプロイする（R3 では、取り込んだ D1 に未適用のマイグレーションはない）
 
    ```bash
    npm run build

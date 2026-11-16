@@ -24,7 +24,9 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - run: npm run format:check
       - name: Full tests including generator audit
         run: npm run test:full
+      # The build type-checks first (vue-tsc), so there is no separate step.
       - name: Type check and build
         run: npm run build
