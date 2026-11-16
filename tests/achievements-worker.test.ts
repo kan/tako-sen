@@ -364,8 +364,10 @@ describe("achievement unlocking", () => {
 });
 
 describe("achievement API", () => {
+  // The whole test env (tests/wrangler.jsonc), so the daily routes get
+  // DAILY_SEED_SECRET: from 2026-11-17 on, today's board is daily-v3.
   const apiEnv = () =>
-    ({ DB: env.DB, ALLOWED_ORIGINS: "https://example.test" }) as Env;
+    ({ ...env, ALLOWED_ORIGINS: "https://example.test" }) as Env;
   const call = (path: string, init?: RequestInit) =>
     fetchAs(
       new Request(`https://example.test${path}`, {
