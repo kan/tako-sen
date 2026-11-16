@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import {
   DAILY_V2_START_DATE,
+  DAILY_V3_START_DATE,
+  dailySeed,
   generateDailyPuzzle,
   dailyDate,
   dailyVersion,
@@ -81,9 +83,89 @@ describe("daily challenge puzzle", () => {
     );
     expect(isDailyVersion("daily-v1")).toBe(true);
     expect(isDailyVersion("daily-v2")).toBe(true);
-    expect(isDailyVersion("daily-v3")).toBe(false);
+    expect(isDailyVersion("daily-v3")).toBe(true);
+    expect(isDailyVersion("daily-v4")).toBe(false);
     expect(isDailyVersion("super-v2")).toBe(false);
     expect(() => generateDailyPuzzle("2026-10-16", "super-v2")).toThrow();
+  });
+
+  it.each([
+    [
+      "2026-11-17",
+      "6f7a85656e801feb06827bf09c734f30ea24f84c4b2bcf03653980ea37b382d9",
+    ],
+    [
+      "2026-12-31",
+      "0637c0e662bc41095b6eead031bbab5d9a0e3a35339c59350bf648c9cdab9dfe",
+    ],
+  ])(
+    "preserves the frozen daily-v3 board of a test secret for %s",
+    async (date, expected) => {
+      const seed = await dailySeed("test-secret", date);
+      const hash = createHash("sha256")
+        .update(JSON.stringify(generateDailyPuzzle(date, "daily-v3", seed)))
+        .digest("hex");
+      expect(hash).toBe(expected);
+    },
+  );
+
+  it("switches to daily-v3 on its start date", () => {
+    const dayBefore = new Date(Date.parse(DAILY_V3_START_DATE) - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    expect(dailyVersion(dayBefore)).toBe("daily-v2");
+    expect(dailyVersion(DAILY_V3_START_DATE)).toBe("daily-v3");
+    // The date alone builds no daily-v3 board.
+    expect(() => generateDailyPuzzle(DAILY_V3_START_DATE)).toThrow(
+      "keyed seed",
+    );
+  });
+
+  it("derives the daily-v3 seed from the secret and the date", async () => {
+    // HMAC-SHA256("test-secret", "tako-sen-daily:2026-11-17"), checked with
+    // Node's crypto so the Web Crypto call cannot drift unnoticed.
+    const { createHmac } = await import("node:crypto");
+    const expected = createHmac("sha256", "test-secret")
+      .update("tako-sen-daily:2026-11-17")
+      .digest("hex");
+    expect(await dailySeed("test-secret", "2026-11-17")).toBe(expected);
+    expect(await dailySeed("test-secret", "2026-11-18")).not.toBe(expected);
+    expect(await dailySeed("other-secret", "2026-11-17")).not.toBe(expected);
+    await expect(dailySeed("", "2026-11-17")).rejects.toThrow();
+  });
+
+  it("builds daily-v3 from the keyed seed, keeping the secret seed out of the board", async () => {
+    const date = "2026-11-17";
+    const seed = await dailySeed("test-secret", date);
+    const puzzle = generateDailyPuzzle(date, "daily-v3", seed);
+    expect(puzzle.generatorVersion).toBe("daily-v3");
+    expect(puzzle.seed).toBe(date);
+    expect(JSON.stringify(puzzle)).not.toContain(seed);
+    expect(generateDailyPuzzle(date, "daily-v3", seed)).toEqual(puzzle);
+    const analysis = analyzePuzzleDifficulty(puzzle);
+    expect(solvePuzzle(puzzle, { maxSolutions: 2 }).status).toBe("unique");
+    expect(analysis).toMatchObject({ solved: true, rating: "hard" });
+    expect(shapeViolations(puzzle, DAILY_V2_SPEC.shape)).toBe(0);
+    // Another secret, or the date's own daily-v2 seed, gives another board.
+    const other = generateDailyPuzzle(
+      date,
+      "daily-v3",
+      await dailySeed("other-secret", date),
+    );
+    expect(other.regions).not.toEqual(puzzle.regions);
+    expect(generateDailyPuzzle(date, "daily-v2").regions).not.toEqual(
+      puzzle.regions,
+    );
+    const snapshot = {
+      id: await puzzleId(puzzle),
+      size: puzzle.size,
+      regions: puzzle.regions,
+      givens: puzzle.givens,
+      seed: puzzle.seed,
+      difficulty: puzzle.difficulty,
+      generatorVersion: puzzle.generatorVersion,
+    };
+    expect(await restoreSharedPuzzleSnapshot(snapshot)).toEqual(puzzle);
   });
 
   it.each(["2026-10-16", "2026-11-01", "2027-02-28"])(

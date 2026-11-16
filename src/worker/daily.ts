@@ -1,6 +1,7 @@
 import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import {
   dailyDate,
+  dailySeed,
   dailyVersion,
   generateDailyPuzzle,
   isDailyDate,
@@ -25,13 +26,18 @@ export interface DailyStatus {
   readonly playId?: string;
 }
 
+/**
+ * Today's daily (Japan time) for the ID. Only today's board is ever sent:
+ * tomorrow's, built at 23:00, waits in daily_puzzles until midnight.
+ */
 export async function getDailyStatus(
   db: D1Database,
   accountId: string,
   now: number,
+  seedSecret: string,
 ): Promise<DailyStatus> {
   const date = dailyDate(now);
-  const puzzle = await getOrCreateDailyPuzzle(db, date, now);
+  const puzzle = await getOrCreateDailyPuzzle(db, date, now, seedSecret);
   const attempt = await db
     .prepare(
       "SELECT play_id, completed_at FROM daily_attempts WHERE account_id = ? AND challenge_date = ?",
@@ -50,16 +56,29 @@ export async function getDailyStatus(
   };
 }
 
+/**
+ * The stored board of `date`, built and stored first if there is none.
+ * `seedSecret` is the Worker's DAILY_SEED_SECRET, which daily-v3 boards are
+ * built from (src/core/daily-puzzle.ts dailySeed). A stored board is read
+ * back as it is, so it never depends on the secret again.
+ */
 export async function getOrCreateDailyPuzzle(
   db: D1Database,
   date: string,
   now: number,
+  seedSecret: string,
 ): Promise<SharedPuzzleSnapshot> {
   if (!isDailyDate(date)) throw new Error("Invalid daily date.");
   const existing = await readDailyPuzzle(db, date);
   if (existing) return existing;
   const generatorVersion = dailyVersion(date);
-  const puzzle = generateDailyPuzzle(date, generatorVersion);
+  const puzzle = generateDailyPuzzle(
+    date,
+    generatorVersion,
+    generatorVersion === "daily-v3"
+      ? await dailySeed(seedSecret, date)
+      : undefined,
+  );
   const snapshot: SharedPuzzleSnapshot = {
     id: await puzzleId(puzzle),
     size: puzzle.size,
@@ -91,8 +110,14 @@ export async function getOrCreateDailyPuzzle(
 export async function prepareNextDailyPuzzle(
   db: D1Database,
   now: number,
+  seedSecret: string,
 ): Promise<void> {
-  await getOrCreateDailyPuzzle(db, dailyDate(now + 24 * 60 * 60 * 1000), now);
+  await getOrCreateDailyPuzzle(
+    db,
+    dailyDate(now + 24 * 60 * 60 * 1000),
+    now,
+    seedSecret,
+  );
 }
 
 async function readDailyPuzzle(
@@ -129,6 +154,7 @@ export async function startDailyAttempt(
   date: string,
   playId: string,
   now: number,
+  seedSecret: string,
 ): Promise<
   "started" | "duplicate" | "already_started" | "completed" | "expired"
 > {
@@ -139,7 +165,7 @@ export async function startDailyAttempt(
     )
   )
     throw new Error("Invalid play ID.");
-  await getOrCreateDailyPuzzle(db, date, now);
+  await getOrCreateDailyPuzzle(db, date, now, seedSecret);
   const inserted = await db
     .prepare(
       `INSERT INTO daily_attempts (account_id, challenge_date, play_id, started_at)

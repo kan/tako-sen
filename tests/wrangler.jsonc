@@ -20,5 +20,7 @@
     "ID_ISSUER": "dev.kan-game.app",
     "ID_PUBLIC_KEYS": "[]",
     "ALLOWED_ORIGINS": "https://tako-dev.kan-game.app",
+    // A secret in every deployed environment; a known value here.
+    "DAILY_SEED_SECRET": "test-secret",
   },
 }
