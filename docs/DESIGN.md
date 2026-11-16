@@ -820,6 +820,14 @@ Cloudflare Workersはデプロイ基盤と将来的なサーバー機能の余�
 
 Workersを採用していること自体を理由に、ゲームをネットワーク依存にしてはいけません。
 
+画面（Static Assets）の応答には、`public/_headers` で次のヘッダーをすべてのパスに付けます（kan-game.app の他のゲームと同じ）。API の応答のヘッダーは Worker が付けます。
+
+- `Content-Security-Policy: frame-ancestors 'none'; base-uri 'none'; form-action 'self'`: ほかのサイトが iframe に入れて操作を横取りすること（クリックジャッキング）、`<base>` の差し込み、外へのフォームの送信を防ぐ。スクリプトや画像の読み込み元は制限しない
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+開発環境（`tako-dev.kan-game.app`）には、これに加えて `X-Robots-Tag: noindex` を付けます。
+
 ---
 
 # 22. 初期プロトタイプのマイルストーン
