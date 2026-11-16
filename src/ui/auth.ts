@@ -151,13 +151,15 @@ function forgetId(): void {
   idWithdrawals.value++;
 }
 
-/** How often a device without an ID asks again (the platform was down). */
-const NO_ID_RETRY_MS = 30_000;
+/** How often a device asks again while its ID is not confirmed. */
+const UNCONFIRMED_RETRY_MS = 30_000;
 
 /**
  * Starts the ID once per page: the last known ID at once, then the platform's
  * answer, again whenever the connection comes back, and every half minute for
- * as long as the device has no ID.
+ * as long as the platform has not confirmed an ID. A device that knows its ID
+ * from before waits for that too: the platform may have been down when the
+ * page opened, while the browser stayed "online".
  */
 export function startId(): void {
   if (started) return;
@@ -165,8 +167,10 @@ export function startId(): void {
   id.value = storedId();
   window.addEventListener("online", () => void refreshId());
   window.setInterval(() => {
-    if (!id.value) void refreshId();
-  }, NO_ID_RETRY_MS);
+    // "loading" is a question already out; refreshId would join it anyway.
+    if (status.value !== "ready" && status.value !== "loading")
+      void refreshId();
+  }, UNCONFIRMED_RETRY_MS);
   void refreshId();
 }
 

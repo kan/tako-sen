@@ -10,7 +10,7 @@ const ID_B = "22222222-2222-4222-8222-222222222222";
 let storage: Map<string, string>;
 let fetchMock: ReturnType<typeof vi.fn>;
 let listeners: Map<string, () => void>;
-/** startId's retry timer for a device without an ID. */
+/** startId's retry timer for a device whose ID is not confirmed. */
 let retryTick: (() => void) | undefined;
 
 beforeEach(() => {
@@ -93,6 +93,57 @@ describe("the device's ID", () => {
     fetchMock.mockClear();
     retryTick!();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("asks again while a known ID is unconfirmed, until the platform answers", async () => {
+    // The device knows its ID from before; the platform is down at start.
+    storage.set("tako-sen.kan-game-id.v1", ID_A);
+    fetchMock.mockResolvedValue(answer(503));
+    const auth = await load();
+    auth.startId();
+    const { id, status } = auth.useId();
+    await vi.waitFor(() => expect(status.value).toBe("unavailable"));
+    expect(id.value).toBe(ID_A);
+    retryTick!();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(status.value).toBe("unavailable"));
+    // The platform is back; no reload and no "online" event.
+    fetchMock.mockResolvedValue(answer(200, { id: ID_A, name: "タコ" }));
+    retryTick!();
+    await vi.waitFor(() => expect(status.value).toBe("ready"));
+    expect(id.value).toBe(ID_A);
+    // Confirmed, the timer no longer asks.
+    fetchMock.mockClear();
+    retryTick!();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("asks again while a known ID is unconfirmed because the fetch failed", async () => {
+    storage.set("tako-sen.kan-game-id.v1", ID_A);
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    const auth = await load();
+    auth.startId();
+    const { status } = auth.useId();
+    await vi.waitFor(() => expect(status.value).toBe("offline"));
+    fetchMock.mockResolvedValue(answer(200, { id: ID_A, name: null }));
+    retryTick!();
+    await vi.waitFor(() => expect(status.value).toBe("ready"));
+  });
+
+  it("does not ask from the timer while a question is already out", async () => {
+    storage.set("tako-sen.kan-game-id.v1", ID_A);
+    let reply: (response: Response) => void = () => {};
+    fetchMock.mockReturnValue(new Promise((resolve) => (reply = resolve)));
+    const auth = await load();
+    auth.startId();
+    const { status } = auth.useId();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(status.value).toBe("loading");
+    retryTick!();
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    reply(answer(200, { id: ID_A, name: null }));
+    await vi.waitFor(() => expect(status.value).toBe("ready"));
   });
 
   it("does not let an older session answer undo a transfer", async () => {
