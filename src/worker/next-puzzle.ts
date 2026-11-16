@@ -1,3 +1,4 @@
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import type { PuzzleDifficulty } from "../core/model";
 import type { RankedPuzzleCandidate } from "../core/next-puzzle";
 import { GENERATOR_VERSION } from "../core/generator";
@@ -19,7 +20,7 @@ export const RANKED_PUZZLE_CANDIDATES_SQL = `SELECT c.puzzle_id AS puzzleId, MIN
          AND c.difficulty = ?
          AND c.seed_code LIKE ?
          AND c.account_id IN (
-           SELECT account_id FROM leaderboard_profiles WHERE consent_version = 1
+           SELECT account_id FROM leaderboard_profiles WHERE consent_version = ${RANKING_CONSENT_VERSION}
          )
          AND NOT EXISTS (
            SELECT 1 FROM completed_plays own

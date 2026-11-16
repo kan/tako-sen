@@ -1,3 +1,4 @@
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import type { LeaderboardEntry } from "../core/leaderboard";
 import type { HintStage } from "../core/hint-progress";
 import { rankingScoreSql } from "./ranking-score-sql";
@@ -8,7 +9,7 @@ export const LEADERBOARD_SQL = `SELECT p.display_name, c.elapsed_seconds, c.hint
        RANK() OVER (ORDER BY ${rankingScoreSql("c")} DESC, c.elapsed_seconds, c.mistakes, c.hints_used) AS rank
      FROM completed_plays c
      JOIN leaderboard_profiles p ON p.account_id = c.account_id
-     WHERE c.puzzle_id = ? AND p.consent_version = 1 AND c.is_public = 1
+     WHERE c.puzzle_id = ? AND p.consent_version = ${RANKING_CONSENT_VERSION} AND c.is_public = 1
      ORDER BY rank, p.display_name LIMIT 100`;
 
 export async function listLeaderboard(

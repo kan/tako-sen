@@ -1,3 +1,4 @@
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import type { CompletedPlayUpload, OnlinePlay } from "../core/online-history";
 import { maximumHintStage, type HintStage } from "../core/hint-progress";
 
@@ -78,7 +79,7 @@ export async function saveCompletedPlay(
         started_at, completed_at, elapsed_seconds, mistakes, hints_used, max_hint_stage, ranking_eligible)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
          EXISTS (SELECT 1 FROM leaderboard_profiles
-           WHERE account_id = ? AND consent_version = 1 AND consented_at <= ?))
+           WHERE account_id = ? AND consent_version = ${RANKING_CONSENT_VERSION} AND consented_at <= ?))
        ON CONFLICT(account_id, play_id) DO NOTHING`,
     )
     .bind(

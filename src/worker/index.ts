@@ -28,6 +28,7 @@ import {
   startDailyAttempt,
 } from "./daily";
 import { isDailyDate } from "../core/daily-puzzle";
+import { isPuzzleId } from "../core/puzzle-identity";
 import {
   SuperApiError,
   getSuperProgress,
@@ -145,8 +146,7 @@ export default {
       } catch {
         return json({ error: "invalid_puzzle_id" }, 400);
       }
-      if (!/^p1:[0-9a-f]{64}$/.test(id))
-        return json({ error: "invalid_puzzle_id" }, 400);
+      if (!isPuzzleId(id)) return json({ error: "invalid_puzzle_id" }, 400);
       try {
         return json({ entries: await listLeaderboard(env.DB, id) });
       } catch {
@@ -163,8 +163,7 @@ export default {
       } catch {
         return json({ error: "invalid_puzzle_id" }, 400);
       }
-      if (!/^p1:[0-9a-f]{64}$/.test(id))
-        return json({ error: "invalid_puzzle_id" }, 400);
+      if (!isPuzzleId(id)) return json({ error: "invalid_puzzle_id" }, 400);
       try {
         const snapshot = await getSharedPuzzle(env.DB, id);
         return snapshot
@@ -272,16 +271,9 @@ export default {
               new URL(request.url).searchParams.get("puzzleId") ?? "",
             ),
           });
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let body: unknown;
-        try {
-          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, maxBodyBytes);
+        if (read.error) return read.error;
+        const body = read.value;
         if (pathname === "/api/super/event")
           return json({
             progress: await recordSuperEvent(
@@ -359,16 +351,9 @@ export default {
       }
 
       if (pathname === "/api/push/subscription") {
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let body: unknown;
-        try {
-          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, maxBodyBytes);
+        if (read.error) return read.error;
+        const body = read.value;
         if (request.method === "DELETE") {
           const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
           if (typeof endpoint !== "string")
@@ -393,16 +378,12 @@ export default {
         // the ID (POST /api/id/session), so this reads TAKO-SEN's own only.
         if (request.method === "GET")
           return json({ profile: await getAccountProfile(env.DB, accountId) });
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let body;
-        try {
-          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, maxBodyBytes);
+        if (read.error) return read.error;
+        const body = read.value as {
+          displayName?: unknown;
+          consentVersion?: unknown;
+        } | null;
         const requested = validateGameName(body?.displayName);
         if (!requested || body?.consentVersion !== RANKING_CONSENT_VERSION)
           return json({ error: "invalid_profile" }, 400);
@@ -460,16 +441,9 @@ export default {
       }
 
       if (isAchievementUnlock) {
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let body: unknown;
-        try {
-          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, maxBodyBytes);
+        if (read.error) return read.error;
+        const body = read.value;
         const id = (body as { id?: unknown } | null)?.id;
         if (typeof id !== "string" || !isClientUnlockable(id))
           return json({ error: "invalid_achievement" }, 400);
@@ -501,16 +475,9 @@ export default {
       if (isDailyWrite) {
         if (!(await getAccountProfile(env.DB, accountId)))
           return json({ error: "profile_required" }, 403);
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let body: unknown;
-        try {
-          body = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, maxBodyBytes);
+        if (read.error) return read.error;
+        const body = read.value;
         if (pathname === "/api/daily/start") {
           const value = body as Record<string, unknown> | null;
           if (
@@ -558,20 +525,13 @@ export default {
       }
 
       if (isPuzzleCreation) {
-        if (
-          !request.headers.get("Content-Type")?.startsWith("application/json")
-        )
-          return json({ error: "unsupported_media_type" }, 415);
-        let seedCode: unknown;
-        try {
-          const body: unknown = JSON.parse(await readLimitedBody(request, 512));
-          seedCode =
-            body && typeof body === "object" && "seedCode" in body
-              ? body.seedCode
-              : undefined;
-        } catch {
-          return json({ error: "invalid_body" }, 400);
-        }
+        const read = await readJsonBody(request, 512);
+        if (read.error) return read.error;
+        const body = read.value;
+        const seedCode =
+          body && typeof body === "object" && "seedCode" in body
+            ? body.seedCode
+            : undefined;
         if (typeof seedCode !== "string")
           return json({ error: "invalid_seed_code" }, 400);
         let snapshot;
@@ -597,14 +557,9 @@ export default {
       }
       // Any ID's clears are its history, with or without a name; only clears
       // after consent are ranked (saveCompletedPlay).
-      if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-        return json({ error: "unsupported_media_type" }, 415);
-      let submitted: unknown;
-      try {
-        submitted = JSON.parse(await readLimitedBody(request, maxBodyBytes));
-      } catch {
-        return json({ error: "invalid_body" }, 400);
-      }
+      const read = await readJsonBody(request, maxBodyBytes);
+      if (read.error) return read.error;
+      const submitted = read.value;
       let play;
       try {
         play = await verifyCompletedPlayUpload(submitted);
@@ -708,6 +663,23 @@ function json(
     status,
     headers: { "Cache-Control": "no-store", ...headers },
   });
+}
+
+/**
+ * The JSON body of a request, or the response that refuses it: 415 without a
+ * JSON Content-Type, 400 for a body past `limit` bytes or not JSON.
+ */
+async function readJsonBody(
+  request: Request,
+  limit: number,
+): Promise<{ value: unknown; error?: undefined } | { error: Response }> {
+  if (!request.headers.get("Content-Type")?.startsWith("application/json"))
+    return { error: json({ error: "unsupported_media_type" }, 415) };
+  try {
+    return { value: JSON.parse(await readLimitedBody(request, limit)) };
+  } catch {
+    return { error: json({ error: "invalid_body" }, 400) };
+  }
 }
 
 async function readLimitedBody(
