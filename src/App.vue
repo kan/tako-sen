@@ -471,9 +471,13 @@ function showClearRanking(
   clearRankingEntries.value = rankingPreview(
     entries.map((entry) => ({
       ...entry,
+      // Normal boards mark the row too when the request carried the ID; an
+      // answer without the mark falls back to the player's name.
       isSelf: special
         ? !!entry.isSelf
-        : !!onlineGameName.value && entry.displayName === onlineGameName.value,
+        : (entry.isSelf ??
+          (!!onlineGameName.value &&
+            entry.displayName === onlineGameName.value)),
     })),
     (entry) => entry.isSelf,
   );

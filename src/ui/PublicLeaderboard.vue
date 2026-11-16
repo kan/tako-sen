@@ -75,6 +75,16 @@ async function refresh(): Promise<void> {
   }
 }
 
+/**
+ * The server marks the requester's row when the request carried an ID; a
+ * response without the mark falls back to the player's name.
+ */
+function isSelf(entry: LeaderboardEntry): boolean {
+  return (
+    entry.isSelf ?? (!!props.gameName && entry.displayName === props.gameName)
+  );
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -138,20 +148,13 @@ onUnmounted(() => {
           <li
             v-for="entry in entries"
             :key="entry.displayName"
-            :class="{
-              'ranking-self':
-                !!props.gameName && entry.displayName === props.gameName,
-            }"
+            :class="{ 'ranking-self': isSelf(entry) }"
           >
             <div class="ranking-score-main">
               <strong class="ranking-place">{{ entry.rank }}位</strong>
               <div class="ranking-name">
                 <GameName :name="entry.displayName" />
-                <strong
-                  v-if="props.gameName && entry.displayName === props.gameName"
-                  class="ranking-you"
-                  >あなた</strong
-                >
+                <strong v-if="isSelf(entry)" class="ranking-you">あなた</strong>
               </div>
               <strong>{{ rankingScore(entry) }}点</strong>
               <strong class="ranking-time">{{ entry.elapsedSeconds }}秒</strong>
