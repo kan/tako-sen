@@ -1,9 +1,23 @@
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { configDefaults, defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 
 const uiTests = ["tests/online-ui.test.ts"];
+// The Worker's tests run in the Workers runtime (workerd), against a local D1.
+const workerTests = [
+  "tests/achievements-worker.test.ts",
+  "tests/daily-worker.test.ts",
+  "tests/entrypoint.test.ts",
+  "tests/id-auth.test.ts",
+  "tests/leaderboard.test.ts",
+  "tests/next-puzzle-worker.test.ts",
+  "tests/push-worker.test.ts",
+  "tests/super-worker.test.ts",
+  "tests/weekly-ranking.test.ts",
+  "tests/worker-history.test.ts",
+];
 
-export default defineConfig({
+export default defineConfig(async () => ({
   plugins: [vue()],
   test: {
     environment: "node",
@@ -16,7 +30,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "node",
-          exclude: [...configDefaults.exclude, ...uiTests],
+          exclude: [...configDefaults.exclude, ...uiTests, ...workerTests],
         },
       },
       {
@@ -30,6 +44,23 @@ export default defineConfig({
           environment: "./tests/client-environment.ts",
         },
       },
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./tests/wrangler.jsonc" },
+            miniflare: {
+              bindings: {
+                TEST_MIGRATIONS: await readD1Migrations("./migrations"),
+              },
+            },
+          }),
+        ],
+        test: {
+          name: "worker",
+          include: workerTests,
+          testTimeout: 30000,
+        },
+      },
     ],
   },
-});
+}));

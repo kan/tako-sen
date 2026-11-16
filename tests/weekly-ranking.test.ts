@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it } from "vitest";
 import { currentRankingWeek } from "../src/core/weekly-ranking";
 import {
   listWeeklyRanking,
@@ -8,7 +8,6 @@ import {
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
 
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const now = Date.parse("2026-10-14T03:00:00Z");
 const week = currentRankingWeek(now);
 async function clear(
@@ -21,12 +20,10 @@ async function clear(
   version = "g3",
 ): Promise<void> {
   // The fixture writes more clears at once than the upload limit allows.
-  await platform.env.DB.prepare(
-    "DELETE FROM publication_limits WHERE account_id = ?",
-  )
+  await env.DB.prepare("DELETE FROM publication_limits WHERE account_id = ?")
     .bind(account)
     .run();
-  await platform.env.DB.prepare(
+  await env.DB.prepare(
     `INSERT INTO completed_plays
     (account_id, play_id, puzzle_id, seed_code, generator_version, difficulty,
      started_at, completed_at, elapsed_seconds, mistakes, hints_used, ranking_eligible)
@@ -46,19 +43,14 @@ async function clear(
     .run();
 }
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
+  await migrateTestDatabase(env.DB);
   for (const [id, name, consent] of [
     ["alpha", "🐙甲", 1],
     ["beta", "🐙乙", 1],
     ["gamma", "🐙丙", 1],
     ["private", "🐙非公開", null],
   ] as const) {
-    await platform.env.DB.prepare(
+    await env.DB.prepare(
       "INSERT INTO leaderboard_profiles (account_id, display_name, consent_version) VALUES (?, ?, ?)",
     )
       .bind(id, name, consent)
@@ -82,9 +74,6 @@ beforeAll(async () => {
   await clear("beta", "b0", 1, week.start + 2000, "normal");
   await clear("beta", "special", 1, week.start + 1000, "hard", 1, "daily-v1");
 });
-afterAll(async () => {
-  await platform?.dispose();
-});
 describe("weekly player ranking", () => {
   it("switches weeks exactly at Monday midnight JST, including year boundaries", () => {
     expect(currentRankingWeek(Date.parse("2026-10-11T14:59:59.999Z")).end).toBe(
@@ -99,12 +88,7 @@ describe("weekly player ranking", () => {
     );
   });
   it("ranks distinct weekly puzzles, retains ties and excludes private, old, future and ineligible clears", async () => {
-    const result = await listWeeklyRanking(
-      platform.env.DB,
-      "easy",
-      "clears",
-      now,
-    );
+    const result = await listWeeklyRanking(env.DB, "easy", "clears", now);
     expect(result.entries).toEqual([
       {
         rank: 1,
@@ -133,7 +117,7 @@ describe("weekly player ranking", () => {
   it("requires five distinct clears for average score, ranks it highest first, isolates difficulty and never chooses faster replays", async () => {
     // beta has the best average but only four clears.
     expect(
-      (await listWeeklyRanking(platform.env.DB, "easy", "score", now)).entries,
+      (await listWeeklyRanking(env.DB, "easy", "score", now)).entries,
     ).toEqual([
       {
         rank: 1,
@@ -151,8 +135,7 @@ describe("weekly player ranking", () => {
       },
     ]);
     expect(
-      (await listWeeklyRanking(platform.env.DB, "normal", "clears", now))
-        .entries,
+      (await listWeeklyRanking(env.DB, "normal", "clears", now)).entries,
     ).toEqual([
       {
         rank: 1,
@@ -163,17 +146,15 @@ describe("weekly player ranking", () => {
       },
     ]);
     expect(
-      (await listWeeklyRanking(platform.env.DB, "hard", "clears", now)).entries,
+      (await listWeeklyRanking(env.DB, "hard", "clears", now)).entries,
     ).toEqual([]);
     expect(
-      (await listWeeklyRanking(platform.env.DB, "normal", "score", now))
-        .entries,
+      (await listWeeklyRanking(env.DB, "normal", "score", now)).entries,
     ).toEqual([]);
   });
   it("counts a puzzle again next week and removes participation when consent is withdrawn", async () => {
     expect(
-      (await listWeeklyRanking(platform.env.DB, "easy", "clears", week.end + 2))
-        .entries,
+      (await listWeeklyRanking(env.DB, "easy", "clears", week.end + 2)).entries,
     ).toEqual([
       {
         rank: 1,
@@ -183,19 +164,18 @@ describe("weekly player ranking", () => {
         averageSeconds: 1.5,
       },
     ]);
-    await platform.env.DB.prepare(
+    await env.DB.prepare(
       "UPDATE leaderboard_profiles SET consent_version = NULL WHERE account_id = 'beta'",
     ).run();
     expect(
-      (await listWeeklyRanking(platform.env.DB, "normal", "clears", now))
-        .entries,
+      (await listWeeklyRanking(env.DB, "normal", "clears", now)).entries,
     ).toEqual([]);
-    await platform.env.DB.prepare(
+    await env.DB.prepare(
       "UPDATE leaderboard_profiles SET consent_version = 1 WHERE account_id = 'beta'",
     ).run();
   });
   it("uses the weekly time range index instead of scanning all history", async () => {
-    const plan = await platform.env.DB.prepare(
+    const plan = await env.DB.prepare(
       `EXPLAIN QUERY PLAN ${weeklyRankingSql("score")}`,
     )
       .bind("easy", week.start, week.end, now)
@@ -215,7 +195,7 @@ describe("weekly player ranking", () => {
         new Request(`https://test.example/api/weekly-ranking${suffix}`, {
           method,
         }) as Parameters<typeof worker.fetch>[0],
-        platform.env,
+        env,
       );
     expect((await get("?difficulty=super&metric=clears")).status).toBe(400);
     expect((await get("?difficulty=easy&metric=unknown")).status).toBe(400);
@@ -231,9 +211,9 @@ describe("weekly player ranking", () => {
     expect((await get("?difficulty=easy&metric=time")).status).toBe(200);
     // Both average 70 s, so they tie, unlike in the average score order.
     expect(
-      (
-        await listWeeklyRanking(platform.env.DB, "easy", "time", now)
-      ).entries.map((entry) => [entry.rank, entry.averageSeconds]),
+      (await listWeeklyRanking(env.DB, "easy", "time", now)).entries.map(
+        (entry) => [entry.rank, entry.averageSeconds],
+      ),
     ).toEqual([
       [1, 70],
       [1, 70],

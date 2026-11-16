@@ -299,6 +299,19 @@ SolverやGeneratorの不具合を修正する場合は、可能な限りその�
 
 ドメインレベルで検証できる内容について、アニメーション時間などのUI実装詳細へ依存するテストは避けてください。
 
+### Worker のテスト
+
+`vitest.config.ts` の `projects` は 3 つです。`node`（Core と画面の補助）、`ui`（Vue の画面）、`worker`（Worker の API）。`worker` は `@cloudflare/vitest-plugin` の `cloudflareTest()` で、Workers のランタイム（workerd）の上で、ローカルの D1 に対して動きます（kan-game.app のゲームで共通の方式。kan/game の AGENTS.md「テスト」）。
+
+- Worker のテストのファイルは、`vitest.config.ts` の `workerTests` に並べます。並べ忘れると `node` で動き、`cloudflare:workers` が読めずに落ちます
+- 設定は `tests/wrangler.jsonc` を読みます。`main` は本物の入口（`src/worker/main.ts`）で、`database_id` はダミーです。テスト用の binding を足したら `tests/env.d.ts` に型を足します
+- D1 はテストファイルごとに別で、空から始まります。各ファイルの `beforeAll` で `migrateTestDatabase`（`tests/migrations.ts`）を呼び、`migrations/` を当てます。途中のマイグレーションの直前にデータを入れるテストは、`migrateTestDatabase(db, { "0004_….sql": async () => … })` の形で書きます
+- 認証は本物の経路で確かめます。`tests/worker-env.ts` の `fetchAs` は、`session.account` の ID で署名した Cookie を付けて `index.ts` の `fetch` を呼びます。kan-game.app の ID は UUID なので、テストの ID は `testAccount("名前")` で作ります。認証を差し替える mock は使いません
+- `GameService` と `exports.default` は、`cloudflare:workers` の `exports` から本物の入口として呼べます（`tests/entrypoint.test.ts`）
+- workerd にはファイルシステムがありません。リポジトリのファイルを読むテストは、`../wrangler.jsonc?raw` のように Vite の import で読みます
+- `@cloudflare/vitest-pool-workers` は `@cloudflare/vitest-plugin` に改名され、旧名は更新されません。旧名を入れないでください
+- `Proxy environment variables detected` の警告は、プロキシのある環境で出るだけで、テストには影響しません
+
 ## 入力と操作
 
 入力仕様は `docs/DESIGN.md` を参照してください。

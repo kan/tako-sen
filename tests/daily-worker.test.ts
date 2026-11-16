@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it } from "vitest";
 import { migrateTestDatabase } from "./migrations";
 import { registerAccountProfile } from "../src/worker/profile";
 import { deleteAccount } from "../src/worker/history";
@@ -20,30 +20,20 @@ import {
 import { puzzleId } from "../src/core/puzzle-identity";
 import { restoreSharedPuzzleSnapshot } from "../src/core/shared-puzzle";
 
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const now = Date.parse("2026-10-01T15:30:00Z");
 const later = Date.parse("2026-10-02T15:30:00Z");
 const playId = "11111111-1111-4111-8111-111111111111";
 
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
-  await registerAccountProfile(platform.env.DB, "daily-a", "デイリーA");
-  await registerAccountProfile(platform.env.DB, "daily-b", "デイリーB");
-  await registerAccountProfile(platform.env.DB, "daily-c", "デイリーC");
+  await migrateTestDatabase(env.DB);
+  await registerAccountProfile(env.DB, "daily-a", "デイリーA");
+  await registerAccountProfile(env.DB, "daily-b", "デイリーB");
+  await registerAccountProfile(env.DB, "daily-c", "デイリーC");
 });
-afterAll(async () => {
-  await platform?.dispose();
-});
-
 describe("daily challenge server contract", () => {
   it("fixes one board per Japan date without returning its solution", async () => {
-    const first = await getDailyStatus(platform.env.DB, "daily-a", now);
-    const second = await getDailyStatus(platform.env.DB, "daily-b", now);
+    const first = await getDailyStatus(env.DB, "daily-a", now);
+    const second = await getDailyStatus(env.DB, "daily-b", now);
     expect(first.date).toBe("2026-10-02");
     expect(first.puzzle).toEqual(second.puzzle);
     expect(first.puzzle.size).toBe(10);
@@ -52,7 +42,7 @@ describe("daily challenge server contract", () => {
   });
 
   it("permits only one attempt, verifies completion, and ranks only completed accounts", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const status = await getDailyStatus(db, "daily-a", now);
     expect(
       await startDailyAttempt(db, "daily-a", status.date, playId, now),
@@ -161,7 +151,7 @@ describe("daily challenge server contract", () => {
   });
 
   it("lists only the account's own attempts, unfinished ones with null results", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(db, "daily-d", "デイリーD");
     const status = await getDailyStatus(db, "daily-d", now);
     const ownPlayId = crypto.randomUUID();
@@ -211,7 +201,7 @@ describe("daily-v2 switch and the board prepared a day ahead", () => {
   const startDay = Date.parse(`${DAILY_V2_START_DATE}T00:00:00+09:00`);
   const dateAfter = (days: number) => dailyDate(startDay + days * dayMs);
   const storedRow = (date: string) =>
-    platform.env.DB.prepare(
+    env.DB.prepare(
       "SELECT puzzle_id, generator_version, created_at FROM daily_puzzles WHERE challenge_date = ?",
     )
       .bind(date)
@@ -222,7 +212,7 @@ describe("daily-v2 switch and the board prepared a day ahead", () => {
       }>();
 
   it("stores tomorrow's board ahead and serves it unchanged", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const eve = startDay - 60 * 60 * 1000;
     expect((await getDailyStatus(db, "daily-b", eve)).puzzle).toMatchObject({
       generatorVersion: "daily-v1",
@@ -246,7 +236,7 @@ describe("daily-v2 switch and the board prepared a day ahead", () => {
   });
 
   it("builds a day nothing prepared on its first request, and accepts its solution", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const date = dateAfter(1);
     const at = startDay + dayMs + 1000;
     expect(await storedRow(date)).toBeNull();
@@ -282,7 +272,7 @@ describe("daily-v2 switch and the board prepared a day ahead", () => {
   });
 
   it("keeps the version a stored board was built with", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const date = dateAfter(5);
     const at = startDay + 5 * dayMs + 1000;
     const old = generateDailyPuzzle(date, "daily-v1");

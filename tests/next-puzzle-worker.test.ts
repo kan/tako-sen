@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { beforeAll, describe, expect, it } from "vitest";
 import { registerAccountProfile } from "../src/worker/profile";
 import { saveCompletedPlay } from "../src/worker/history";
 import {
@@ -10,11 +10,8 @@ import {
 import { LEADERBOARD_SQL, listLeaderboard } from "../src/worker/leaderboard";
 import worker from "../src/worker/index";
 import { explainQueryPlan, migrateTestDatabase } from "./migrations";
-import { auth } from "./auth-mock";
+import { fetchAs, session, testAccount } from "./worker-env";
 
-vi.mock("../src/worker/auth", () => import("./auth-mock"));
-
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 // Only clears made after consent are ranked, so the plays here are cleared
 // after the profiles the tests register (an hour from now).
 const later = Date.now() + 3_600_000;
@@ -22,20 +19,20 @@ const firstId = `p1:${"a".repeat(64)}`;
 const secondId = `p1:${"b".repeat(64)}`;
 
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  await migrateTestDatabase(platform.env.DB);
-  for (const account of ["owner-a", "owner-b", "owner-c", "requester"])
-    await registerAccountProfile(platform.env.DB, account, account);
+  await migrateTestDatabase(env.DB);
+  for (const account of [
+    "owner-a",
+    "owner-b",
+    "owner-c",
+    testAccount("requester"),
+  ])
+    await registerAccountProfile(env.DB, account, account);
   for (const [account, puzzleId, seed] of [
     ["owner-a", firstId, "first"],
     ["owner-b", firstId, "first"],
     ["owner-c", secondId, "second"],
   ]) {
-    await saveCompletedPlay(platform.env.DB, account, {
+    await saveCompletedPlay(env.DB, account, {
       playId: crypto.randomUUID(),
       puzzleId,
       seedCode: `TAKO:g4:easy:${seed}`,
@@ -50,17 +47,16 @@ beforeAll(async () => {
     });
   }
 });
-afterAll(async () => platform?.dispose());
 
 describe("ranked puzzle candidates", () => {
   it("uses indexed difficulty, completed-board exclusion and ranking lookup", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const candidatePlan = await explainQueryPlan(
       db,
       RANKED_PUZZLE_CANDIDATES_SQL,
       "easy",
       CURRENT_SEED_CODES,
-      "requester",
+      testAccount("requester"),
     );
     // 版の条件を足しても、公開記録は索引だけで読める。
     expect(candidatePlan).toMatch(
@@ -77,7 +73,7 @@ describe("ranked puzzle candidates", () => {
     expect(rankingPlan).not.toContain("first_ranked_plays");
   });
   it("offers only boards of the current generator version", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const oldId = `p1:${"e".repeat(64)}`;
     // 旧版の盤面は記録が多くても候補にしない。ランキング自体は残る。
     for (const account of ["owner-a", "owner-b", "owner-c"])
@@ -95,7 +91,11 @@ describe("ranked puzzle candidates", () => {
         maxHintStage: 0,
       });
     expect(await listLeaderboard(db, oldId)).toHaveLength(3);
-    const offered = await listRankedPuzzleCandidates(db, "requester", "easy");
+    const offered = await listRankedPuzzleCandidates(
+      db,
+      testAccount("requester"),
+      "easy",
+    );
     expect(offered.map((candidate) => candidate.puzzleId)).not.toContain(oldId);
     expect(offered.length).toBeGreaterThan(0);
     expect(
@@ -103,8 +103,10 @@ describe("ranked puzzle candidates", () => {
     ).toBe(true);
   });
   it("returns popular boards without the requester's completed board", async () => {
-    const db = platform.env.DB;
-    expect(await listRankedPuzzleCandidates(db, "requester", "easy")).toEqual([
+    const db = env.DB;
+    expect(
+      await listRankedPuzzleCandidates(db, testAccount("requester"), "easy"),
+    ).toEqual([
       {
         puzzleId: firstId,
         seedCode: "TAKO:g4:easy:first",
@@ -116,10 +118,10 @@ describe("ranked puzzle candidates", () => {
         players: 1,
       },
     ]);
-    expect(await listRankedPuzzleCandidates(db, "requester", "hard")).toEqual(
-      [],
-    );
-    await saveCompletedPlay(db, "requester", {
+    expect(
+      await listRankedPuzzleCandidates(db, testAccount("requester"), "hard"),
+    ).toEqual([]);
+    await saveCompletedPlay(db, testAccount("requester"), {
       playId: crypto.randomUUID(),
       puzzleId: firstId,
       seedCode: "TAKO:g4:easy:first",
@@ -133,14 +135,14 @@ describe("ranked puzzle candidates", () => {
       maxHintStage: 0,
     });
     expect(
-      (await listRankedPuzzleCandidates(db, "requester", "easy")).map(
-        (candidate) => candidate.puzzleId,
-      ),
+      (
+        await listRankedPuzzleCandidates(db, testAccount("requester"), "easy")
+      ).map((candidate) => candidate.puzzleId),
     ).toEqual([secondId]);
   });
 
   it("excludes private completed boards once and respects withdrawn consent", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(
       db,
       "private-check-owner",
@@ -204,20 +206,20 @@ describe("ranked puzzle candidates", () => {
   });
 
   it("requires authentication and validates difficulty without exposing accounts", async () => {
-    const env = {
-      DB: platform.env.DB,
+    const apiEnv = {
+      DB: env.DB,
       ALLOWED_ORIGINS: "https://example.com",
     } as Env;
     const call = (path: string) =>
-      worker.fetch(
+      fetchAs(
         new Request(`https://example.com${path}`) as Parameters<
           typeof worker.fetch
         >[0],
-        env,
+        apiEnv,
       );
-    auth.account = null;
+    session.account = null;
     expect((await call("/api/next-puzzle?difficulty=easy")).status).toBe(401);
-    auth.account = "requester";
+    session.account = testAccount("requester");
     expect((await call("/api/next-puzzle?difficulty=unknown")).status).toBe(
       400,
     );

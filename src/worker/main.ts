@@ -1,7 +1,8 @@
 /**
- * The Worker's entry (wrangler.jsonc `main`). The HTTP API lives in index.ts,
- * which the tests import in Node; GameService needs `cloudflare:workers`,
- * which exists only in the Workers runtime, so it joins here.
+ * The Worker's entry (wrangler.jsonc `main`): the HTTP API and cron of
+ * index.ts, and GameService, the named entrypoint the ID platform calls.
+ * index.ts does not import `cloudflare:workers`, so scripts run in Node can
+ * still import what it imports.
  */
 export { default } from "./index";
 export { GameService } from "./game-service";

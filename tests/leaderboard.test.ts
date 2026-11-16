@@ -1,13 +1,5 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import { getPlatformProxy } from "wrangler";
+import { env } from "cloudflare:workers";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CompletedPlayUpload } from "../src/core/online-history";
 import { createCompletedPlayUpload } from "../src/core/online-history";
 import {
@@ -23,16 +15,13 @@ import {
 } from "../src/worker/profile";
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
-import { auth } from "./auth-mock";
+import { fetchAs, session, testAccount } from "./worker-env";
 import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
 
 /** The fake ID platform as the Worker's ID binding. */
 const idBinding = (platform: ReturnType<typeof createFakeIdPlatform>) =>
   platform.rpc as unknown as Env["ID"];
 
-vi.mock("../src/worker/auth", () => import("./auth-mock"));
-
-let platform: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 const puzzleId = `p1:${"a".repeat(64)}`;
 // Only clears made after consent are ranked, so the plays here are cleared
 // after the profiles the tests register (an hour from now).
@@ -61,15 +50,9 @@ function play(
   };
 }
 beforeAll(async () => {
-  platform = await getPlatformProxy<Env>({
-    configPath: "./tests/wrangler.jsonc",
-    persist: false,
-    remoteBindings: false,
-  });
-  const db = platform.env.DB;
-  await migrateTestDatabase(
-    db,
-    async () => {
+  const db = env.DB;
+  await migrateTestDatabase(db, {
+    "0004_automatic_ranking.sql": async () => {
       await db
         .prepare(
           "INSERT INTO leaderboard_profiles (account_id, display_name) VALUES ('legacy', 'タコ-旧匿名名')",
@@ -85,7 +68,7 @@ beforeAll(async () => {
         .bind(crypto.randomUUID(), puzzleId)
         .run();
     },
-    async () => {
+    "0005_hint_stage.sql": async () => {
       for (const [account, hints] of [
         ["migration-hinted", 2],
         ["migration-unhinted", 0],
@@ -102,15 +85,11 @@ beforeAll(async () => {
           .run();
       }
     },
-  );
+  });
 });
-afterAll(async () => {
-  await platform?.dispose();
-});
-
 describe("consented automatic first-clear ranking", () => {
   it("migrates old first scores without deleting, replacing or republishing records", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const hinted = (await listCompletedPlays(db, "migration-hinted"))[0];
     const unhinted = (await listCompletedPlays(db, "migration-unhinted"))[0];
     expect(hinted.maxHintStage).toBeNull();
@@ -129,7 +108,7 @@ describe("consented automatic first-clear ranking", () => {
     await deleteAccount(db, "migration-unhinted");
   });
   it("scores time, mistakes and hints while keeping ties and detecting changed-depth retries", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const id = `p1:${"e".repeat(64)}`;
     const records = [
       ["depth-none", 0, 0, 200],
@@ -182,7 +161,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("puts a slightly slower clean solve ahead of a faster solve with a mistake", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const id = `p1:${"f".repeat(64)}`;
     // 30 s with a mistake: 2,000 + 200. 35 s clean: 1,714 + 500.
     for (const [account, elapsedSeconds, mistakes] of [
@@ -203,7 +182,7 @@ describe("consented automatic first-clear ranking", () => {
     ).toEqual(["score-slow-clean", "score-fast-miss"]);
   });
   it("withdraws legacy publications without deleting history or treating generated aliases as consent", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     expect(await getAccountProfile(db, "legacy")).toBeNull();
     expect((await listCompletedPlays(db, "legacy"))[0].isPublic).toBe(false);
     expect(await listLeaderboard(db, puzzleId)).toEqual([]);
@@ -215,7 +194,7 @@ describe("consented automatic first-clear ranking", () => {
     await deleteAccount(db, "legacy");
   });
   it("never publishes old history when consent is registered or old uploads are retried", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     // A clear made before consent, even one uploaded after it.
     const old = play(beforeConsent);
     await saveCompletedPlay(db, "old", old);
@@ -237,7 +216,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("never ranks a puzzle the ID solved before it had a name", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const id = `p1:${"8".repeat(64)}`;
     await saveCompletedPlay(
       db,
@@ -257,7 +236,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("ranks a clear made just before consent only within the clock margin", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(db, "skewed", "時計の遅いタコ");
     const consentedAt = await db
       .prepare(
@@ -282,7 +261,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("publishes the first server registration, not the fastest or earliest completed play", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(db, "first", "初回タコ");
     const first = play({ completedAt: later + 200000, elapsedSeconds: 150 });
     const retry = play({ completedAt: later + 100000, elapsedSeconds: 1 });
@@ -309,7 +288,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("atomically selects exactly one initial score for concurrent requests", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(db, "race", "並列タコ");
     const records = [
       play({ elapsedSeconds: 80 }),
@@ -327,7 +306,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("ranks equal scores equally, isolates puzzles and removes all account data on deletion", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     const owners = ["tie-a", "tie-b", "tie-c", "different"];
     for (const [index, owner] of owners.entries()) {
       await registerAccountProfile(db, owner, `タコ-${owner}`);
@@ -355,7 +334,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("limits new uploads, leaves retries idempotent, and rolls back denied scores", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     await registerAccountProfile(db, "limited", "制限タコ");
     const records = Array.from({ length: 10 }, () => play());
     for (const record of records)
@@ -380,7 +359,7 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("limits uploads from an ID without a name too", async () => {
-    const db = platform.env.DB;
+    const db = env.DB;
     for (let i = 0; i < 10; i++)
       await saveCompletedPlay(db, "unnamed-limited", play());
     await expect(
@@ -391,8 +370,8 @@ describe("consented automatic first-clear ranking", () => {
   });
 
   it("requires authenticated explicit consent and never exposes account identifiers", async () => {
-    const db = platform.env.DB;
-    const env = {
+    const db = env.DB;
+    const apiEnv = {
       DB: db,
       ALLOWED_ORIGINS: "https://example.com",
       ID: idBinding(createFakeIdPlatform()),
@@ -403,17 +382,17 @@ describe("consented automatic first-clear ranking", () => {
       body?: unknown,
       origin = "https://example.com",
     ) =>
-      worker.fetch(
+      fetchAs(
         new Request(`https://example.com/api/${path}`, {
           method,
           headers: { Origin: origin, "Content-Type": "application/json" },
           body: body === undefined ? undefined : JSON.stringify(body),
         }) as Parameters<typeof worker.fetch>[0],
-        env,
+        apiEnv,
       );
-    auth.account = null;
+    session.account = null;
     expect((await call("profile")).status).toBe(401);
-    auth.account = "http";
+    session.account = testAccount("http");
     expect(
       (await call("profile", "POST", { displayName: "HTTPタコ" })).status,
     ).toBe(400);
@@ -444,13 +423,15 @@ describe("consented automatic first-clear ranking", () => {
         })
       ).status,
     ).toBe(200);
-    expect(await getAccountProfile(db, "http")).toEqual({
+    expect(await getAccountProfile(db, testAccount("http"))).toEqual({
       displayName: "HTTPタコ",
       consentVersion: 1,
     });
-    await registerAccountProfile(db, "http", "上書きしない");
-    expect((await getAccountProfile(db, "http"))?.displayName).toBe("HTTPタコ");
-    auth.account = "other-http";
+    await registerAccountProfile(db, testAccount("http"), "上書きしない");
+    expect(
+      (await getAccountProfile(db, testAccount("http")))?.displayName,
+    ).toBe("HTTPタコ");
+    session.account = testAccount("other-http");
     expect(
       (
         await call("profile", "POST", {
@@ -459,8 +440,8 @@ describe("consented automatic first-clear ranking", () => {
         })
       ).status,
     ).toBe(409);
-    expect(await getAccountProfile(db, "other-http")).toBeNull();
-    auth.account = "emoji-http";
+    expect(await getAccountProfile(db, testAccount("other-http"))).toBeNull();
+    session.account = testAccount("emoji-http");
     const emojiName = "👨‍👩‍👧‍👦".repeat(20);
     expect(
       (
@@ -470,11 +451,11 @@ describe("consented automatic first-clear ranking", () => {
         })
       ).status,
     ).toBe(200);
-    expect((await getAccountProfile(db, "emoji-http"))?.displayName).toBe(
-      emojiName,
-    );
-    await deleteAccount(db, "emoji-http");
-    auth.account = "http";
+    expect(
+      (await getAccountProfile(db, testAccount("emoji-http")))?.displayName,
+    ).toBe(emojiName);
+    await deleteAccount(db, testAccount("emoji-http"));
+    session.account = testAccount("http");
     const upload = await createCompletedPlayUpload({
       id: crypto.randomUUID(),
       userId: "local-id",
@@ -513,10 +494,10 @@ describe("consented automatic first-clear ranking", () => {
     // 同意が無効になった ID の再送も、本人の履歴の重複として受け付ける。
     // ランキングにはもう出ない。
     const consent = (version: number | null) =>
-      platform.env.DB.prepare(
+      env.DB.prepare(
         "UPDATE leaderboard_profiles SET consent_version = ? WHERE account_id = ?",
       )
-        .bind(version, "http")
+        .bind(version, testAccount("http"))
         .run();
     await consent(null);
     const withoutConsent = await call("plays", "POST", upload);
@@ -531,7 +512,7 @@ describe("consented automatic first-clear ranking", () => {
       (await call(`plays/${upload.playId}/publication`, "DELETE")).status,
     ).toBe(404);
     expect((await call("publications", "DELETE")).status).toBe(404);
-    auth.account = null;
+    session.account = null;
     const response = await call(
       `leaderboards/${encodeURIComponent(upload.puzzleId)}`,
     );
@@ -546,21 +527,25 @@ describe("consented automatic first-clear ranking", () => {
       "rank",
     ]);
     expect((await call("leaderboards/%ZZ")).status).toBe(400);
-    auth.account = "http";
+    session.account = testAccount("http");
     // Withdrawal moved to kan-game.app, which calls GameService.deleteAccount.
     expect((await call("account", "DELETE")).status).toBe(404);
-    await deleteAccount(db, "http");
+    await deleteAccount(db, testAccount("http"));
     expect(await listLeaderboard(db, upload.puzzleId)).toEqual([]);
-    auth.account = null;
+    session.account = null;
   });
 });
 
 describe("names shared across kan-game.app", () => {
   const ids = createFakeIdPlatform({
-    ids: ["named-elsewhere", "newcomer", "rival"],
+    ids: [
+      testAccount("named-elsewhere"),
+      testAccount("newcomer"),
+      testAccount("rival"),
+    ],
   });
   const call = (path: string, method = "GET", body?: unknown) =>
-    worker.fetch(
+    fetchAs(
       new Request(`https://example.com/api/${path}`, {
         method,
         headers: {
@@ -570,7 +555,7 @@ describe("names shared across kan-game.app", () => {
         body: body === undefined ? undefined : JSON.stringify(body),
       }) as Parameters<typeof worker.fetch>[0],
       {
-        DB: platform.env.DB,
+        DB: env.DB,
         ALLOWED_ORIGINS: "https://example.com",
         ID: idBinding(ids),
       } as Env,
@@ -578,12 +563,12 @@ describe("names shared across kan-game.app", () => {
   const register = (displayName: string) =>
     call("profile", "POST", { displayName, consentVersion: 1 });
   afterEach(() => {
-    auth.account = null;
+    session.account = null;
   });
 
   it("keeps a name chosen in another game on consent", async () => {
-    ids.setName("named-elsewhere", "よそのタコ");
-    auth.account = "named-elsewhere";
+    ids.setName(testAccount("named-elsewhere"), "よそのタコ");
+    session.account = testAccount("named-elsewhere");
     // The screen learns the name with the ID; this reads TAKO-SEN's profile.
     expect(await (await call("profile")).json()).toEqual({ profile: null });
     // The name cannot change; TAKO-SEN stores the platform's.
@@ -595,32 +580,32 @@ describe("names shared across kan-game.app", () => {
     expect(await (await call("profile")).json()).toEqual({
       profile: { displayName: "よそのタコ", consentVersion: 1 },
     });
-    await deleteAccount(platform.env.DB, "named-elsewhere");
+    await deleteAccount(env.DB, testAccount("named-elsewhere"));
   });
 
   it("refuses a name another ID holds in any game", async () => {
-    ids.setName("rival", "取られた名前");
-    auth.account = "newcomer";
+    ids.setName(testAccount("rival"), "取られた名前");
+    session.account = testAccount("newcomer");
     expect((await register("取られた名前")).status).toBe(409);
-    expect(await getAccountProfile(platform.env.DB, "newcomer")).toBeNull();
+    expect(await getAccountProfile(env.DB, testAccount("newcomer"))).toBeNull();
     expect(await (await call("profile")).json()).toEqual({ profile: null });
   });
 
   it("answers 410 when the ID platform no longer knows the ID", async () => {
-    auth.account = "unknown-to-platform";
+    session.account = testAccount("unknown-to-platform");
     expect((await register("消えたタコ")).status).toBe(410);
   });
 
   it("refuses a name another account holds here though the platform gave it", async () => {
     // TAKO-SEN's copy of the names drifted from the platform's.
-    await registerAccountProfile(platform.env.DB, "stale-holder", "ずれた名前");
-    auth.account = "newcomer";
+    await registerAccountProfile(env.DB, "stale-holder", "ずれた名前");
+    session.account = testAccount("newcomer");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await register("ずれた名前")).status).toBe(409);
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining("profile_name_out_of_sync"),
     );
     error.mockRestore();
-    await deleteAccount(platform.env.DB, "stale-holder");
+    await deleteAccount(env.DB, "stale-holder");
   });
 });
