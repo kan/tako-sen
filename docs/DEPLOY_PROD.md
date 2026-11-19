@@ -14,6 +14,7 @@ npm run deploy:production   # tako.kan-game.app
 ```
 
 - 先に `npm run format:check`、`npm test`、`npx wrangler deploy --env <環境> --dry-run` を通す
+- `deploy:production` は、出し終えたら `production` タグを今のコミット（HEAD）へ動かし、出した日時のタグ `production-<UTC の日時>` も足して push する（`tag:production`）。kan/dotfiles の `gh-blog-diff` が、本番に出た変更をこれらのタグから拾うため。コミットしてから出す。タグの push だけが失敗したときは、出したコミットで `npm run tag:production` を実行し直す
 - マイグレーションだけを当てるときは `npm run db:migrate:dev` / `npm run db:migrate:production`。未適用のものがなければ何もしない。適用の前に `wrangler` が確認を求める
 - `wrangler.jsonc` の binding や vars を変えたら `npm run cf-typegen` で `worker-configuration.d.ts` を作り直してコミットする
 
