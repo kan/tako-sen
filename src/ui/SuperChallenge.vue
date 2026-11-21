@@ -992,8 +992,11 @@ defineExpose({
           :aria-busy="busy || undefined"
           @click="prepare(sharedCode)"
         >
-          {{ busy ? "準備しています…" : "挑戦する" }}</button
-        ><button type="button" class="secondary-button" @click="closeOffer">
+          {{ busy ? "準備しています…" : "挑戦する" }}</button><button
+          type="button"
+          class="secondary-button"
+          @click="closeOffer"
+        >
           {{ canPostpone ? "あとで" : "閉じる" }}
         </button>
       </div>

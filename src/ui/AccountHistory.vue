@@ -542,8 +542,10 @@ onUnmounted(() => {
           ランキングは各問題の初回クリアのみ。再挑戦も個人履歴に自動保存します。
         </p>
         <p class="account-note">
-          <template v-if="!profile">{{ ID_STORAGE_NOTE }}</template
-          ><a :href="privacyUrl" target="_blank" rel="noopener"
+          <template v-if="!profile">{{ ID_STORAGE_NOTE }}</template><a
+            :href="privacyUrl"
+            target="_blank"
+            rel="noopener"
             >プライバシーポリシー</a
           >
         </p>
