@@ -1,5 +1,5 @@
 import worker from "../src/worker/index";
-import { createTestIdIssuer } from "./kan-game/test-id-cookie";
+import { createTestIdIssuer } from "kan-game/testing/test-id-cookie";
 
 /**
  * The ID platform the Worker's tests sign cookies with. Its keys are made for

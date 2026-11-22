@@ -19,7 +19,7 @@
     },
   ],
   // The kan-game.app ID platform (kan/game). /api/id/* is passed to it, and
-  // names are registered through its RPC (src/worker/id-rpc.ts).
+  // names are registered through its RPC (kan-game/rpc).
   "services": [{ "binding": "ID", "service": "kan-game-local" }],
   // 23:00 in Japan: builds the next day's daily board an hour before it opens.
   // 0:05: tells subscribed devices it has opened (src/worker/push.ts).

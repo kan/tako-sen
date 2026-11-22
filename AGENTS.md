@@ -142,23 +142,28 @@ Workersが利用できるという理由だけで、Solverや問題生成をサ�
 
 D1 のスキーマ変更はマイグレーションを追加して行い、適用済みのマイグレーションを書き換えないでください。リモートの D1 への適用とデプロイは、利用者の承認を得てから行ってください。
 
+#### パッケージ `kan-game`（kan/game の ID の契約）
+
+ID の契約（Cookie の検証、RPC の型、名前の規則、テスト用の偽物と Cookie）は、kan/game（<https://github.com/kan/game>）が配るパッケージ `kan-game` を依存として使います。使い方は kan/game の `docs/GAME_GUIDE.md`「依存として入れる」にあります。
+
+| import する名前                     | 用途                                     |
+| ----------------------------------- | ---------------------------------------- |
+| `kan-game/token`                    | Cookie の検証（`src/worker/auth.ts`）    |
+| `kan-game/rpc`                      | `ID` binding の型と `GameService` の契約 |
+| `kan-game/name-rules`               | 名前の規則                               |
+| `kan-game/testing/fake-id-platform` | テスト用の `IdRpc` の偽物                |
+| `kan-game/testing/test-id-cookie`   | テスト用の鍵と Cookie                    |
+
+- 版は `package.json` の `kan-game` で、kan/game の tag を semver で指します（`github:kan/game#semver:^<版>`）。上げるときは `npm install "kan-game@github:kan/game#semver:^<版>"` を実行します。Dependabot が git の tag の依存に更新の PR を出すかは、kan-game の次の版が出たときに確かめます
+- `kan-game` は TypeScript のソースのまま配られます。node で直接動かすスクリプトから import しないでください（node は `node_modules` の `.ts` の型を除去しません）。`scripts/legacy-migration.ts` は import しているので、`node scripts/migrate-legacy.ts` はもう動きません（移行は R4 で済んでいます）
+- パッケージのコードは kan/game のテストが確かめるので、ここでテストベクターや名前の規則のテストを繰り返しません
+- `kan-game` は自前のコードとして扱い、ライセンス一覧に載せません（`scripts/licenses-plugin.ts` の `OWN_PACKAGES`）
+
 #### kan/game からの写し
 
-次のファイルは kan/game（<https://github.com/kan/game>）からの写しです。書き換えず、kan/game の写し元が変わったら写し直してください。写し直したら、この表の写し元のコミットも更新します。
+`tests/kan-game/0001_initial.sql` は kan/game の `migrations/0001_initial.sql` の写しです（写し元のコミットは `1c89d35`。そのファイルを最後に変えた kan/game のコミットで、2026-11-22 に kan/game の `185f6e3` と比べ、差分がないことを確かめました）。書き換えず、kan/game の写し元が変わったら写し直し、ここのコミットも更新してください。
 
-| ファイル                             | 写し元（kan/game）            | 写し元のコミット |
-| ------------------------------------ | ----------------------------- | ---------------- |
-| `src/worker/id-token.ts`             | `src/token.ts`                | `86882df`        |
-| `src/worker/id-rpc.ts`               | `src/rpc.ts`                  | `567dad0`        |
-| `tests/id-token-vectors.json`        | `test-vectors/id-token.json`  | `86882df`        |
-| `tests/kan-game/fake-id-platform.ts` | `testing/fake-id-platform.ts` | `258c299`        |
-| `tests/kan-game/test-id-cookie.ts`   | `testing/test-id-cookie.ts`   | `258c299`        |
-| `tests/kan-game/0001_initial.sql`    | `migrations/0001_initial.sql` | `1c89d35`        |
-
-写し元のコミットは、そのファイルを最後に変えた kan/game のコミットです。2026-11-16 に kan/game の `3499779` と比べ、どれも差分がないことを確かめました。
-
-- `id-token.ts` は `tests/id-token.test.ts` が `id-token-vectors.json` で確かめます。2 つは同じコミットから写してください
-- `0001_initial.sql` は `tests/legacy-migration.test.ts` が ID 基盤の D1 の代わりに使います。kan/game にマイグレーションが増えたら、写しを足すかを確かめてください
+- `tests/legacy-migration.test.ts` が ID 基盤の D1 の代わりに使います。kan/game にマイグレーションが増えたら、写しを足すかを確かめてください
 
 ## ドメインモデル
 

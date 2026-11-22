@@ -15,13 +15,17 @@
  *
  * The tokens are secrets until the migration period ends: the kanGame file
  * holds only their hashes, but the legacy file holds them in clear.
+ *
+ * The name rules come from the kan-game package, which ships TypeScript that
+ * node does not strip under node_modules, so `node scripts/migrate-legacy.ts`
+ * no longer runs (the migration was done at R4). Only
+ * tests/legacy-migration.test.ts runs this file now.
  */
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-// The ID platform's name rules, from kan/game's test kit (copied unchanged).
-import { normalizeName } from "../tests/kan-game/fake-id-platform.ts";
+import { normalizeName } from "kan-game/name-rules";
 
 export interface Migration {
   /** File name (e.g. 0014_unnamed_history.sql) and SQL. */

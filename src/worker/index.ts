@@ -51,10 +51,8 @@ import {
   parseSuperStart,
   parseSuperCompletion,
 } from "./super";
-import {
-  RANKING_CONSENT_VERSION,
-  validateGameName,
-} from "../core/account-profile";
+import { normalizeName } from "kan-game/name-rules";
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import {
   deleteSubscription,
   parseSubscription,
@@ -399,7 +397,7 @@ export default {
           displayName?: unknown;
           consentVersion?: unknown;
         } | null;
-        const requested = validateGameName(body?.displayName);
+        const requested = normalizeName(body?.displayName);
         if (!requested || body?.consentVersion !== RANKING_CONSENT_VERSION)
           return json({ error: "invalid_profile" }, 400);
         // Names are kan-game.app-wide: the ID platform registers the name and

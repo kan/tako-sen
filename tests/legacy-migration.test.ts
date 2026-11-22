@@ -11,7 +11,7 @@ import {
   readMigrations,
 } from "../scripts/legacy-migration";
 import { parseHandoff } from "../src/core/handoff";
-import { normalizeName } from "./kan-game/fake-id-platform";
+import { normalizeName } from "kan-game/name-rules";
 
 const MIGRATIONS = readMigrations("migrations");
 // The old URL stopped at 0012 (the legacy-clerk branch).

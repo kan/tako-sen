@@ -6,7 +6,7 @@ import worker from "../src/worker/index";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import { migrateTestDatabase } from "./migrations";
 
 const origin = "https://tako-dev.kan-game.app";

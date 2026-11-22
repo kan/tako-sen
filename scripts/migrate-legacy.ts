@@ -1,6 +1,10 @@
 // Turns an export of the old D1 into the SQL that moves its records to
 // kan-game.app IDs (scripts/legacy-migration.ts, docs/DEPLOY_PROD.md).
 //
+// No longer runs: the migration was done at R4, and legacy-migration.ts now
+// imports the name rules from the kan-game package, whose TypeScript node does
+// not strip under node_modules. The usage below is kept as a record.
+//
 //   npx wrangler d1 export tako-sen-dev --remote --output <dir>/export.sql
 //   node scripts/migrate-legacy.ts --dump <dir>/export.sql \
 //     --expires 2027-01-31 --out <dir>/out

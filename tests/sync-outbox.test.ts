@@ -3,9 +3,6 @@ import { SyncOutbox } from "../src/core/sync-outbox";
 import {
   loadCachedProfile,
   saveCachedProfile,
-  validateGameName,
-  gameNameParts,
-  gameNameProblem,
 } from "../src/core/account-profile";
 import type { PlayResult } from "../src/core/results";
 
@@ -35,15 +32,8 @@ function play(id = crypto.randomUUID()): PlayResult {
   };
 }
 
-describe("game names", () => {
-  it("says why a name is refused, for the hint under the field", () => {
-    expect(gameNameProblem("タコ")).toBeUndefined();
-    expect(gameNameProblem("タ")).toBe("length");
-    expect(gameNameProblem("タ".repeat(21))).toBe("length");
-    expect(gameNameProblem("タコ・テスト")).toBe("chars");
-    expect(gameNameProblem(" 🐙タ ")).toBeUndefined();
-  });
-
+// The name rules themselves are kan-game/name-rules, tested by kan/game.
+describe("cached profile", () => {
   it("caches consent per account for offline queueing without inferring it for other accounts", () => {
     const local = storage();
     const profile = { displayName: "端末タコ", consentVersion: 1 };
@@ -61,50 +51,6 @@ describe("game names", () => {
     expect(loadCachedProfile("a", local)).toBeNull();
     local.setItem("tako-sen.account-profile.v1:a", '{"consentVersion":1}');
     expect(loadCachedProfile("a", local)).toBeNull();
-  });
-  it("normalizes valid names and rejects private identifiers, markup, controls and unsupported lengths", () => {
-    expect(validateGameName("  タコ-123  ")).toBe("タコ-123");
-    expect(validateGameName("か\u3099タコ")).toBe("がタコ");
-    for (const name of [
-      null,
-      {},
-      "",
-      "a",
-      "a".repeat(21),
-      "<script>",
-      "user@example.com",
-      "a\nb",
-      "a\u202Eb",
-    ])
-      expect(validateGameName(name)).toBeUndefined();
-  });
-  it("accepts emoji sequences and counts visible characters rather than UTF-16 units", () => {
-    for (const name of [
-      "🐙タコ",
-      "🐙🐙",
-      "🇯🇵タコ",
-      "👨‍👩‍👧‍👦タコ",
-      "👍🏽タコ",
-      "1️⃣タコ",
-      "♥タコ",
-    ])
-      expect(validateGameName(name)).toBe(name);
-    expect(validateGameName("🐙".repeat(20))).toBe("🐙".repeat(20));
-    expect(validateGameName("🐙".repeat(21))).toBeUndefined();
-    for (const invalid of [
-      "タコ\u200D",
-      "タコ\u202E",
-      "タコ\uFE0F",
-      "タコ\uFE0E",
-      "タコ\n🐙",
-    ])
-      expect(validateGameName(invalid)).toBeUndefined();
-    expect(gameNameParts("👨‍👩‍👧‍👦タコ🇯🇵")).toEqual([
-      { text: "👨‍👩‍👧‍👦", emoji: true },
-      { text: "タ", emoji: false },
-      { text: "コ", emoji: false },
-      { text: "🇯🇵", emoji: true },
-    ]);
   });
 });
 

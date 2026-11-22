@@ -28,12 +28,14 @@ import {
 } from "./notice-text";
 import { createCompletedPlayUpload } from "../core/online-history";
 import {
-  GAME_NAME_MAX,
-  GAME_NAME_MIN,
+  NAME_MAX,
+  NAME_MIN,
+  nameParts,
+  nameProblem,
+  normalizeName,
+} from "kan-game/name-rules";
+import {
   RANKING_CONSENT_VERSION,
-  gameNameParts,
-  gameNameProblem,
-  validateGameName,
   loadCachedProfile,
   saveCachedProfile,
   type AccountProfile,
@@ -93,11 +95,11 @@ const accountUrl = portalUrl("/account");
 const privacyUrl = portalUrl("/privacy");
 
 /** What is wrong with the typed name, once there is something typed. */
-const nameProblem = computed(() => {
+const nameMessage = computed(() => {
   const name = gameName.value.normalize("NFC").trim();
-  const problem = name ? gameNameProblem(name) : undefined;
+  const problem = name ? nameProblem(name) : null;
   return problem === "length"
-    ? `プレイヤー名は${GAME_NAME_MIN}〜${GAME_NAME_MAX}文字にしてください（いま${gameNameParts(name).length}文字）。`
+    ? `プレイヤー名は${NAME_MIN}〜${NAME_MAX}文字にしてください（いま${nameParts(name).length}文字）。`
     : problem === "chars"
       ? "使えない文字が入っています。「・」や「！」などの記号は使えません。"
       : "";
@@ -106,7 +108,7 @@ const nameProblem = computed(() => {
 const submitHint = computed(() =>
   !sharedName.value && !gameName.value.trim()
     ? "プレイヤー名を入力してください。"
-    : !sharedName.value && nameProblem.value
+    : !sharedName.value && nameMessage.value
       ? "プレイヤー名を直してください。"
       : !consent.value
         ? "公開ルールに同意すると設定できます。"
@@ -233,7 +235,7 @@ async function loadProfile(): Promise<void> {
 
 async function registerProfile(): Promise<void> {
   const accountId = id.value;
-  const name = sharedName.value ?? validateGameName(gameName.value);
+  const name = sharedName.value ?? normalizeName(gameName.value);
   if (!accountId || !consent.value || !name || busy.value) return;
   const current = epoch;
   busy.value = true;
@@ -488,18 +490,18 @@ onUnmounted(() => {
               v-model="gameName"
               required
               autocomplete="off"
-              :aria-invalid="nameProblem ? 'true' : undefined"
+              :aria-invalid="nameMessage ? 'true' : undefined"
               aria-describedby="account-name-rules account-name-problem"
             />
             <p
               id="account-name-problem"
               class="account-problem"
               aria-live="polite"
-              v-text="nameProblem"
+              v-text="nameMessage"
             ></p>
             <p id="account-name-rules" class="account-note">
-              {{ GAME_NAME_MIN }}〜{{
-                GAME_NAME_MAX
+              {{ NAME_MIN }}〜{{
+                NAME_MAX
               }}文字。文字・数字・絵文字・空白・ハイフン（-）・下線（_）を使えます。「・」などの記号は使えません。ランキングに表示されるので、本名やメールアドレスは使わないでください。kan-game.app
               のほかのゲームでも同じ名前を使い、あとから変えられません。
             </p>

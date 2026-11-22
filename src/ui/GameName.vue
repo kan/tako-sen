@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { gameNameParts } from "../core/account-profile";
+import { nameParts } from "kan-game/name-rules";
 const props = defineProps<{ name: string }>();
-const parts = computed(() => gameNameParts(props.name));
+const parts = computed(() => nameParts(props.name));
 </script>
 
 <template>

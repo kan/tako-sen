@@ -20,8 +20,8 @@ import {
 import worker from "../src/worker/index";
 import { migrateTestDatabase } from "./migrations";
 import { fetchAs, ids, idVars, session, testAccount } from "./worker-env";
-import { createTestIdIssuer } from "./kan-game/test-id-cookie";
-import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+import { createTestIdIssuer } from "kan-game/testing/test-id-cookie";
+import { createFakeIdPlatform } from "kan-game/testing/fake-id-platform";
 
 /** The fake ID platform as the Worker's ID binding. */
 const idBinding = (platform: ReturnType<typeof createFakeIdPlatform>) =>

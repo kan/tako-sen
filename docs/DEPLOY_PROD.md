@@ -45,6 +45,7 @@ npx wrangler d1 export tako-sen-dev --remote -c <legacy-clerk の wrangler.jsonc
 node scripts/migrate-legacy.ts --dump "$OUT/export.sql" --expires <移行期間の最終日 YYYY-MM-DD> --out "$OUT/out"
 ```
 
+- 移行は R4 で済みました。名前の規則をパッケージ `kan-game`（TypeScript のソースのまま配られる）から import するようにしたため、このスクリプトはもう node で直接は動きません（`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`）。中身は `tests/legacy-migration.test.ts` が確かめます
 - 旧 D1 の書き出しは読み取りだけで、旧 D1 は変わりません
 - スクリプトは、移行の前後で行が 1 件でも食い違うと何も書き出さずに止まります。ID 基盤の D1（`tests/kan-game/0001_initial.sql`）が受け付けない内容のときも止まります
 - `tako-import.sql` は、`wrangler d1 export` と同じく、行のあとにトリガーを作ります。取り込みの途中で頻度制限や初回スコアのトリガーは動きません
